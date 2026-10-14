@@ -3081,9 +3081,9 @@
   function searchProgressHtml(d) {
     const c=d.coverage || d.answer?.coverage || d.run?.coverage || {}, p=c.search_progress;
     const deadline=Date.parse(p?.backoff?.retry_not_before || ''), paused=p?.backoff?.active===true && Number.isFinite(deadline) && deadline>Date.now();
-    if(!p || (p.complete!==false && !paused)) return '';
+    const unfinished=(Array.isArray(p?.queries) ? p.queries : Object.values(p?.queries || {})).filter(q=>q?.complete===false).length;
+    if(!p || (p.complete!==false && !paused && !unfinished)) return '';
     const pending=Array.isArray(p.pending_query_ids) ? p.pending_query_ids : [], retry=paused ? p.backoff.retry_not_before : null;
-    const unfinished=(Array.isArray(p.queries) ? p.queries : Object.values(p.queries || {})).filter(q=>q?.complete===false).length;
     return `<p class="hint" role="status">Search incomplete${paused ? ' · OpenAlex rate limited' : ''}${retry ? ` · Retry not before <time datetime="${esc(retry)}">${esc(retry)}</time>` : ''}${pending.length ? ` · Pending branches: ${esc(pending.join(' · '))}` : unfinished ? ` · ${unfinished} unfinished branches` : ''}</p><details data-detail="search-progress"><summary>Query progress and deferred requests</summary><pre class="search-query">${esc(JSON.stringify(p,null,2))}</pre></details>`;
   }
   function coverageSelectionHtml(d) {
@@ -3403,6 +3403,8 @@
   }
   function queryNetHtml(d) {
     const q=d.query_net || {}, r=d.run || {}, progress=d.coverage?.search_progress || d.answer?.coverage?.search_progress;
+    const queries=[...(q.queries || [])], known=new Set(queries.map(x=>x?.id).filter(Boolean));
+    for(const [id,state] of Object.entries(progress?.queries || {})) if(!known.has(id)) queries.push({id,search:state.search || 'Search string not recorded.'});
     const queryHtml=x=>{
       const id=typeof x==='object' ? x.id : null, state=id ? progress?.queries?.[id] : null;
       const receipt=Number.isInteger(state?.pages) ? ` · ${state.pages} result page${state.pages===1 ? '' : 's'} recorded${state.complete ? ' · complete' : ' · incomplete'}` : '';
@@ -3410,7 +3412,7 @@
     };
     const describe=v=>Array.isArray(v) ? v.map(describe).join(' · ') : v && typeof v==='object' ? Object.entries(v).map(([k,value])=>`${k.replaceAll('_',' ')}: ${describe(value)}`).join(' · ') : v==null ? 'Unknown' : String(v);
     const targets=Array.isArray(q.evidence_targets) ? q.evidence_targets.map(describe) : q.evidence_targets && typeof q.evidence_targets==='object' ? Object.entries(q.evidence_targets).map(([k,v])=>`${k.replaceAll('_',' ')}: ${describe(v)}`) : [];
-    return `<h2>Search net</h2>${searchProgressHtml(d)}<p>${esc(q.intent || q.explanation || "")}</p><p class="hint">${esc(r.search_scope || "OpenAlex search across titles, abstracts and indexed full text.")} · ${esc(r.keyword_requests ?? 0)} keyword search ${Number(r.keyword_requests) === 1 ? "page" : "pages"} in this run.</p><div class="question-usage">${usageHtml(r.usage_after)}</div><section class="answer-section"><h3>Exact searches</h3>${(q.queries || []).map(queryHtml).join("")}${q.explanation ? `<p>${esc(q.explanation)}</p>` : ""}</section><details><summary>Concepts and required anchors</summary>${q.required_concepts?.length ? `<p>Required: ${esc(q.required_concepts.join(" · "))}</p>` : ""}${(q.concepts || []).map(c=>`<p>${esc(c.name)} · ${esc((c.alternatives || c.keywords || c.synonyms || []).join(" · "))}${c.explanation ? `<br>${esc(c.explanation)}` : ""}</p>`).join("")}${(q.branches||[]).map(b=>`<p>${esc(b.name)} · ${esc((b.concepts||[]).join(" + "))}<br>${esc(b.explanation)}</p>`).join("")}</details><details><summary>What the full papers must establish</summary>${targets.map(t=>`<p>${esc(t)}</p>`).join("")}</details>${acquisitionHtml(d)}`;
+    return `<h2>Search net</h2>${searchProgressHtml(d)}<p>${esc(q.intent || q.explanation || "")}</p><p class="hint">${esc(r.search_scope || "OpenAlex search across titles, abstracts and indexed full text.")} · ${esc(r.keyword_requests ?? 0)} keyword search ${Number(r.keyword_requests) === 1 ? "page" : "pages"} in this run.</p><div class="question-usage">${usageHtml(r.usage_after)}</div><section class="answer-section"><h3>Exact searches</h3>${queries.map(queryHtml).join("")}${q.explanation ? `<p>${esc(q.explanation)}</p>` : ""}</section><details><summary>Concepts and required anchors</summary>${q.required_concepts?.length ? `<p>Required: ${esc(q.required_concepts.join(" · "))}</p>` : ""}${(q.concepts || []).map(c=>`<p>${esc(c.name)} · ${esc((c.alternatives || c.keywords || c.synonyms || []).join(" · "))}${c.explanation ? `<br>${esc(c.explanation)}` : ""}</p>`).join("")}${(q.branches||[]).map(b=>`<p>${esc(b.name)} · ${esc((b.concepts||[]).join(" + "))}<br>${esc(b.explanation)}</p>`).join("")}</details><details><summary>What the full papers must establish</summary>${targets.map(t=>`<p>${esc(t)}</p>`).join("")}</details>${acquisitionHtml(d)}`;
   }
   function renderNativeDetail(row,d,el) {
     document.querySelector(".topbar").hidden=true;
@@ -3479,12 +3481,12 @@
       const cid=context.claimId || prev.claimId;
       state={kind,studyResultId:id,sourceId:x.reference?.id,claimId:x.claims.some(c=>c.id===cid) ? cid : x.claims[0]?.id};
     } else if(kind==="passage" || kind==="paragraphContext") {
-      const p=g.passages?.find(p=>p.id===id);
-      if(!p || !g.references?.some(r=>r.id===p.source_id)) return;
+      const p=g.passages?.find(p=>p.id===id), hasReference=g.references?.some(r=>r.id===p?.source_id);
+      if(!p || (kind==='paragraphContext' && !hasReference)) return;
       const checkedClaim=context.sourceCheckClaim, check=qaSourceCheck(g,checkedClaim);
       if(checkedClaim && (!Array.isArray(check?.paragraph_ids) || !check.paragraph_ids.includes(id))) return;
       const rid=context.studyResultId || prev.studyResultId, records=qaStudyLinks(g,rid).records;
-      state={kind,paragraphId:id,sourceId:p.source_id,studyResultId:!checkedClaim && records.some(r=>r.source_id===p.source_id || r.source_ids?.includes(p.source_id)) ? rid : null,
+      state={kind,paragraphId:id,sourceId:hasReference ? p.source_id : undefined,studyResultId:!checkedClaim && records.some(r=>r.source_id===p.source_id || r.source_ids?.includes(p.source_id) || Object.values(r.fields || {}).some(f=>f?.paragraph_ids?.includes(id))) ? rid : null,
         fieldName:checkedClaim ? 'Source check' : context.fieldName || prev.fieldName,claimId:checkedClaim || prev.claimId,scope:'section'};
     } else if(kind==="evidence" || kind==="context") {
       const x=qaLinks(g,id);

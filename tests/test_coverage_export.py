@@ -881,3 +881,35 @@ assert.match(studyResultInspector(graph,'SR_bad'),/data-qa-passage="p1"/);
 assert.match(evidenceInspector(graph,'E_good'),/data-qa-context=/);
 assert.equal(JSON.stringify(graph),before);
 """)
+
+
+def test_saved_study_passage_navigation_opens_verbatim_without_reference_metadata(tmp_path):
+    investigation = {"claims": [{"id": "C1", "text": "Source-bound study value with missing citation metadata.", "evidence_ids": ["E1"], "study_result_ids": ["SR1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p3"]}],
+                     "study_results": [{"id": "SR1", "reference_ids": ["R2"], "fields": {"value": {"text": "Recorded 11 percent", "passage_ids": ["p1"]}}}]}
+    saved_bundle(tmp_path, investigation)
+    refs = json.loads((tmp_path / "references.json").read_text())
+    (tmp_path / "references.json").write_text(json.dumps([r for r in refs if r["id"] != "R1"]))
+    graph = export_bundle(tmp_path)["answer"]
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),noop=()=>{},classes={add:noop,toggle:noop,remove:noop};
+const pane={hidden:true,innerHTML:'',querySelectorAll:()=>[],contains:()=>false,querySelector:()=>({focus:noop}),closest:()=>({classList:classes})};
+global.document={getElementById:id=>id==='evidence-inspector' ? pane : null,body:{classList:classes},querySelectorAll:()=>[],activeElement:null};
+global.window={matchMedia:()=>({matches:false})};global.fetch=()=>{throw new Error('Saved passage navigation must not request absent source metadata');};
+S.selected='missing-source-navigation';S.research[S.selected]={answer:graph};
+(async()=>{
+ await inspectAnswer('claim','C1');await inspectAnswer('study','SR1',{claimId:'C1'});
+ const button=pane.innerHTML.match(/<button[^>]*data-qa-passage="([^"]+)"[^>]*data-study-result="([^"]+)"[^>]*data-study-field="([^"]+)"/);
+ assert.ok(button,'The actual field Source control must exist');assert.equal(button[1],'p1');
+ await inspectAnswer('passage',button[1],{studyResultId:button[2],fieldName:button[3]});
+ assert.equal(S.inspector.kind,'passage');assert.equal(S.inspector.paragraphId,'p1');assert.equal(S.inspector.studyResultId,'SR1');assert.equal(S.inspector.claimId,'C1');
+ assert.equal(S.inspector.sourceId,undefined,'No Source/Full paper breadcrumb can target absent reference metadata');
+ assert.match(pane.innerHTML,/<blockquote[^>]*>First exact quotation\.<\/blockquote>/);assert.match(pane.innerHTML,/Source R1 has no recorded reference/);
+ assert.match(pane.innerHTML,/Source context unavailable/);assert.doesNotMatch(pane.innerHTML,/data-qa-(source|paper|paragraph-context)=/);
+ const retained=S.inspector;await inspectAnswer('passage','p_missing');assert.equal(S.inspector,retained);
+ await inspectAnswer('paragraphContext','p1');assert.equal(S.inspector,retained);
+ await inspectAnswer('passage','p3');assert.equal(S.inspector.sourceId,'R2');assert.match(pane.innerHTML,/Different paper quotation\./);
+ assert.match(pane.innerHTML,/data-qa-paragraph-context="p3"/);assert.match(pane.innerHTML,/data-qa-paper="R2"/);
+ assert.equal(JSON.stringify(graph),before,'Navigation must preserve the saved source ID, verbatim and raw findings');
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")

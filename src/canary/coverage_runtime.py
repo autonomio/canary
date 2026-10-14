@@ -181,7 +181,7 @@ def _openalex_backoff(root, *, deadline=None, retry_after=None, source=None):
 def _commit_discovery(workspace, works, progress, plan):
     """Commit usable candidates even when the provider pauses remaining branches."""
     progress["unique_candidates"] = len(works)
-    progress["pending_query_ids"] = [q["id"] for q in plan["queries"] if not progress["queries"][q["id"]].get("complete", False)]
+    progress["pending_query_ids"] = [identifier for identifier, state in progress["queries"].items() if not state.get("complete", False)]
     progress["complete"] = not progress["pending_query_ids"]
     if progress.get("backoff"):
         progress["backoff"]["active"] = progress["backoff"]["retry_not_before_epoch"] > time.time()
@@ -220,6 +220,14 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
             work.setdefault("query_ids", [])
         requests = read(workspace / "openalex-requests.json", [])
         progress = read(workspace / "search-progress.json", {"queries": {}})
+        # Supplemental plans cannot erase committed search history. Restore
+        # omitted branches from their saved definitions and resume their cursors.
+        known = {q["id"] for q in plan["queries"]}
+        prior_queries = {q["id"]: q for q in (previous_plan or {}).get("queries", [])}
+        for identifier, state in progress["queries"].items():
+            if identifier not in known:
+                plan["queries"].append(prior_queries.get(identifier, {"id": identifier, "search": state["search"]}))
+                known.add(identifier)
         for query in plan["queries"]:
             state = progress["queries"].get(query["id"])
             if state and state["search"] != query["search"]:

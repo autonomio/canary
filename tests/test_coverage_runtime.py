@@ -521,3 +521,55 @@ def test_new_query_id_can_extend_a_committed_search_net(tmp_path):
     assert progress["queries"]["q1"]["pages"] == progress["queries"]["q2"]["pages"] == 1
     assert progress["complete"] is True
     assert {w["id"].split("/")[-1] for w in runtime.read(workspace / "works.json")} == {"W1", "W2"}
+
+
+@pytest.mark.parametrize("complete", [False, True])
+@pytest.mark.parametrize("prior_plan_already_lost_branch", [False, True])
+def test_omitted_query_keeps_search_history_cursor_candidates_and_honest_completion(tmp_path, complete, prior_plan_already_lost_branch):
+    from canary.coverage_export import export_bundle
+    from test_coverage_evidence_ui import run_dashboard
+    workspace = tmp_path / "research"; plan_path = tmp_path / "draft.json"
+    original = rich_plan(); original["queries"][0]["purpose"] = "Recorded direct comparison"
+    original["queries"].append({"id": "q2", "search": "complementary complete branch"})
+    runtime.write(plan_path, original); calls = []
+    def handler(request):
+        calls.append((request.url.params["search"], request.url.params["cursor"]))
+        q1 = request.url.params["search"] == original["queries"][0]["search"]
+        return httpx.Response(200, json={"results": [work("W1" if q1 else "W2")],
+            "meta": {"count": 1000 if q1 and not complete else 1, "next_cursor": "q1-next" if q1 and not complete else None}})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        runtime.discover(workspace, plan_path, root=tmp_path, pages=1, client=client)
+        first_receipts = runtime.read(workspace / "openalex-requests.json")
+        reduced = {**original, "queries": [original["queries"][1]]}
+        runtime.write(plan_path, reduced)
+        if prior_plan_already_lost_branch:
+            runtime.write(workspace / "question-plan.json", reduced)  # Reproduce a previously persisted omission.
+        progress = runtime.discover(workspace, plan_path, root=tmp_path, pages=1, client=client)
+    assert calls == [(original["queries"][0]["search"], "*"), (original["queries"][1]["search"], "*"),
+                     *([] if complete else [(original["queries"][0]["search"], "q1-next")])]
+    canonical = runtime.read(workspace / "question-plan.json")
+    restored = next(q for q in canonical["queries"] if q["id"] == "q1")
+    assert restored == ({"id": "q1", "search": original["queries"][0]["search"]} if prior_plan_already_lost_branch else original["queries"][0])
+    assert runtime.read(plan_path) == reduced, "Discovery owns only the canonical plan, not the submitted draft"
+    assert runtime.read(workspace / "openalex-requests.json")[:2] == first_receipts
+    assert progress["queries"]["q1"]["pages"] == (1 if complete else 2)
+    assert progress["queries"]["q2"]["pages"] == 1
+    assert progress["complete"] is complete and progress["pending_query_ids"] == ([] if complete else ["q1"])
+    works = runtime.read(workspace / "works.json")
+    assert {w["id"].split("/")[-1]: w["query_ids"] for w in works} == {"W1": ["q1"], "W2": ["q2"]}
+    result = export_bundle(workspace)
+    assert runtime.read(workspace / "query-net.json") == canonical
+    data = {"query_net": canonical, "coverage": result["coverage"], "answer": result["answer"], "run": result["run"]}
+    run_dashboard(tmp_path, data, r"""
+const before=JSON.stringify(graph),html=queryNetHtml(graph),state=graph.coverage.search_progress;
+assert.match(html,/q1 · (1|2) result pages? recorded/);assert.match(html,/q2 · 1 result page recorded · complete/);
+assert.ok(html.includes(esc(state.queries.q1.search)));
+if(state.queries.q1.complete) assert.doesNotMatch(html,/Search incomplete/);
+else assert.match(html,/Search incomplete/);
+// Old saved plans may already have hidden a branch. Rendering must expose its
+// receipt and unfinished state even if an old aggregate falsely says complete.
+const stale={...graph,query_net:{...graph.query_net,queries:graph.query_net.queries.filter(q=>q.id!=='q1')},coverage:{search_progress:{...state,complete:true,pending_query_ids:[],queries:{...state.queries,q1:{...state.queries.q1,complete:false}}}}};
+const legacy=queryNetHtml(stale);assert.match(legacy,/Search incomplete/);assert.match(legacy,/1 unfinished branches/);
+assert.ok(legacy.includes(esc(state.queries.q1.search)));assert.match(legacy,/q1 · (1|2) result pages? recorded · incomplete/);
+assert.equal(JSON.stringify(graph),before);
+""")
