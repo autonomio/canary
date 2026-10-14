@@ -371,3 +371,89 @@ assert.match(body().textContent,/q1 Complete first source/);
   assert.equal(JSON.stringify(S.sourceContexts),contextsBefore,'All raw source contexts remain unchanged');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """)
+
+
+def test_missing_evidence_flags_only_affected_claim_and_opens_provenance_failure(tmp_path):
+    graph = {"claims": [{"id": "C1", "text": "Scientist's recorded claim.", "uncertainty_score": 3,
+                         "uncertainty_rationale": "Recorded scientific uncertainty.",
+                         "evidence_ids": ["E_valid", "E_missing"]},
+                        {"id": "C2", "text": "Unaffected recorded claim.", "uncertainty_score": 1,
+                         "evidence_ids": ["E_valid"]}],
+             "evidence": [{"id": "E_valid", "paragraph_id": "p1", "quote": "Exact saved source text."}],
+             "passages": [{"id": "p1", "source_id": "R1", "kind": "fulltext"}],
+             "references": [{"id": "R1", "paper": {"title": "Saved synthetic source"}}],
+             "binding_issues": [{"kind": "missing_evidence", "claim_id": "C1", "evidence_id": "E_missing"}],
+             "source_checks": [{"claim_id": "C1", "assessment": "supported",
+                                "reason": "Recorded audit judgment remains distinct."}]}
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),affected=findingHtml(graph,graph.claims[0]),clean=findingHtml(graph,graph.claims[1]);
+assert.match(affected,/<span role="alert"><button[^>]*data-qa-claim="C1"[^>]*>Provenance failure · details<\/button>/);
+assert.match(affected,/Scientist&#39;s recorded claim\./);
+assert.match(affected,/High uncertainty · 3\/3/);
+assert.doesNotMatch(clean,/Provenance failure/);
+const inspector=claimInspector(graph,'C1');
+assert.match(inspector,/data-detail="provenance-C1"/);
+assert.match(inspector,/data-qa-evidence="E_missing"/);
+assert.match(inspector,/No saved evidence record matches this ID\./);
+assert.match(inspector,/Audit support does not repair missing source links/);
+assert.match(inspector,/Source check · Supported/);
+assert.match(evidenceInspector(graph,'E_valid'),/<blockquote>Exact saved source text\.<\/blockquote>/);
+S.selected='provenance';S.research.provenance={answer:graph};
+global.document={getElementById:()=>null};
+(async()=>{
+  await inspectAnswer('claim','C1');assert.equal(S.inspector.claimId,'C1');
+  await inspectAnswer('evidence','E_missing');
+  assert.equal(S.inspector.kind,'evidence');assert.equal(S.inspector.evidenceId,'E_missing');
+  assert.equal(S.inspector.claimId,'C1');
+  const failure=evidenceInspector(graph,S.inspector.evidenceId);
+  assert.match(failure,/Provenance failure: evidence not recorded/);
+  assert.match(failure,/E_missing/);
+  assert.match(failure,/data-qa-claim="C1"/);
+  assert.doesNotMatch(failure,/<blockquote>|data-qa-context=/);
+  assert.equal(JSON.stringify(graph),before,'Scientific text, uncertainty, audit and raw evidence IDs remain unchanged');
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_native_availability_uses_loaded_structured_content_without_stale_markdown_or_cache(tmp_path):
+    run_dashboard(tmp_path, {}, r"""
+const row={key:'native',kind:'question',status:'researching',research_summary:{
+  has_synthesis:true,claims_count:99,papers_count:7
+}};
+const empty={claims:[],executive_summary:[' ',{text:'\n'}],references:[]};
+const data={run:{kind:'question',selection_method:'coverage-guided',execution_mode:'coverage-guided full-paper research'},
+  answer:empty,synthesis_md:'# Synthetic question\n\n## References\nR1 · citation stub'};
+S.research.native=data;
+assert.equal(hasReport(row),false);assert.equal(hasFindings(row),false);
+assert.equal(summaryOf(row).has_synthesis,false);assert.equal(summaryOf(row).claims_count,0);
+assert.equal(hasReport({...row,status:'done'}),false,'Completed stale metadata cannot bypass the loaded graph');
+assert.equal(active(row),true);assert.equal(statusInfo(row)[0],'active');
+assert.equal(active({...row,status:'failed'}),false);assert.equal(statusInfo({...row,status:'failed'})[0],'attention');
+assert.match(answerHtml(row,data),/Reading selected sources/);
+assert.doesNotMatch(answerHtml(row,data),/aria-label="Executive summary"|<h2>Claims<\/h2>/);
+const references=[{id:'R1',paper:{title:'Committed paper remains accessible'}}];
+data.answer={...empty,references};
+assert.equal(hasReport(row),false);assert.equal(hasFindings(row),false);
+assert.equal(summaryOf(row).papers_count,1);
+assert.match(modernPapersHtml(data),/Committed paper remains accessible/);
+assert.match(modernPapersHtml(data),/data-qa-paper="R1"/);
+data.answer={...empty,claims:[{id:'C1',text:'Actual recorded claim.',evidence_ids:[]}]};
+assert.equal(hasReport(row),true);assert.equal(hasFindings(row),true);
+assert.equal(summaryOf(row).claims_count,1);
+assert.match(answerHtml(row,data),/Actual recorded claim/);
+for(const summary of [[{text:'Actual recorded summary.',claim_ids:[]}],['Actual string summary.']]) {
+  data.answer={...empty,executive_summary:summary};
+  assert.equal(hasReport(row),true);assert.equal(hasFindings(row),true);
+  assert.equal(qaGraph(data),data.answer);
+  const html=answerHtml(row,data);assert.match(html,/aria-label="Executive summary"/);
+  assert.ok(html.includes(typeof summary[0]==='string' ? summary[0] : summary[0].text));
+  assert.doesNotMatch(html,/<h2>Claims<\/h2>/);
+}
+delete S.research.native;
+assert.equal(hasReport(row),true,'Cached structured metadata is retained before graph loading');
+assert.equal(hasFindings(row),true);
+const legacy={key:'legacy',kind:'cycle',status:'done'};
+S.research.legacy={synthesis_md:'## Findings\n\nMeaningful legacy research prose.'};
+assert.equal(hasReport(legacy),true);assert.equal(hasFindings(legacy),true);
+assert.equal(summaryOf(legacy).has_synthesis,true);
+""")

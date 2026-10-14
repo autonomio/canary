@@ -380,10 +380,11 @@ def research_summary(row: dict) -> dict:
         if isinstance(native_run, dict) and native_run.get("kind") == "question":
             graph = _load_json_file(native_path / "answer.json", {})
             graph = graph if isinstance(graph, dict) else {}
-            claims = graph.get("claims", [])
+            claims = [c for c in graph.get("claims", []) if isinstance(c, dict) and isinstance(c.get("text"), str) and c["text"].strip()]
             access = _load_json_file(native_path / "access.json", {})
             access = access if isinstance(access, dict) else {}
-            prose = " ".join(p.get("text", "") for p in graph.get("executive_summary", []) if isinstance(p, dict))
+            prose = " ".join(text for p in graph.get("executive_summary", [])
+                             for text in [p.get("text") if isinstance(p, dict) else p] if isinstance(text, str)).strip()
             summary.update(question=native_run.get("question", graph.get("question", "")),
                            synthesis_excerpt=_synthesis_excerpt(prose), has_synthesis=bool(prose),
                            papers_count=native_run.get("discovered", len(access.get("accepted", []))),

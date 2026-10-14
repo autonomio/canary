@@ -285,3 +285,61 @@ def test_native_model_calls_are_exact_only_when_every_role_is_known(tmp_path, ro
 def test_native_run_without_response_count_keeps_model_calls_unknown(tmp_path):
     (tmp_path / "run.json").write_text(json.dumps({"kind": "question", "status": "researching"}))
     assert runs.parse_bundle(tmp_path)["usage"]["model_calls"] is None
+
+
+def test_unknown_claim_evidence_is_preserved_and_exposed_as_linked_binding_issue(tmp_path):
+    claim = {"id": "C1", "text": "The source reports a synthetic finding.", "evidence_ids": ["E_missing"],
+             "uncertainty": {"class": "high", "score": 3, "rationale": "Synthetic only."}}
+    investigation = {"claims": [claim], "evidence": []}
+    (tmp_path / "investigation.json").write_text(json.dumps(investigation))
+    (tmp_path / "run.json").write_text(json.dumps({"question": "Synthetic?", "status": "complete"}))
+    result = coverage_export.export_bundle(tmp_path)
+    exported = result["answer"]["claims"][0]
+    assert exported["text"] == claim["text"] and exported["uncertainty"] == claim["uncertainty"]
+    assert exported["evidence_ids"] == claim["evidence_ids"]
+    assert result["answer"]["binding_issues"] == [{"kind": "missing_evidence", "claim_id": "C1", "evidence_id": "E_missing"}]
+    assert dashboard.research_bundle(tmp_path)["answer"]["binding_issues"] == result["answer"]["binding_issues"]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    assert "Provenance failure: missing evidence E_missing" in report
+    assert "Evidence E_missing · supports" not in report
+
+
+@pytest.mark.parametrize("status,expected", [("researching", "in_progress"), ("failed", "failed"), ("complete", "complete"), ("answered", "complete")])
+def test_empty_native_export_removes_stale_stub_without_hiding_sources(tmp_path, status, expected):
+    stale = "# Synthetic?\n\n## References\nR1 · Saved source\n"
+    quote = "A saved synthetic source passage."
+    ref = {"id": "R1", "title": "Saved source", "full_text_status": "requires_source_verification",
+           "file": "papers/R1.pdf", "text_file": "texts/R1.txt", "text_chars": len(quote)}
+    for name in ("papers", "texts", "passages"):
+        (tmp_path / name).mkdir()
+    (tmp_path / "papers/R1.pdf").write_bytes(b"synthetic saved body")
+    (tmp_path / "texts/R1.txt").write_text(quote)
+    span = {"id": "R1-p1", "reference_id": "R1", "text": quote, "start": 0, "end": len(quote)}
+    (tmp_path / "passages/R1.jsonl").write_text(json.dumps(span) + "\n")
+    (tmp_path / "selection.json").write_text(json.dumps({"selected_for_review_ids": ["R1"]}))
+    (tmp_path / "reviewed-papers.json").write_text(json.dumps([{"work_id": "R1", "eligibility": "supporting",
+        "passage_ids_read": ["R1-p1"], "investigated_sections": ["results"], "substantive_review_note": "Synthetic context review."}]))
+    (tmp_path / "run.json").write_text(json.dumps({"question": "Synthetic?", "status": status}))
+    (tmp_path / "investigation.json").write_text(json.dumps({"claims": [], "executive_summary": [" ", {"text": "\n"}]}))
+    (tmp_path / "references.json").write_text(json.dumps([ref]))
+    (tmp_path / "answer.md").write_text(stale)
+    result = coverage_export.export_bundle(tmp_path)
+    assert result["run"]["status"] == expected and result["run"]["answered"] is False
+    assert not (tmp_path / "answer.md").exists()
+    view = dashboard.research_bundle(tmp_path)
+    assert view["synthesis_md"] is None and view["answer"]["references"][0]["id"] == "R1"
+    assert runs._has_answer(tmp_path, result["run"], expected) is False
+    summary = dashboard.research_summary({"bundle": str(tmp_path)})
+    assert summary["claims_count"] == 0 and summary["has_synthesis"] is False
+
+
+@pytest.mark.parametrize("summary", [["Reported synthetic summary."], [{"text": "Reported synthetic summary.", "claim_ids": []}]])
+def test_native_summary_content_remains_a_downloadable_report(tmp_path, summary):
+    (tmp_path / "run.json").write_text(json.dumps({"question": "Synthetic?", "status": "complete"}))
+    (tmp_path / "investigation.json").write_text(json.dumps({"claims": [], "executive_summary": summary}))
+    result = coverage_export.export_bundle(tmp_path)
+    assert result["run"]["status"] == "answered" and result["run"]["answered"] is True
+    assert "Reported synthetic summary." in (tmp_path / "answer.md").read_text()
+    assert runs._has_answer(tmp_path, result["run"], "answered") is True
+    assert dashboard.research_summary({"bundle": str(tmp_path)})["has_synthesis"] is True

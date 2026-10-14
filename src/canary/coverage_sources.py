@@ -625,9 +625,12 @@ def _xml_text(raw: bytes) -> str:
         root = ET.fromstring(raw)
         tag = lambda element: element.tag.rsplit("}", 1)[-1].lower()
         article = next((element for element in root.iter() if tag(element) in ("article", "tei")), root)
-        container = next((element for element in article.iter() if tag(element) == "text"), article)
-        body = next((element for element in container.iter() if tag(element) == "body"), None)
-        if body is None and tag(container) == "text":
+        namespace = article.tag.rsplit("}", 1)[0] + "}" if article.tag.startswith("{") else ""
+        # JATS owns its body directly; TEI owns it through its document-level text.
+        # A descendant SVG text element is a figure label, never the paper container.
+        container = article.find(f"{namespace}text") if tag(article) == "tei" else article
+        body = container.find(f"{namespace}body") if container is not None else None
+        if body is None and tag(article) == "tei":
             body = container
         if body is None or not "".join(body.itertext()).strip():
             raise AccessFailure("XML has no readable article body")

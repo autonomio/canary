@@ -68,6 +68,23 @@ def test_xml_requires_full_body_and_keeps_abstract_and_references():
         sources._xml_text(b"<article><abstract>Only abstract.</abstract></article>")
 
 
+@pytest.mark.parametrize("document", ["jats", "namespaced-jats", "tei"])
+def test_xml_figure_text_before_document_body_does_not_truncate_paper(document):
+    figure = '<svg:svg><svg:text>Illustration label.</svg:text></svg:svg>'
+    abstract = '<abstract><p>Synthetic abstract.</p></abstract>'
+    body = '<body><p>Measured synthetic result.</p><table><tr><th>Group</th><th>Outcome</th></tr><tr><td>A</td><td>12</td></tr></table></body>'
+    back = '<back><ref-list><ref>Source citation.</ref></ref-list></back>'
+    if document == "tei":
+        body = body.replace("tr>", "row>").replace("th>", "cell>").replace("td>", "cell>")
+        raw = f'<TEI xmlns="http://www.tei-c.org/ns/1.0" xmlns:svg="http://www.w3.org/2000/svg"><teiHeader>{figure}{abstract}</teiHeader><text>{body}{back}</text></TEI>'
+    else:
+        namespace = ' xmlns="urn:synthetic-jats"' if document == "namespaced-jats" else ""
+        raw = f'<article{namespace} xmlns:svg="http://www.w3.org/2000/svg"><front>{figure}{abstract}</front>{body}{back}</article>'
+    text = sources._xml_text(raw.encode())
+    assert all(value in text for value in ("Synthetic abstract.", "Measured synthetic result.", "Group | Outcome", "A | 12", "Source citation."))
+    assert "Illustration label." not in text
+
+
 def test_subscription_preview_is_not_a_full_html_paper():
     raw = b'<meta name="citation_title" content="Synthetic paper"><article><h2>Methods</h2><p>Results are described briefly.</p><p>This is a preview of subscription content.</p></article>'
     with pytest.raises(ValueError):

@@ -437,17 +437,28 @@ def _reviewed_papers(bundle: Path, run: dict) -> int | None:
     return len(identities) if recorded else None
 
 
+def has_native_findings(answer) -> bool:
+    """A native report requires recorded claim or summary text, not a file stub."""
+    if not isinstance(answer, dict):
+        return False
+    claims = answer.get("claims", [])
+    summary = answer.get("executive_summary", [])
+    rows = [c for c in claims if isinstance(c, dict)] if isinstance(claims, list) else []
+    rows += summary if isinstance(summary, list) else []
+    return any(isinstance(text, str) and bool(text.strip()) for item in rows
+               for text in [item.get("text") if isinstance(item, dict) else item])
+
+
 def _has_answer(bundle: Path, run: dict, status: str) -> bool:
     if run.get("execution_mode") == "coverage-guided full-paper research":
         answer = _load_json(bundle / "answer.json", {})
         # Answer availability is independent of coverage target or audit status.
-        return isinstance(answer, dict) and bool(answer.get("executive_summary") or answer.get("claims"))
+        return has_native_findings(answer)
     if status in _FAILURE_STATUS or str(status).startswith("failed"):
         return False
     if run.get("kind") == "question":
         answer = _load_json(bundle / "answer.json", {})
-        return (run.get("status") == "answered" and isinstance(answer, dict)
-                and bool(answer.get("executive_summary") or answer.get("claims")))
+        return run.get("status") == "answered" and has_native_findings(answer)
     try:
         text = (bundle / "synthesis.md").read_text(encoding="utf-8").strip()
     except OSError:

@@ -14,6 +14,8 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .runs import has_native_findings
+
 EXECUTION_MODE = "coverage-guided full-paper research"
 
 
@@ -138,9 +140,15 @@ def _audit_record(audit: dict) -> dict:
 
 def _save_markdown(path: Path, graph: dict):
     """Deterministic downloadable answer; researcher wording stays unchanged."""
+    if not has_native_findings(graph):
+        path.unlink(missing_ok=True)  # Remove a stale derived stub, never source/research records.
+        return
     lines = ["# " + str(graph.get("question", "?")), "", str(graph.get("scope_note", "")), ""]
-    for summary in _rows(graph.get("executive_summary")):
-        lines.extend([str(summary.get("text", "")), "Claims: " + ", ".join(summary.get("claim_ids", [])), ""])
+    for summary in graph.get("executive_summary", []):
+        if isinstance(summary, str):
+            lines.extend([summary, ""])
+        elif isinstance(summary, dict):
+            lines.extend([str(summary.get("text", "")), "Claims: " + ", ".join(summary.get("claim_ids", [])), ""])
     checks = {r.get("claim_id"): r for r in _rows(graph.get("source_checks"))}
     evidence = {r.get("id"): r for r in _rows(graph.get("evidence"))}
     passages = {r.get("id"): r for r in _rows(graph.get("passages"))}
@@ -148,8 +156,13 @@ def _save_markdown(path: Path, graph: dict):
         lines.extend(["## " + str(claim["id"]), "", str(claim.get("text", "")), "",
                       f'Uncertainty: {claim.get("uncertainty_class", "unknown")} ({claim.get("uncertainty_score", "unknown")}/3; ordinal).',
                       str(claim.get("uncertainty_rationale", "")), "Audit: " + str(checks.get(claim["id"], {}).get("assessment", "not_checked")), ""])
+        for issue in _rows(graph.get("binding_issues")):
+            if issue.get("claim_id") == claim["id"] and issue.get("kind") == "missing_evidence":
+                lines.extend(["Provenance failure: missing evidence " + str(issue.get("evidence_id")), ""])
         for eid in claim.get("evidence_ids", []):
-            item = evidence.get(eid, {})
+            item = evidence.get(eid)
+            if not isinstance(item, dict):
+                continue  # The linked binding issue above names the missing provenance.
             span = passages.get(item.get("paragraph_id"), {})
             lines.extend([f'Evidence {eid} · {item.get("relation", "supports")} · {span.get("source_id", "?")} / {item.get("paragraph_id", "?")}',
                           str(item.get("interpretation", "")), "", *["> " + line for line in str(item.get("quote", "")).splitlines()], ""])
@@ -286,10 +299,13 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
             evidence_map[evidence["id"]].append(eid)
             used_passages.add(pid)
     for claim in _rows(investigation.get("claims")):
+        for key in _unique(claim.get("evidence_ids", [])):
+            if key not in evidence_map:
+                graph["binding_issues"].append({"kind": "missing_evidence", "claim_id": claim.get("id"), "evidence_id": key})
         u = claim.get("uncertainty", {})
         graph["claims"].append(dict(claim, uncertainty_class=u.get("class"), uncertainty_score=u.get("score"),
                                      uncertainty_rationale=u.get("rationale", ""),
-                                     evidence_ids=[eid for key in claim.get("evidence_ids", []) for eid in evidence_map.get(key, [])]))
+                                     evidence_ids=[eid for key in claim.get("evidence_ids", []) for eid in (evidence_map.get(key) or [key])]))
     field_map = {"system": "setup", "intervention": "intervention", "comparator": "comparator",
                  "conditions": "conditions", "endpoint": "outcome", "value": "value", "units": "units",
                  "sample_size": "sample_size", "reported_uncertainty": "uncertainty"}
@@ -414,9 +430,10 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         _save(bundle / "source-efficiency.json", efficiency)
     recorded_status = run.get("status", "in_progress")
     lifecycle = run.get("runtime_status", recorded_status) if recorded_status in ("in_progress", "answered") else recorded_status
+    has_findings = has_native_findings(graph)
     status = ("in_progress" if lifecycle in ("planning", "researching", "reading", "acquiring", "auditing")
-              else "answered" if lifecycle in ("complete", "completed") and graph["claims"]
-              else lifecycle)
+              else "answered" if lifecycle in ("complete", "completed") and has_findings
+              else "complete" if lifecycle == "answered" and not has_findings else lifecycle)
     requests = _load(source / "openalex-requests.json", _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None)))
     graph["audit"] = {"status": "pending" if not audit else "complete" if audit_case.get("audit_complete") else "partial",
                        "model": "gpt-6-astra", "reasoning_effort": "ultra",
@@ -428,7 +445,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                execution_mode=EXECUTION_MODE, selection_method="coverage-guided", model=run.get("model", "gpt-6.1-sol"),
                reasoning_effort="xhigh", reviewer_model="gpt-6-astra", reviewer_reasoning_effort="ultra",
                generated_at=run.get("generated_at", run.get("started_at", context.get("started_at"))),
-               status=status, runtime_status=lifecycle, receipts=model_receipts,
+               status=status, runtime_status=lifecycle, answered=has_findings, receipts=model_receipts,
                discovered=len(candidates), accepted=len(accepted), available_unique_sources=len(refs),
                llm_calls=_profile_response_count(profile),
                papers_reviewed=covered, papers_core=roles.get("core", 0), papers_supporting=roles.get("supporting", 0),
