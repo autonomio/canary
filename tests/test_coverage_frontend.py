@@ -242,3 +242,46 @@ def test_failed_coverage_log_preserves_answer_and_unknown_role_totals(tmp_path):
     row = runs.log_rows(registry, tmp_path)[0]
     assert row["answered"] is True
     assert row["input_tokens"] is None and row["output_tokens"] is None
+
+
+def test_below_target_export_preserves_reported_uncertified_scarcity(tmp_path):
+    statement = {"reason": "Synthetic scope contains fewer accessible comparisons.",
+                 "searches_attempted": ["Synthetic query"], "remaining_unknown": ["Unindexed records"]}
+    claim = {"id": "C1", "text": "Source reports a synthetic result.", "evidence_ids": []}
+    payload = {"accounting": {"scarcity_statement": statement, "scarcity_independently_certified": False},
+               "research": {"claims": [claim]}}
+    (tmp_path / "payload.json").write_text(json.dumps(payload))
+    (tmp_path / "run.json").write_text(json.dumps({"question": "Synthetic?", "status": "complete", "minimum_papers": 50}))
+    result = coverage_export.export_bundle(tmp_path)
+    assert result["run"]["status"] == "answered"
+    assert result["coverage"]["reviewed_papers"] < result["coverage"]["target_papers"]
+    assert result["coverage"]["scarcity_statement"] == statement
+    assert result["coverage"]["scarcity_independently_certified"] is False
+    assert dashboard.research_bundle(tmp_path)["coverage"]["scarcity_statement"] == statement
+    assert json.loads((tmp_path / "payload.json").read_text()) == payload
+
+
+@pytest.mark.parametrize("roles,expected", [
+    ({}, None),
+    ({"research": {"usage": {}}}, None),
+    ({"research": {"usage": {"response_count": 5}}, "audit": {"usage": {}}}, None),
+    ({"research": {"usage": {"response_count": 5}}, "audit": {"usage": {"response_count": None}}}, None),
+    ({"research": {"usage": {"response_count": 5}}, "audit": {"usage": {"available": False, "response_count": 0}}}, None),
+    ({"research": {"usage": {"available": False, "response_count": 0}}}, None),
+    ({"research": {"usage": {"available": True, "response_count": 0}}}, 0),
+    ({"research": {"usage": {"response_count": 0}}}, 0),
+    ({"research": {"usage": {"response_count": 5}}, "audit": {"usage": {"response_count": 3}}}, 8),
+    ({"research": {"responses": 5}, "audit": {"responses": 0}}, 5),
+])
+def test_native_model_calls_are_exact_only_when_every_role_is_known(tmp_path, roles, expected):
+    (tmp_path / "run.json").write_text(json.dumps({"question": "Synthetic?", "status": "researching"}))
+    (tmp_path / "profile.json").write_text(json.dumps({"roles": roles}))
+    result = coverage_export.export_bundle(tmp_path)
+    assert result["run"]["llm_calls"] == expected
+    assert runs.parse_bundle(tmp_path)["usage"]["model_calls"] == expected
+    assert dashboard.research_bundle(tmp_path)["usage"]["model_calls"] == expected
+
+
+def test_native_run_without_response_count_keeps_model_calls_unknown(tmp_path):
+    (tmp_path / "run.json").write_text(json.dumps({"kind": "question", "status": "researching"}))
+    assert runs.parse_bundle(tmp_path)["usage"]["model_calls"] is None

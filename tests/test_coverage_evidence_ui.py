@@ -232,3 +232,28 @@ const absent={...graph,evidence:[{...graph.evidence[0],relation:null}]};
 assert.match(evidenceInspector(absent,'E1'),/Recorded relation: unknown/);
 assert.equal(JSON.stringify(graph),before);
 """)
+
+
+def test_below_target_coverage_exposes_reported_scarcity_without_certifying_it(tmp_path):
+    coverage = {"reviewed_papers": 27, "core_papers": 9, "supporting_papers": 18,
+                "target_papers": 50, "stopping_reason": "Recorded scarcity admitted below-target run.",
+                "scarcity_statement": {"reason": "No further eligible publications in the assessed pool.",
+                                       "access_limits": ["Two copies remain inaccessible."],
+                                       "supplemental_searches": 3}}
+    run_dashboard(tmp_path, coverage, r"""
+const before=JSON.stringify(graph),data={run:{selection_method:'coverage-guided'},coverage:graph};
+const html=coverageSelectionHtml(data);
+assert.match(html,/27 reviewed · 9 core · 18 supporting · target 50/);
+assert.match(html,/Reported scarcity; not independently verified\./);
+assert.match(html,/No further eligible publications in the assessed pool\./);
+assert.match(html,/Two copies remain inaccessible\./);
+assert.ok(html.includes('supplemental_searches&quot;:3'));
+assert.doesNotMatch(html,/\[object Object\]/);
+const absent=coverageSelectionHtml({...data,coverage:{...graph,scarcity_statement:null}});
+assert.doesNotMatch(absent,/Reported scarcity/);
+const statement='The researcher reports an exhausted eligible pool; access limits remain.';
+const text=coverageSelectionHtml({...data,coverage:{...graph,scarcity_statement:statement}});
+assert.ok(text.includes(statement));
+assert.match(text,/Reported scarcity; not independently verified\./);
+assert.equal(JSON.stringify(graph),before,'The recorded scarcity statement must remain unchanged');
+""")

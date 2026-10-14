@@ -81,6 +81,26 @@ def _profile_roles(profile: dict) -> dict:
     return result
 
 
+def _profile_response_count(profile: dict) -> int | None:
+    """Count recorded native responses only when every present role is known."""
+    roles = _profile_roles(profile)
+    if not roles:
+        return None
+    counts = []
+    for record in roles.values():
+        if not isinstance(record, dict):
+            return None
+        usage = record.get("usage", {})
+        usage = usage if isinstance(usage, dict) else {}
+        if usage.get("available") is False or record.get("available") is False:
+            return None
+        count = usage.get("response_count", record.get("responses"))
+        if type(count) is not int or count < 0:
+            return None
+        counts.append(count)
+    return sum(counts)
+
+
 def _profile_receipts(profile: dict) -> list[dict]:
     direct = _rows(profile.get("receipts"))
     if direct:
@@ -166,6 +186,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         bundle / "research" if (bundle / "research").is_dir() else bundle)
     payload = _load(research / "payload.json", {})
     payload = payload if isinstance(payload, dict) else {}
+    accounting = payload.get("accounting", {})
+    accounting = accounting if isinstance(accounting, dict) else {}
     investigation = _load(research / "investigation.json", payload.get("research", payload))
     investigation = investigation if isinstance(investigation, dict) else {}
     selection = _load(research / "selection.json", payload.get("selection", {}))
@@ -369,6 +391,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                 "independent_study_count": None,
                 "duplicate_version_groups": [[r["work_id"] for r in group] for group in publications.values() if len(group) > 1],
                 "stopping_reason": selection.get("stopping_reason"),
+                "scarcity_statement": accounting.get("scarcity_statement"),
+                "scarcity_independently_certified": accounting.get("scarcity_independently_certified", False),
                 "counts_scope": "Reviewed papers require selected admission, core/supporting eligibility, read passages and a substantive review note. Related reports may share participants or studies; paper count is not independent study count."}
     graph["coverage"] = coverage
     profile = _load(bundle / "profile.json", {})
@@ -406,8 +430,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                generated_at=run.get("generated_at", run.get("started_at", context.get("started_at"))),
                status=status, runtime_status=lifecycle, receipts=model_receipts,
                discovered=len(candidates), accepted=len(accepted), available_unique_sources=len(refs),
-               llm_calls=sum(record.get("usage", {}).get("response_count", record.get("responses", 0))
-                             for record in _profile_roles(profile).values()),
+               llm_calls=_profile_response_count(profile),
                papers_reviewed=covered, papers_core=roles.get("core", 0), papers_supporting=roles.get("supporting", 0),
                target_papers=target, preview_suspected_sources=preview_count, audit_status=graph["audit"]["status"], coverage=coverage,
                keyword_requests=sum(r.get("status") == 200 for r in requests if isinstance(r, dict)) if isinstance(requests, list) else run.get("keyword_requests"),

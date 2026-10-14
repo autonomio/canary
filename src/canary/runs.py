@@ -321,7 +321,7 @@ def parse_bundle(bundle: str | Path) -> dict:
         record.update(run_id=run.get("run_id", bundle.name), kind="question",
                       seed=run.get("question", "?"), started_at=run.get("generated_at"),
                       profile="question", maintenance=False,
-                      usage={"model_calls": run.get("llm_calls", 0), "tokens": tokens,
+                      usage={"model_calls": _count(run.get("llm_calls")), "tokens": tokens,
                              "keyword_requests": run.get("keyword_requests", 0),
                              "receipts_available": len(receipts)},
                       source_usage_before=run.get("usage_before", {}),
