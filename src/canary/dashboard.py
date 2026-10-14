@@ -198,7 +198,10 @@ class Supervisor:
                         or isinstance(native.get("cli_thread_id"), str) and native["cli_thread_id"].strip()):
                     # External CLI runs publish their own state and timing; a
                     # missing Docker container does not mean they have stopped.
-                    row.update(runs.parse_bundle(bundle))
+                    parsed = runs.parse_bundle(bundle)
+                    if row.get("status") in runs._FAILURE_STATUS and parsed.get("status") in runs._ACTIVE_STATUS:
+                        parsed.update(status=row["status"], ended_at=row.get("ended_at"))
+                    row.update(parsed)
                     row["live"] = False
                     continue
             if row.get("status") in ("starting", "running", "paused") and container:

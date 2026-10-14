@@ -1,9 +1,12 @@
 """Synthetic public-source/extraction contracts; no live scientific validation."""
+import io
 import socket
+from threading import Event
 from types import SimpleNamespace
 
 import httpx
 import pytest
+from pypdf import PdfWriter
 
 from canary import coverage_sources as sources
 
@@ -83,8 +86,59 @@ def test_raw_source_pdf_hint_must_match_the_selected_paper(monkeypatch):
         sources.public_url(requested, resolver)
         return b"%PDF synthetic", "application/pdf", requested
     monkeypatch.setattr(sources, "public_download", download)
+    monkeypatch.setattr(sources, "_pdf_text", lambda raw: ("Synthetic readable paper", 1, ()))
     monkeypatch.setattr(sources, "pdf_matches_work", lambda raw, expected: False)
     assert sources.public_work_download(work, None, public_resolver)[0] is None
     monkeypatch.setattr(sources, "pdf_matches_work", lambda raw, expected: True)
     assert sources.public_work_download(work, None, public_resolver)[0][2] == url
     assert seen == [(url, work), (url, work)]
+
+
+def test_unreadable_fast_pdf_does_not_discard_readable_copy_or_wait_for_loser(monkeypatch):
+    pdf = io.BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    writer.write(pdf)
+    raw_pdf = pdf.getvalue()
+    raw_xml = b"<article><body><sec><title>Results</title><p>Readable synthetic result.</p></sec></body></article>"
+    unreadable_rejected, loser_started, release_loser = Event(), Event(), Event()
+    monkeypatch.setattr(sources, "_native_pdf_text", lambda raw: None)
+    extract_pdf = sources._pdf_text
+
+    def reject_blank_pdf(raw):
+        try:
+            return extract_pdf(raw)
+        finally:
+            unreadable_rejected.set()
+
+    monkeypatch.setattr(sources, "_pdf_text", reject_blank_pdf)
+
+    def handler(request):
+        if request.url.path == "/unreadable.pdf":
+            return httpx.Response(200, content=raw_pdf)
+        if request.url.path == "/readable.xml":
+            assert unreadable_rejected.wait(timeout=5)
+            assert loser_started.wait(timeout=5)
+            return httpx.Response(200, content=raw_xml)
+        loser_started.set()
+        assert release_loser.wait(timeout=5)
+        return httpx.Response(404)
+
+    work = {"locations": [{"is_oa": True, "pdf_url": "https://example.org/" + name}
+                          for name in ("unreadable.pdf", "readable.xml", "slow.pdf")]}
+    try:
+        result, timed_out = sources.public_work_download(work, httpx.MockTransport(handler), public_resolver)
+        assert result == (raw_xml, "application/xml", "https://example.org/readable.xml")
+        assert not timed_out and not release_loser.is_set()
+    finally:
+        release_loser.set()
+
+
+@pytest.mark.parametrize("raw", [
+    b"<article><body><table><tr><th>Group</th><th>Outcome</th></tr><tr><td>A</td><td>12</td></tr><tr><td>B</td><td>19</td></tr></table></body></article>",
+    b'<TEI xmlns="http://www.tei-c.org/ns/1.0"><text><body><table><row><cell>Group</cell><cell>Outcome</cell></row><row><cell>A</cell><cell>12</cell></row><row><cell>B</cell><cell>19</cell></row></table></body></text></TEI>',
+])
+def test_xml_preserves_table_cell_and_row_boundaries(raw):
+    text = sources._xml_text(raw)
+    assert text == "Group | Outcome\n\nA | 12\n\nB | 19"
+    assert "A12" not in text and "B19" not in text

@@ -94,7 +94,9 @@ def _profile_receipts(profile: dict) -> list[dict]:
             result.extend(dict(receipt, role=role) for receipt in receipts)
             continue
         tokens = record.get("tokens", {})
-        if not isinstance(tokens, dict) or not tokens:
+        if not isinstance(tokens, dict):
+            tokens = {}
+        if not tokens and not record.get("usage"):
             continue
         inp = tokens.get("input_tokens")
         out = tokens.get("output_tokens")
@@ -214,19 +216,25 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     selected = set(selection.get("selected_for_review_ids", []))
     admitted = {r["work_id"]: r for r in reviewed
                 if r.get("work_id") in selected and r.get("eligibility") in ("core", "supporting")
-                and r.get("passage_ids_read") and r.get("substantive_review_note")
+                and r.get("passage_ids_read") and str(r.get("substantive_review_note", "")).strip() and r.get("investigated_sections")
                 and r.get("work_id") in refs and not refs[r["work_id"]].get("preview_marker_detected")
                 and refs[r["work_id"]].get("full_text_status") != "preview_suspected"
                 and all(pid in spans and spans[pid].get("reference_id", spans[pid].get("source_id")) == r["work_id"]
                         for pid in r.get("passage_ids_read", []))}
-    publications = {}
+    publications, counted, seen_bodies = {}, {}, set()
     for sid, row in admitted.items():
         ref = refs[sid]
         doi = str(ref.get("doi") or "").casefold().removeprefix("https://doi.org/").removeprefix("http://doi.org/")
-        identity = doi or ref.get("body_sha256") or sid
-        publications.setdefault(identity, []).append(row)
-    roles = Counter("core" if any(r["eligibility"] == "core" for r in group) else "supporting"
-                    for group in publications.values())
+        body = ref.get("body_sha256")
+        identity = doi or body or sid
+        if identity in publications or body and body in seen_bodies:
+            continue
+        publications[identity] = [row]
+        counted[sid] = row
+        if body:
+            seen_bodies.add(body)
+    admitted = counted
+    roles = Counter(row["eligibility"] for row in admitted.values())
     graph = {"question": question, "model": run.get("model", "gpt-6.1-sol"),
              "executive_summary": investigation.get("executive_summary", []), "claims": [],
              "evidence": [], "passages": [], "references": [], "study_results": [],
@@ -365,6 +373,16 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     graph["coverage"] = coverage
     profile = _load(bundle / "profile.json", {})
     profile = profile if isinstance(profile, dict) else {}
+    profile_roles = dict(_profile_roles(profile))
+    for role in ("research", "audit"):
+        receipt = _load(bundle / (role + "-receipt.json"), _load(research / (role + "-receipt.json"), None))
+        if isinstance(receipt, dict) and receipt.get("ended_at"):
+            usage = receipt.get("usage", {})
+            profile_roles[role] = dict(receipt, active=False, tokens=usage.get("totals", {}),
+                                       receipts=usage.get("receipts", []))
+    if profile_roles:
+        profile = dict(profile, roles=profile_roles)
+        _save(bundle / "profile.json", profile)
     model_receipts = _profile_receipts(profile) or _normalize_receipts(run.get("receipts"))
     graph["profile_summary"] = {"roles": _profile_roles(profile)}
     if efficiency:

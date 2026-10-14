@@ -503,10 +503,21 @@ def public_work_download(work, transport, resolver):
                 result = public_download(public, url, resolver, work)
                 if url in raw_hints and (result[1] != "application/pdf" or not pdf_matches_work(result[0], work)):
                     return None, False
+                raw, kind, _ = result
+                # Extractability belongs to each racing copy: a fast unreadable
+                # response must not discard an accessible alternative.
+                if kind == "application/pdf":
+                    _pdf_text(raw)
+                elif kind in ("application/xml", "text/xml", "application/tei+xml"):
+                    _xml_text(raw)
+                elif kind == "text/html":
+                    article_text(raw, work)
+                else:
+                    return None, False
                 return result, False
             except httpx.TimeoutException:
                 return None, True
-            except (httpx.HTTPError, ValueError, OSError):
+            except (httpx.HTTPError, ValueError, OSError, AccessFailure):
                 return None, False
 
     def metadata(provider):
@@ -620,6 +631,13 @@ def _xml_text(raw: bytes) -> str:
         def section_text(section):
             pieces = []
             def walk(element):
+                if tag(element) in ("tr", "row"):
+                    cells = [child for child in element if tag(child) in ("td", "th", "cell")]
+                    if cells:
+                        pieces.append("\n\n")
+                        pieces.append(" | ".join(" ".join(section_text(cell).split()) for cell in cells))
+                        pieces.append("\n\n")
+                        return
                 if tag(element) in blocks:
                     pieces.append("\n\n")
                 if element.text:

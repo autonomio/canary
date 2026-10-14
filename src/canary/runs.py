@@ -315,9 +315,9 @@ def parse_bundle(bundle: str | Path) -> dict:
     }
     if native_question:
         receipts = run.get("receipts") if isinstance(run.get("receipts"), list) else []
-        tokens = sum(r.get("usage", {}).get("total_tokens", 0) for r in receipts
-                     if isinstance(r, dict) and isinstance(r.get("usage"), dict)
-                     and type(r["usage"].get("total_tokens", 0)) is int)
+        totals = [r.get("usage", {}).get("total_tokens") if isinstance(r, dict) and isinstance(r.get("usage"), dict) else None
+                  for r in receipts]
+        tokens = sum(totals) if totals and all(type(value) is int and value >= 0 for value in totals) else None
         record.update(run_id=run.get("run_id", bundle.name), kind="question",
                       seed=run.get("question", "?"), started_at=run.get("generated_at"),
                       profile="question", maintenance=False,
@@ -546,9 +546,14 @@ def log_rows(path: str | Path = REGISTRY, root: str | Path = ROOT) -> list[dict]
             bundle = Path(root) / bundle
         parsed = parse_bundle(bundle) if bundle and bundle.is_dir() else {}
         entry = {key: row.get(key) for key in ("key", "name", "kind", "status")}
+        if parsed.get("kind") == "question":
+            known_failure = row.get("status") in _FAILURE_STATUS and parsed.get("status") in _ACTIVE_STATUS
+            entry["status"] = row.get("status") if known_failure else parsed.get("status", row.get("status"))
         entry["model"] = parsed.get("model", row.get("model"))
         entry["reasoning_effort"] = parsed.get("reasoning_effort", row.get("reasoning_effort"))
         entry.update({field: parsed.get(field, row.get(field)) for field in _LOG_FIELDS})
+        if parsed.get("kind") == "question" and row.get("status") in _FAILURE_STATUS and parsed.get("status") in _ACTIVE_STATUS:
+            entry["ended_at"] = row.get("ended_at")
         if entry["ended_at_estimated"] and not row.get("ended_at_estimated") and _timestamp(row.get("ended_at")):
             entry.update(ended_at=row["ended_at"], ended_at_estimated=False, duration_seconds=None)
         # Launcher timestamps remain available for bundles that have no research timing.

@@ -156,3 +156,71 @@ assert.doesNotMatch(html,/aria-label="Executive summary"/);
 """)
     result = subprocess.run(["node", str(probe)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_export_count_matches_binding_for_same_body_and_missing_sections(tmp_path):
+    import hashlib
+    from canary import coverage_runtime as runtime
+    refs, reviews = [], []
+    for number in (1, 2, 3):
+        wid = "W" + str(number)
+        text = "Quoted result for " + wid
+        raw = b"same paper bytes" if number < 3 else b"different bytes"
+        for name in ("texts", "papers", "passages"):
+            (tmp_path / name).mkdir(exist_ok=True)
+        (tmp_path / "texts" / (wid + ".txt")).write_text(text)
+        (tmp_path / "papers" / (wid + ".pdf")).write_bytes(raw)
+        pid = wid + "-p0001"
+        span = {"id": pid, "reference_id": wid, "start": 0, "end": len(text), "text": text, "page": 1}
+        (tmp_path / "passages" / (wid + ".jsonl")).write_text(json.dumps(span) + "\n")
+        refs.append({"id": wid, "doi": "https://doi.org/10.9999/" + wid, "file": "papers/" + wid + ".pdf", "text_file": "texts/" + wid + ".txt",
+                     "body_sha256": hashlib.sha256(raw).hexdigest(), "text_sha256": hashlib.sha256(text.encode()).hexdigest()})
+        reviews.append({"work_id": wid, "eligibility": "core", "passage_ids_read": [pid], "substantive_review_note": "Synthetic review",
+                        "investigated_sections": ["results"] if number < 3 else []})
+    runtime.write(tmp_path / "references.json", refs)
+    runtime.write(tmp_path / "reviewed-papers.json", reviews)
+    runtime.write(tmp_path / "selection.json", {"selected_for_review_ids": ["W1", "W2", "W3"]})
+    runtime.write(tmp_path / "run.json", {"question": "Synthetic?", "minimum_papers": 50})
+    runtime.write(tmp_path / "investigation.json", {"claims": [], "evidence": [], "study_results": []})
+    bound = runtime.bind_payload(tmp_path)
+    exported = coverage_export.export_bundle(tmp_path)
+    assert bound["accounting"]["substantively_reviewed_publications"] == exported["coverage"]["reviewed_papers"] == 1
+    assert bound["accounting"]["core_publications"] == exported["coverage"]["core_papers"] == 1
+
+
+def test_failed_session_receipt_remains_in_exported_usage(tmp_path):
+    (tmp_path / "run.json").write_text(json.dumps({"question": "Synthetic?", "status": "failed"}))
+    receipt = {"ended_at": "2026-10-14T00:01:00Z", "thread_id": "solo", "usage": {"totals": {"input_tokens": 100, "cached_input_tokens": 80, "output_tokens": 10, "total_tokens": 110}}}
+    (tmp_path / "research-receipt.json").write_text(json.dumps(receipt))
+    result = coverage_export.export_bundle(tmp_path)
+    assert result["run"]["status"] == "failed"
+    assert runs.parse_bundle(tmp_path)["input_tokens"] == 100
+    assert runs.parse_bundle(tmp_path)["output_tokens"] == 10
+    assert json.loads((tmp_path / "profile.json").read_text())["roles"]["research"]["active"] is False
+
+
+def test_unknown_native_total_is_not_reported_as_partial_or_zero(tmp_path):
+    (tmp_path / "run.json").write_text(json.dumps({"kind": "question", "receipts": [{"usage": {"total_tokens": 10}}, {"usage": {"total_tokens": None}}]}))
+    assert runs.parse_bundle(tmp_path)["usage"]["tokens"] is None
+    (tmp_path / "run.json").write_text(json.dumps({"kind": "question", "receipts": []}))
+    assert runs.parse_bundle(tmp_path)["usage"]["tokens"] is None
+
+
+def test_native_failure_and_restart_completion_remain_visible(tmp_path):
+    import io
+    bundle = tmp_path / "bundle";bundle.mkdir()
+    registry = tmp_path / "registry.json"
+    run = {"kind": "question", "execution_mode": "coverage-guided full-paper research", "status": "researching", "generated_at": "2026-10-14T00:00:00Z"}
+    (bundle / "run.json").write_text(json.dumps(run))
+    runs.register_start("native", "Native", "", "question", str(bundle), path=registry)
+    class Failed:
+        def wait(self):return 1
+    supervisor = dashboard.Supervisor(registry=registry, root=tmp_path)
+    supervisor._wait("native", Failed(), io.StringIO())
+    failure = supervisor.reconcile()[0]
+    assert failure["status"] == "failed" and failure["ended_at"] is not None
+    assert runs.log_rows(registry, tmp_path)[0]["status"] == "failed"
+    runs.register_start("native", "Native", "", "question", str(bundle), path=registry)
+    run.update(status="answered", ended_at="2026-10-14T00:02:00Z")
+    (bundle / "run.json").write_text(json.dumps(run))
+    assert runs.log_rows(registry, tmp_path)[0]["status"] == "answered"
