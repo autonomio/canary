@@ -438,3 +438,102 @@ const efficiency=sourceEfficiencyHtml({source_efficiency:{comparisons:[{id:'X1',
 assert.match(efficiency,/Inconsistent uncertainty · class high · score 1\/3/);assert.doesNotMatch(efficiency,/Low uncertainty/);
 assert.equal(JSON.stringify(graph),before);
 """)
+
+
+@pytest.mark.parametrize("first_role,later_role,duplicate_version", [
+    ("core", "supporting", False), ("supporting", "core", False), ("core", "supporting", True)])
+def test_review_count_matches_actual_audit_binder_and_keeps_full_ledger(tmp_path, first_role, later_role, duplicate_version):
+    import hashlib
+    from canary.coverage_runtime import bind_payload
+    investigation = {"claims": [{"id": "C1", "text": "Bound synthetic finding.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}]}
+    saved_bundle(tmp_path, investigation)
+    refs = json.loads((tmp_path / "references.json").read_text())
+    for ref in refs:
+        ref["body_sha256"] = hashlib.sha256((tmp_path / ref["file"]).read_bytes()).hexdigest()
+        ref["text_sha256"] = hashlib.sha256((tmp_path / ref["text_file"]).read_bytes()).hexdigest()
+    if duplicate_version:
+        refs[1]["doi"] = refs[0]["doi"]
+    (tmp_path / "references.json").write_text(json.dumps(refs))
+    def review(work, role, note):
+        return {"work_id": work, "eligibility": role, "substantive_review_note": note,
+                "passage_ids_read": ["p1" if work == "R1" else "p3"], "investigated_sections": ["Results"]}
+    target = "R2" if duplicate_version else "R1"
+    reviews = [review("R1", "supporting" if duplicate_version else "excluded", "Initial retained ledger record."),
+               review(target, first_role, "First eligible target review."),
+               review(target, later_role, "Later conflicting target review.")]
+    (tmp_path / "reviewed-papers.json").write_text(json.dumps(reviews))
+    (tmp_path / "selection.json").write_text(json.dumps({"selected_for_review_ids": ["R1", "R2"]}))
+    (tmp_path / "question-plan.json").write_text(json.dumps({"question": "Synthetic question?"}))
+    run = json.loads((tmp_path / "run.json").read_text()); run["minimum_papers"] = 1
+    (tmp_path / "run.json").write_text(json.dumps(run))
+    audit_input = bind_payload(tmp_path)
+    result = export_bundle(tmp_path); graph = result["answer"]; counts = result["coverage"]
+    assert counts["reviewed_papers"] == audit_input["accounting"]["substantively_reviewed_publications"] == 1
+    assert counts["core_papers"] == audit_input["accounting"]["core_publications"]
+    assert counts["supporting_papers"] == audit_input["accounting"]["supporting_publications"]
+    assert counts["review_record_issues"] == [{"kind": "duplicate_review_record", "work_id": target,
+        "record_count": 2, "counted_record_index": None if duplicate_version else 2,
+        "eligible_record_indices": [2, 3], "retained_record_index": 2}]
+    if not duplicate_version:
+        reference = next(r for r in graph["references"] if r["id"] == target)
+        assert reference["review"] == reviews[1] and reference["role"] == first_role
+    assert json.loads((tmp_path / "reviewed-papers.json").read_text()) == reviews
+    assert json.loads((tmp_path / "paper-selection.json").read_text())["reviewed_papers"] == reviews
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    run_dashboard(tmp_path, graph, "const reviews=" + json.dumps(reviews) + ";\n" + r"""
+const before=JSON.stringify(graph),html=coverageSelectionHtml({answer:graph,coverage:graph.coverage,
+ paper_selection:{reviewed_papers:reviews},run:{selection_method:'coverage-guided'}});
+assert.match(html,/Duplicate review records · first eligible record retained/);
+assert.match(html,/First eligible target review/);assert.match(html,/Later conflicting target review/);
+const issue=graph.coverage.review_record_issues[0];
+if(issue.counted_record_index==null) {assert.match(html,/this duplicate publication is not counted again/);assert.doesNotMatch(html,/record 2 is counted|data-qa-source="R2"/);}
+else {assert.match(html,/record 2 is counted/);assert.match(html,/data-qa-source="R1"/);}
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+@pytest.mark.parametrize("passage_ids,duplicate", [(["p_missing"], False), (["p1", "p_missing"], False), (["p_missing"], True)])
+def test_unavailable_passages_warn_every_link_without_fabricating_source_text(tmp_path, passage_ids, duplicate):
+    investigation = {"claims": [{"id": "C0", "text": "Finding linked to unresolved source passage.", "evidence_ids": ["E_bad"]},
+                                  {"id": "C1", "text": "Bound positive control.", "evidence_ids": ["E_good"]}],
+                     "evidence": [{"id": "E_bad", "passage_ids": passage_ids, "relation": "supports"},
+                                  *([{"id": "E_bad", "passage_ids": ["p3"], "relation": "qualifies"}] if duplicate else []),
+                                  {"id": "E_good", "passage_ids": ["p2"], "relation": "supports"}]}
+    graph = saved_bundle(tmp_path, investigation)
+    assert [i for i in graph["binding_issues"] if i["kind"] == "missing_passage"] == [
+        dict(kind="missing_passage", evidence_id="E_bad", passage_id="p_missing", **({"evidence_occurrence": 1} if duplicate else {}))]
+    assert all(p["id"] != "p_missing" for p in graph["passages"])
+    if "p1" not in passage_ids:
+        item = next(e for e in graph["evidence"] if e.get("verbatim_status") == "unavailable")
+        assert item["passage_ids"] == passage_ids and item["paragraph_id"] is None
+        assert "quote" not in item and "source_id" not in item
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text().split("## C0", 1)[1].split("## C1", 1)[0]
+    assert "recorded passage p_missing for evidence E_bad" in report and "is unavailable" in report
+    assert " / None" not in report and " / ?" not in report
+    if "p1" in passage_ids:
+        assert "First exact quotation." in report
+    elif not duplicate:
+        assert "> " not in report
+    else:
+        assert "Different paper quotation." in report and "Evidence E_bad · recorded occurrence 1 · supports" not in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),claim=graph.claims[0];
+assert.match(findingHtml(graph,claim),/Provenance failure/);assert.doesNotMatch(findingHtml(graph,graph.claims[1]),/Provenance failure/);
+assert.match(claimInspector(graph,'C0'),/Recorded passage p_missing is unavailable/);
+const item=graph.evidence.find(e=>e.origin_evidence_id==='E_bad'),id=item.navigation_id || item.id,html=evidenceInspector(graph,id);
+assert.match(html,/p_missing/);
+if(item.verbatim_status==='unavailable') {
+ assert.match(html,/recorded verbatim passages are unavailable/);assert.doesNotMatch(html,/<blockquote>|data-qa-context=|data-qa-source=|data-qa-paper=/);
+ assert.match(qaEvidencePacketButton(qaEvidencePackets(graph,[id])[0]),/Verbatim unavailable/);
+ if(!item.evidence_occurrence) {const old={...graph,evidence:graph.evidence.filter(e=>e.verbatim_status!=='unavailable')};assert.match(evidenceInspector(old,'E_bad'),/p_missing/);assert.doesNotMatch(evidenceInspector(old,'E_bad'),/<blockquote>|data-qa-context=/);}
+} else {assert.match(html,/First exact quotation\./);assert.match(html,/data-qa-context=/);}
+if(item.evidence_occurrence) {
+ const group=evidenceInspector(graph,'E_bad'),one=group.split('data-evidence-occurrence="1"')[1].split('</section>')[0],two=group.split('data-evidence-occurrence="2"')[1].split('</section>')[0];
+ assert.match(one,/p_missing/);assert.doesNotMatch(one,/<blockquote>|data-qa-context=/);
+ assert.match(two,/Different paper quotation\./);assert.doesNotMatch(two,/p_missing/);
+}
+S.selected='unavailable';S.research.unavailable={answer:graph};global.document={getElementById:()=>null};
+(async()=>{await inspectAnswer('evidence',id);if(item.verbatim_status==='unavailable') assert.equal(S.inspector.sourceId,undefined);assert.equal(JSON.stringify(graph),before);})().catch(error=>{console.error(error);process.exitCode=1;});
+""")

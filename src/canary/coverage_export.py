@@ -173,13 +173,19 @@ def _save_markdown(path: Path, graph: dict):
         lines.extend(["## " + label, "", str(claim.get("text", "")), "",
                       f'Uncertainty: {claim.get("uncertainty_class", "unknown")} ({claim.get("uncertainty_score", "unknown")}/3; ordinal).',
                       str(claim.get("uncertainty_rationale", "")), "Audit: " + str(checks.get(claim["id"], {}).get("assessment", "not_checked")), ""])
+        linked_evidence = set(claim.get("evidence_ids", []))
+        linked_evidence.update(e.get("origin_evidence_id") for e in evidence
+                               if e.get("navigation_id", e.get("id")) in linked_evidence)
         for issue in _rows(graph.get("binding_issues")):
             linked = issue.get("claim_id") == claim["id"] or (
                 not issue.get("claim_id") and (issue.get("study_result_id") in claim.get("study_result_ids", []) or
-                issue.get("evidence_id") in claim.get("evidence_ids", [])))
+                issue.get("evidence_id") in linked_evidence))
             if not linked or issue.get("claim_occurrence", claim.get("claim_occurrence")) != claim.get("claim_occurrence"):
                 continue
-            if issue.get("kind") == "lacks_verbatim":
+            if issue.get("kind") == "missing_passage":
+                occurrence = f" · recorded occurrence {issue['evidence_occurrence']}" if "evidence_occurrence" in issue else ""
+                lines.extend([f"Provenance failure: recorded passage {issue.get('passage_id')} for evidence {issue.get('evidence_id')}{occurrence} is unavailable.", ""])
+            elif issue.get("kind") == "lacks_verbatim":
                 occurrence = f" · recorded occurrence {issue['evidence_occurrence']}" if "evidence_occurrence" in issue else ""
                 lines.extend([f"Provenance failure: evidence {issue.get('evidence_id')}{occurrence} has no recorded verbatim passages.", ""])
             elif issue.get("kind") == "uncertainty_mismatch":
@@ -202,7 +208,7 @@ def _save_markdown(path: Path, graph: dict):
             items = [r for r in evidence if (r.get("origin_evidence_id") == eid if ambiguous else
                                              r.get("navigation_id", r.get("id")) == eid)]
             for item in items:
-                if item.get("verbatim_status") == "missing":
+                if item.get("verbatim_status") in ("missing", "unavailable"):
                     continue  # The metadata-only packet has no quotation or source attribution.
                 span = passages.get(item.get("paragraph_id"), {})
                 occurrence = f" · recorded occurrence {item['evidence_occurrence']}" if "evidence_occurrence" in item else ""
@@ -294,13 +300,22 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
             ref.update(preview_marker_detected=True, full_text_status="preview_suspected")
     preview_count = sum(bool(r.get("preview_marker_detected") or r.get("full_text_status") == "preview_suspected") for r in refs.values())
     selected = set(selection.get("selected_for_review_ids", []))
-    admitted = {r["work_id"]: r for r in reviewed
+    eligible_reviews = [(index, r) for index, r in enumerate(reviewed, 1)
                 if r.get("work_id") in selected and r.get("eligibility") in ("core", "supporting")
                 and r.get("passage_ids_read") and str(r.get("substantive_review_note", "")).strip() and r.get("investigated_sections")
                 and r.get("work_id") in refs and not refs[r["work_id"]].get("preview_marker_detected")
                 and refs[r["work_id"]].get("full_text_status") != "preview_suspected"
                 and all(pid in spans and spans[pid].get("reference_id", spans[pid].get("source_id")) == r["work_id"]
-                        for pid in r.get("passage_ids_read", []))}
+                        for pid in r.get("passage_ids_read", []))]
+    admitted, review_record_indices = {}, {}
+    for index, review in eligible_reviews:
+        identifier = review["work_id"]
+        admitted.setdefault(identifier, review)  # Match the audit binder's first eligible record.
+        review_record_indices.setdefault(identifier, []).append(index)
+    review_record_issues = [{"kind": "duplicate_review_record", "work_id": identifier,
+                            "record_count": len(indices), "counted_record_index": indices[0],
+                            "eligible_record_indices": indices}
+                           for identifier, indices in review_record_indices.items() if len(indices) > 1]
     publications, counted, seen_bodies = {}, {}, set()
     for sid, row in admitted.items():
         ref = refs[sid]
@@ -314,6 +329,10 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         if body:
             seen_bodies.add(body)
     admitted = counted
+    for issue in review_record_issues:
+        issue["retained_record_index"] = issue["counted_record_index"]
+        if issue["work_id"] not in admitted:
+            issue["counted_record_index"] = None  # Duplicate publication/version, not another counted paper.
     roles = Counter(row["eligibility"] for row in admitted.values())
     graph = {"question": question, "model": run.get("model", "gpt-6.1-sol"),
              "executive_summary": investigation.get("executive_summary", []), "claims": [],
@@ -357,22 +376,26 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         ambiguous = identifier in duplicate_evidence_ids
         identifiers = _unique(evidence.get("passage_ids", []))
         evidence_map.setdefault(identifier, [identifier] if ambiguous else [])
-        if not identifiers:
+        if not identifiers or not any(pid in spans for pid in identifiers):
             issue = {"kind": "lacks_verbatim", "evidence_id": identifier}
             item = {"id": identifier, "origin_evidence_id": identifier, "paragraph_id": None,
-                    "passage_ids": [], "verbatim_status": "missing",
+                    "passage_ids": identifiers, "verbatim_status": "unavailable" if identifiers else "missing",
                     "interpretation": evidence.get("interpretation", ""), "relation": evidence.get("relation")}
             if ambiguous:
                 issue["evidence_occurrence"] = occurrence
                 item.update(evidence_occurrence=occurrence, navigation_id=derived_id(f"{identifier}~occurrence{occurrence}.1"))
-            graph["binding_issues"].append(issue)
+            if not identifiers:
+                graph["binding_issues"].append(issue)
             graph["evidence"].append(item)
             if not ambiguous:
                 evidence_map[identifier].append(identifier)
         for n, pid in enumerate(identifiers, 1):
             span = spans.get(pid)
             if span is None:
-                graph["binding_issues"].append({"kind": "missing_passage", "evidence_id": identifier, "passage_id": pid})
+                issue = {"kind": "missing_passage", "evidence_id": identifier, "passage_id": pid}
+                if ambiguous:
+                    issue["evidence_occurrence"] = occurrence
+                graph["binding_issues"].append(issue)
                 continue
             eid = identifier if len(identifiers) == 1 else derived_id(f"{identifier}.{n}")
             item = {"id": eid, "origin_evidence_id": identifier, "paragraph_id": pid,
@@ -565,6 +588,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                 "scarcity_statement": accounting.get("scarcity_statement"),
                 "scarcity_independently_certified": accounting.get("scarcity_independently_certified", False),
                 "counts_scope": "Reviewed papers require selected admission, core/supporting eligibility, read passages and a substantive review note. Related reports may share participants or studies; paper count is not independent study count."}
+    if review_record_issues:
+        coverage["review_record_issues"] = review_record_issues
     search_progress = _load(source / "search-progress.json", _load(bundle / "search-progress.json", None))
     if isinstance(search_progress, dict):
         coverage["search_progress"] = search_progress
