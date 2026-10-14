@@ -88,3 +88,71 @@ def test_export_reports_real_search_count_and_saves_partial_answer(tmp_path):
     assert "Audit: not_checked" in report
     assert dashboard.research_bundle(tmp_path)["synthesis_md"] == report
     assert runs._has_answer(tmp_path, result["run"], "partial") is True
+
+
+def test_nested_export_refreshes_canonical_efficiency_and_access_receipts(tmp_path):
+    source = tmp_path / "scientist"
+    source.mkdir()
+    (source / "download-receipts").mkdir()
+    (source / "download-receipts" / "W9.json").write_text(json.dumps({"work_id": "W9", "status": "unavailable"}))
+    (source / "openalex-requests.json").write_text(json.dumps([{"status": 200}, {"status": 200}]))
+    (tmp_path / "run.json").write_text(json.dumps({"question": "Synthetic?", "status": "researching"}))
+    (source / "investigation.json").write_text(json.dumps({"claims": []}))
+    first = {"scope_note": "First committed version", "comparisons": []}
+    (source / "efficiency.json").write_text(json.dumps(first))
+    initial = coverage_export.export_bundle(tmp_path, source_dir=source, research_dir=source)
+    assert initial["answer"]["source_efficiency"] == first
+    second = {"scope_note": "Second committed version", "comparisons": [], "remaining_unknown": ["Denominator absent"]}
+    (source / "efficiency.json").write_text(json.dumps(second))
+    updated = coverage_export.export_bundle(tmp_path, source_dir=source, research_dir=source)
+    assert updated["answer"]["source_efficiency"] == second
+    assert json.loads((tmp_path / "source-efficiency.json").read_text()) == second
+    assert updated["access"]["excluded"] == [{"work_id": "W9", "status": "unavailable"}]
+    assert updated["run"]["keyword_requests"] == 2
+
+
+def test_retrieved_preview_counts_and_log_are_distinct_from_reviewed(tmp_path):
+    texts = tmp_path / "texts";texts.mkdir()
+    body = "This is a preview of subscription content."
+    (texts / "W1.txt").write_text(body)
+    ref = {"id": "W1", "text_file": "texts/W1.txt", "file": "papers/W1.pdf", "full_text_status": "requires_source_verification"}
+    (tmp_path / "references.json").write_text(json.dumps([ref]))
+    (tmp_path / "run.json").write_text(json.dumps({"question": "Synthetic?", "status": "researching"}))
+    result = coverage_export.export_bundle(tmp_path)
+    assert result["coverage"]["retrieved_sources"] == 1
+    assert result["coverage"]["preview_suspected_sources"] == 1
+    assert result["coverage"]["available_papers"] == 0
+    metrics = runs._bundle_log_metrics(tmp_path, result["run"], {}, [], {"status": "in_progress"})
+    assert metrics["papers_acquired"] == 1 and metrics["papers_covered"] == 0
+    assert metrics["preview_suspected_sources"] == 1
+
+
+def test_real_dashboard_renders_committed_claims_without_an_executive_summary(tmp_path):
+    import re, subprocess
+    script = dashboard.UI_PATH.read_text()
+    names = ("qaGraph", "active", "answerHtml")
+    functions = []
+    for name in names:
+        match = re.search(r"(?:^|\n)\s*function " + name + r"\([^\n]*", script)
+        assert match is not None
+        end = re.search(r"\n\s*function ", script[match.end():])
+        functions.append(script[match.start():match.end() + end.start()] if end else script[match.start():])
+    probe = tmp_path / "partial-answer.js"
+    probe.write_text("\n".join(functions) + """
+const assert=require('node:assert/strict');
+const esc=String, cliResearch=()=>true, acquisitionHtml=()=>'', coverageAuditHtml=()=>'<p>Audit pending</p>',
+      sourceEfficiencyHtml=()=>'<p>Recorded denominator limits</p>', peerReviewHtml=()=>'',
+      researchStructureHtml=()=>'', findingHtml=(g,c)=>'<p>'+c.text+'</p>';
+const data={run:{status:'researching'},answer:{claims:[{id:'C1',text:'Committed attributed finding'}],executive_summary:[],gaps:[],caveats:[],next_questions:[]}};
+assert.equal(qaGraph(data),data.answer);
+assert.equal(qaGraph({answer:{claims:[],executive_summary:[]}}),null);
+assert.equal(active({kind:'question',status:'researching'}),true);
+assert.equal(active({kind:'question',status:'auditing'}),true);
+const html=answerHtml({kind:'question',status:'researching'},data);
+assert.match(html,/Committed attributed finding/);
+assert.match(html,/Recorded denominator limits/);
+assert.match(html,/Audit pending/);
+assert.doesNotMatch(html,/aria-label="Executive summary"/);
+""")
+    result = subprocess.run(["node", str(probe)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

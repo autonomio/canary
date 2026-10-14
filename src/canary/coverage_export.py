@@ -9,6 +9,7 @@ import json
 import os
 import hashlib
 import shutil
+import re
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -176,7 +177,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     question = plan.get("question") or run.get("question") or context.get("question") or "?"
     refs = {r["id"]: r for r in _rows(_load(source / "references.json", payload.get("references", []))) if r.get("id")}
     receipts = []
-    for path in sorted((bundle / "download-receipts").glob("*.json")):
+    receipt_dir = source / "download-receipts" if (source / "download-receipts").is_dir() else bundle / "download-receipts"
+    for path in sorted(receipt_dir.glob("*.json")):
         receipt = _load(path, {})
         if not isinstance(receipt, dict):
             continue
@@ -199,6 +201,16 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
             row = json.loads(line)
             if isinstance(row, dict) and row.get("id"):
                 spans[row["id"]] = row
+    # Older acquisition receipts may predate a newly observed preview marker.
+    # Derive its label from committed source text without rewriting that receipt.
+    for ref in refs.values():
+        try:
+            text = (source / ref["text_file"]).read_text(encoding="utf-8")
+        except (KeyError, OSError):
+            continue
+        if re.search(r"article[- ]preview|section snippets|access through your organization|purchase this article|preview\s+of\s+subscription\s+content", text, re.I):
+            ref.update(preview_marker_detected=True, full_text_status="preview_suspected")
+    preview_count = sum(bool(r.get("preview_marker_detected") or r.get("full_text_status") == "preview_suspected") for r in refs.values())
     selected = set(selection.get("selected_for_review_ids", []))
     admitted = {r["work_id"]: r for r in reviewed
                 if r.get("work_id") in selected and r.get("eligibility") in ("core", "supporting")
@@ -224,7 +236,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
              "residue": investigation.get("residue", []), "scope_note": investigation.get("scope_note", ""),
              "source_check_method": "astra_full_paper_audit", "source_check_model": "gpt-6-astra",
              "source_check_reasoning_effort": "ultra", "source_checks": [], "binding_issues": []}
-    efficiency = _load(bundle / "source-efficiency.json", _load(research / "efficiency.json", {}))
+    efficiency = _load(research / "efficiency.json", _load(bundle / "source-efficiency.json", {}))
     efficiency = efficiency if isinstance(efficiency, dict) else {}
     used_passages = {pid for comparison in _rows(efficiency.get("comparisons"))
                      for pid in _unique(comparison.get("passage_ids", []))}
@@ -342,7 +354,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     coverage = {"selection_method": "coverage-guided", "target_papers": target, "reviewed_papers": covered,
                 "core_papers": roles.get("core", 0), "supporting_papers": roles.get("supporting", 0),
                 "cited_sources": len({p["source_id"] for p in graph["passages"]}),
-                "available_papers": len(refs), "discovered_candidates": len(candidates),
+                "available_papers": len(refs) - preview_count, "retrieved_sources": len(refs),
+                "preview_suspected_sources": preview_count, "discovered_candidates": len(candidates),
                 "assessed_candidates": len(set(selection.get("assessed_candidate_ids", []))),
                 "decision_records": len(_rows(selection.get("decisions"))), "related_report_groups": groups,
                 "independent_study_count": None,
@@ -362,7 +375,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     status = ("in_progress" if lifecycle in ("planning", "researching", "reading", "acquiring", "auditing")
               else "answered" if lifecycle in ("complete", "completed") and graph["claims"]
               else lifecycle)
-    requests = _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None))
+    requests = _load(source / "openalex-requests.json", _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None)))
     graph["audit"] = {"status": "pending" if not audit else "complete" if audit_case.get("audit_complete") else "partial",
                        "model": "gpt-6-astra", "reasoning_effort": "ultra",
                        "checked_claims": sum(check.get("assessment") != "not_checked" for check in graph["source_checks"]),
@@ -378,7 +391,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                llm_calls=sum(record.get("usage", {}).get("response_count", record.get("responses", 0))
                              for record in _profile_roles(profile).values()),
                papers_reviewed=covered, papers_core=roles.get("core", 0), papers_supporting=roles.get("supporting", 0),
-               target_papers=target, audit_status=graph["audit"]["status"], coverage=coverage,
+               target_papers=target, preview_suspected_sources=preview_count, audit_status=graph["audit"]["status"], coverage=coverage,
                keyword_requests=sum(r.get("status") == 200 for r in requests if isinstance(r, dict)) if isinstance(requests, list) else run.get("keyword_requests"),
                search_scope="OpenAlex search across titles, abstracts, keywords and indexed full text; abstract relevance assessment followed by full-paper review.")
     access = {"accepted": accepted, "excluded": [r for r in receipts if r.get("status") not in ("downloaded_full_paper", "source_retrieved")],

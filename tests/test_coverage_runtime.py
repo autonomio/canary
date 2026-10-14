@@ -187,3 +187,21 @@ def test_subscription_preview_is_labeled_and_never_counted_as_full_review(tmp_pa
     runtime.write(tmp_path / "reviewed-papers.json", [{"work_id": "W1", "eligibility": "core", "passage_ids_read": [pid],
         "substantive_review_note": "A preview was incorrectly marked core", "investigated_sections": ["methods"]}])
     assert runtime.bind_payload(tmp_path)["accounting"]["substantively_reviewed_publications"] == 0
+
+
+def test_progress_refresh_exports_committed_claims_and_exact_role_usage(tmp_path, monkeypatch):
+    runtime.write(tmp_path / "run.json", {"question": "Synthetic?", "status": "researching"})
+    runtime.write(tmp_path / "investigation.json", {"claims": [{"id": "C1", "text": "Committed finding", "evidence_ids": []}]})
+    usage = {"available": True, "totals": {"input_tokens": 100, "cached_input_tokens": 80, "output_tokens": 10}, "receipts": []}
+    monkeypatch.setattr(runtime, "native_usage", lambda thread: usage)
+    result = runtime.refresh_committed_progress(tmp_path, "research", "gpt-6.1-sol", "xhigh", "solo", "2026-10-14T00:00:00Z", 12)
+    assert result["answer"]["claims"][0]["text"] == "Committed finding"
+    assert result["run"]["status"] == "in_progress" and result["run"]["runtime_status"] == "researching"
+    profile = runtime.read(tmp_path / "profile.json")
+    assert profile["active_role"] == "research"
+    assert profile["roles"]["research"]["ended_at"] is None
+    assert profile["roles"]["research"]["tokens"] == usage["totals"]
+    from canary import coverage_export
+    monkeypatch.setattr(coverage_export, "export_bundle", lambda workspace: (_ for _ in ()).throw(ValueError("Malformed intermediate artifact")))
+    assert runtime.refresh_committed_progress(tmp_path, "research", "gpt-6.1-sol", "xhigh", "solo", "2026-10-14T00:00:00Z", 22) is None
+    assert "progress_export_failed" in (tmp_path / "runtime-progress.jsonl").read_text()

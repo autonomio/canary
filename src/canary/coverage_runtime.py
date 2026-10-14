@@ -578,6 +578,25 @@ def command_line(executable, model, effort, workspace, shape, output):
         "--approve-for-me", "--output-schema", str(shape), "-o", str(output), "-"]
 
 
+def refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed):
+    """Refresh committed artifacts and exact native receipts without another model call."""
+    from .coverage_export import export_bundle
+    try:
+        profile = read(workspace / "profile.json", {}) or {}
+        roles = profile.get("roles")
+        roles = dict(roles) if isinstance(roles, dict) else {
+            name: record for name, record in profile.items() if name in ("research", "audit") and isinstance(record, dict)}
+        usage = native_usage(thread_id) if thread_id else {"available": False, "reason": "Thread not yet recorded"}
+        roles[role] = {"active": True, "thread_id": thread_id, "model": model, "reasoning_effort": effort,
+                       "started_at": started, "ended_at": None, "seconds": round(elapsed, 3),
+                       "usage": usage, "tokens": usage.get("totals", {}), "receipts": usage.get("receipts", [])}
+        write(workspace / "profile.json", {"roles": roles, "active_role": role})
+        return export_bundle(workspace)
+    except Exception as error:
+        event(workspace, "progress_export_failed", role=role, error=type(error).__name__ + ": " + str(error))
+        return None
+
+
 def scientific_session(workspace, role, model, effort, prompt, shape, *, executable, audit_timeout=None):
     started, before = now(), time.monotonic()
     schema_path, output_path = workspace / (role + "-schema.json"), workspace / (role + "-response.json")
@@ -588,7 +607,7 @@ def scientific_session(workspace, role, model, effort, prompt, shape, *, executa
     write(workspace / (role + "-invocation.json"), {"argv": command, "started_at": started,
         "model": model, "effort": effort, "cli_version": version, "subagents_enabled": False})
     event(workspace, role + "_started", model=model, reasoning_effort=effort)
-    thread_id, turn_usage, timed_out = None, [], False
+    thread_id, turn_usage, timed_out, last_refresh = None, [], False, 0.0
     with (workspace / (role + "-events.jsonl")).open("w") as events, (workspace / (role + "-stderr.log")).open("w") as stderr:
         process = subprocess.Popen(command, cwd=workspace, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=stderr, text=True, start_new_session=True)
@@ -630,6 +649,13 @@ def scientific_session(workspace, role, model, effort, prompt, shape, *, executa
                     event(workspace, role + "_message", text=item.get("text", "")[:1600])
                 if record.get("type") in ("turn.failed", "error"):
                     event(workspace, role + "_error", detail=record)
+                # Completed tools/messages expose only committed artifacts;
+                # reasoning items are never published to the researcher UI.
+                if record.get("type") in ("thread.started", "item.completed", "turn.completed"):
+                    elapsed = time.monotonic() - before
+                    if record.get("type") == "thread.started" or elapsed - last_refresh >= 10:
+                        refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed)
+                        last_refresh = elapsed
             exit_code = process.wait()
         finally:
             if timer:

@@ -347,11 +347,11 @@ def parse_bundle(bundle: str | Path) -> dict:
     return record
 
 
-_ACTIVE_STATUS = {None, "", "unknown", "started", "starting", "running", "in_progress", "paused"}
+_ACTIVE_STATUS = {None, "", "unknown", "started", "starting", "running", "in_progress", "paused", "planning", "researching", "reading", "acquiring", "auditing"}
 _FAILURE_STATUS = {"failed", "interrupted", "cancelled", "provider_blocked", "invalid_input"}
 _LOG_FIELDS = ("started_at", "ended_at", "duration_seconds", "papers_covered", "papers_acquired", "answered",
                "input_tokens", "output_tokens", "cached_tokens", "timing_source",
-               "ended_at_estimated", "papers_core", "papers_supporting", "target_papers", "audit_status")
+               "ended_at_estimated", "papers_core", "papers_supporting", "target_papers", "audit_status", "preview_suspected_sources")
 
 
 def _timestamp(value) -> datetime | None:
@@ -524,6 +524,7 @@ def _bundle_log_metrics(bundle: Path, run: dict, manifest: dict,
         # Source graph includes reviewed and cited context; only committed substantive
         # review records establish a reviewed-paper count.
         papers = _count(run.get("papers_reviewed"))
+        acquired = _count(run.get("available_unique_sources"))
     tokens = _receipt_tokens(run.get("receipts", profile.get("receipts")))
     return {"started_at": start.isoformat() if start else None,
             "ended_at": end.isoformat() if end else None,
@@ -532,7 +533,8 @@ def _bundle_log_metrics(bundle: Path, run: dict, manifest: dict,
             "answered": _has_answer(bundle, run, record.get("status", "unknown")),
             "papers_core": _count(run.get("papers_core")),
             "papers_supporting": _count(run.get("papers_supporting")),
-            "target_papers": _count(run.get("target_papers")), "audit_status": run.get("audit_status"), **tokens}
+            "target_papers": _count(run.get("target_papers")), "audit_status": run.get("audit_status"),
+            "preview_suspected_sources": _count(run.get("preview_suspected_sources")), **tokens}
 
 
 def log_rows(path: str | Path = REGISTRY, root: str | Path = ROOT) -> list[dict]:
