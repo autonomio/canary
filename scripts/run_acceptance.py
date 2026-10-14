@@ -421,6 +421,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Deterministic offline acceptance.")
     ap.add_argument("--out", default=None, help="output dir (default acceptance/<date>)")
     args = ap.parse_args(argv)
+    # Use this interpreter's check tools even when launched without activation.
+    os.environ["PATH"] = str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", "")
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     out = Path(args.out) if args.out else ROOT / "acceptance" / day
     out.mkdir(parents=True, exist_ok=True)
