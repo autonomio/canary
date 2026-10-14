@@ -182,6 +182,7 @@ def test_export_count_matches_binding_for_same_body_and_missing_sections(tmp_pat
     runtime.write(tmp_path / "selection.json", {"selected_for_review_ids": ["W1", "W2", "W3"]})
     runtime.write(tmp_path / "run.json", {"question": "Synthetic?", "minimum_papers": 50})
     runtime.write(tmp_path / "investigation.json", {"claims": [], "evidence": [], "study_results": []})
+    runtime.write(tmp_path / "question-plan.json", {"question": "Synthetic?"})
     bound = runtime.bind_payload(tmp_path)
     exported = coverage_export.export_bundle(tmp_path)
     assert bound["accounting"]["substantively_reviewed_publications"] == exported["coverage"]["reviewed_papers"] == 1
