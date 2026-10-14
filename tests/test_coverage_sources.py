@@ -350,7 +350,8 @@ def test_html_div_keeps_contiguous_inline_measurements_in_one_paragraph(inline):
 
 def test_html_nested_mixed_blocks_keep_inline_runs_and_structural_boundaries():
     raw = ('<article><div><h2>Results</h2>Initial 1.<em>23</em> mg.'
-        '<section><h3>Methods</h3><div>Nested <strong>4.<em>56</em></strong> mg.'</n        '<p>Separate 7.<span>89</span> mg.</p>Trailing 10.<em>11</em> mg.</div></section>'
+        '<section><h3>Methods</h3><div>Nested <strong>4.<em>56</em></strong> mg.'
+        '<p>Separate 7.<span>89</span> mg.</p>Trailing 10.<em>11</em> mg.</div></section>'
         'After 12.<em>34</em> mg.<table><tr><td>15.<em>67</em></td><td>18.90</td></tr></table>'
         'Final 21.<span>23</span> mg.</div></article>')
     assert sources.article_text(raw) == (
