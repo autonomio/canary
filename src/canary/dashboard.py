@@ -29,7 +29,7 @@ from xml.etree import ElementTree
 
 from . import runs
 
-QUESTION_ENGINE_ROOT = Path(os.environ.get("CANARY_QUESTION_ENGINE_ROOT", runs.ROOT))
+QUESTION_ENGINE_ROOT = Path(os.environ.get("CANARY_QUESTION_ENGINE_ROOT", runs.ROOT)).resolve()
 DEFAULT_PORT = 8789
 MAX_BODY = 64 * 1024
 FINDINGS_TTL_S = 60

@@ -1,5 +1,7 @@
 """Offline runtime contracts; fake acquisition/receipts are not scientific validation."""
 import json
+import multiprocessing
+from pathlib import Path
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -356,3 +358,102 @@ def test_progress_refresh_exports_committed_claims_and_exact_role_usage(tmp_path
     monkeypatch.setattr(coverage_export, "export_bundle", lambda workspace: (_ for _ in ()).throw(ValueError("Malformed intermediate artifact")))
     assert runtime.refresh_committed_progress(tmp_path, "research", "gpt-6.1-sol", "xhigh", "solo", "2026-10-14T00:00:00Z", 22) is None
     assert "progress_export_failed" in (tmp_path / "runtime-progress.jsonl").read_text()
+
+
+@pytest.mark.parametrize("preexisting_empty", [False, True])
+def test_new_run_reserves_fresh_or_preexisting_empty_workspace(tmp_path, monkeypatch, preexisting_empty):
+    workspace = tmp_path / "research"
+    if preexisting_empty:
+        workspace.mkdir()
+    calls = []
+    def stop_without_model(*args, **kwargs):
+        calls.append(args[1])
+        raise RuntimeError("Offline session boundary")
+    monkeypatch.setattr(runtime, "scientific_session", stop_without_model)
+    with pytest.raises(RuntimeError, match="Offline session boundary"):
+        runtime.run("Fresh question?", workspace, executable="offline-codex")
+    assert calls == ["research"]
+    assert (workspace / ".run-reservation").is_file()
+    assert runtime.read(workspace / "run.json")["question"] == "Fresh question?"
+    before = {p.name: p.read_bytes() for p in workspace.iterdir() if p.is_file()}
+    with pytest.raises(ValueError, match="empty workspace"):
+        runtime.run("Replacement question?", workspace, executable="offline-codex")
+    assert calls == ["research"]
+    assert {p.name: p.read_bytes() for p in workspace.iterdir() if p.is_file()} == before
+
+
+def test_run_rejects_occupied_workspace_without_adding_or_overwriting_files(tmp_path, monkeypatch):
+    workspace = tmp_path / "research"
+    workspace.mkdir()
+    sentinel = workspace / "retained-source.txt"
+    sentinel.write_bytes(b"Existing source remains unchanged")
+    def never_run(*args, **kwargs):
+        raise AssertionError("Occupied workspace must not start a scientific session")
+    monkeypatch.setattr(runtime, "scientific_session", never_run)
+    with pytest.raises(ValueError, match="empty workspace"):
+        runtime.run("New question?", workspace, executable="offline-codex")
+    assert {p.name: p.read_bytes() for p in workspace.iterdir()} == {sentinel.name: b"Existing source remains unchanged"}
+
+
+def test_concurrent_process_runs_have_one_atomic_workspace_owner(tmp_path, monkeypatch):
+    # Runtime already requires POSIX flock. Fork preserves offline stubs without
+    # importing/executing a real scientific harness in either child process.
+    context = multiprocessing.get_context("fork")
+    workspace = (tmp_path / "research").resolve()
+    workspace.mkdir()
+    both_saw_empty = context.Barrier(2)
+    entered = context.Event()
+    rejected = context.Event()
+    release = context.Event()
+    messages = context.Queue()
+    original_iterdir = Path.iterdir
+    def synchronized_empty_check(path):
+        if path == workspace:
+            snapshot = list(original_iterdir(path))
+            both_saw_empty.wait(timeout=5)
+            return iter(snapshot)
+        return original_iterdir(path)
+    def stop_without_model(*args, **kwargs):
+        messages.put(("entered", runtime.read(workspace / "run.json")["question"]))
+        entered.set()
+        if not release.wait(timeout=10):
+            raise RuntimeError("Offline session release timed out")
+        raise RuntimeError("Offline session boundary")
+    monkeypatch.setattr(Path, "iterdir", synchronized_empty_check)
+    monkeypatch.setattr(runtime, "scientific_session", stop_without_model)
+    def attempt(question):
+        try:
+            runtime.run(question, workspace, executable="offline-codex")
+        except Exception as error:
+            messages.put(("result", question, type(error).__name__, str(error)))
+            if isinstance(error, ValueError):
+                rejected.set()
+    processes = [context.Process(target=attempt, args=(question,)) for question in ("Question A?", "Question B?")]
+    for process in processes:
+        process.start()
+    try:
+        assert entered.wait(timeout=5), "One caller must reach the offline session"
+        assert rejected.wait(timeout=5), "The competing caller must lose reservation before writing assets"
+        owner = runtime.read(workspace / "run.json")["question"]
+        protected = {name: (workspace / name).read_bytes() for name in (
+            "question-plan-schema.json", "investigation-schema.json", "AGENTS.md", ".run-reservation")}
+    finally:
+        release.set()
+        for process in processes:
+            process.join(timeout=5)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=5)
+    assert all(process.exitcode == 0 for process in processes)
+    records = [messages.get(timeout=2) for _ in range(3)]
+    assert [r[1] for r in records if r[0] == "entered"] == [owner]
+    outcomes = {r[1]: r[2:] for r in records if r[0] == "result"}
+    assert len(outcomes) == 2
+    assert outcomes[owner] == ("RuntimeError", "Offline session boundary")
+    loser = next(question for question in outcomes if question != owner)
+    assert outcomes[loser][0] == "ValueError" and "reserved" in outcomes[loser][1]
+    assert runtime.read(workspace / "run.json")["question"] == owner
+    assert runtime.read(workspace / "run.json")["status"] == "failed"
+    assert {name: (workspace / name).read_bytes() for name in protected} == protected
+    messages.close()
+    messages.join_thread()

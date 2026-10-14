@@ -96,10 +96,17 @@ def _skip(node):
 
 
 def _plain(node):
-    if _skip(node):
-        return ""
-    return " ".join(" ".join(child if isinstance(child, str) else _plain(child)
-                             for child in node.children).split())
+    def content(current):
+        if _skip(current):
+            return ""
+        text = "".join(child if isinstance(child, str) else content(child)
+                       for child in current.children)
+        # Inline markup contributes no new characters; blocks/cells need a
+        # separator so adjacent paragraphs and measurements cannot fuse.
+        boundaries = BLOCKS | {"div", "section", "br", "hr", "td", "th", "tr", "caption", "dt", "dd"}
+        return " " + text + " " if current.tag in boundaries else text
+
+    return " ".join(content(node).split())
 
 
 def _blocks(node):

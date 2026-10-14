@@ -203,3 +203,18 @@ def test_readable_preview_cannot_win_race_over_complete_copy(monkeypatch, kind):
         assert not timed_out and preview_extracted.is_set() and not release_loser.is_set()
     finally:
         release_loser.set()
+
+
+@pytest.mark.parametrize("paragraph", [
+    "Measured 1.<em>23</em> mg with p&lt;<span>0.05</span>.",
+    "Measured <strong>1.<em>23</em></strong> mg with p&lt;<span>0.05</span>.",
+    "Measured <span>1.</span><span>23</span> mg with p&lt;0.05.",
+])
+def test_html_inline_markup_preserves_measurement_characters(paragraph):
+    raw = f"<article><h2>Results</h2><p>{paragraph}</p></article>"
+    assert sources.article_text(raw) == "Results\n\nMeasured 1.23 mg with p<0.05."
+
+
+def test_html_block_and_table_boundaries_do_not_fuse_measurements():
+    raw = "<article><h2>Results</h2><p><span>First</span> result.</p><p>Second result.</p><table><tr><td>1.<em>23</em></td><td>4.56</td></tr><tr><td>7.89</td><td>10.11</td></tr></table></article>"
+    assert sources.article_text(raw) == "Results\n\nFirst result.\n\nSecond result.\n\n1.23 4.56 7.89 10.11"

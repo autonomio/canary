@@ -783,6 +783,12 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
     workspace.mkdir(parents=True, exist_ok=True)
     if any(workspace.iterdir()):
         raise ValueError("A new research run requires an empty workspace; use tools only to resume acquisition within a run")
+    try:
+        # Exclusive creation reserves this directory across callers/processes,
+        # including after a crash. No run asset is written before reservation.
+        (workspace / ".run-reservation").touch(exist_ok=False)
+    except FileExistsError:
+        raise ValueError("This workspace is already reserved for a research run; choose an empty workspace") from None
     started, before = now(), time.monotonic()
     manifest = {"question": question, "kind": "question", "execution_mode": "coverage-guided full-paper research",
         "status": "researching", "started_at": started, "generated_at": started,
