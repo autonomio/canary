@@ -214,7 +214,6 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
             raise ValueError("QuestionPlan differs from this run question")
         if previous_plan and previous_plan["question"] != plan["question"]:
             raise ValueError("Workspace belongs to a different question")
-        write(workspace / "question-plan.json", plan)
         works = {w["id"].rsplit("/", 1)[-1]: w for w in read(workspace / "works.json", [])}
         for rank, work in enumerate(works.values(), 1):
             work.setdefault("fresh_search_rank", rank)
@@ -225,6 +224,10 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
             state = progress["queries"].get(query["id"])
             if state and state["search"] != query["search"]:
                 raise ValueError("Change a query ID when changing its search string")
+        # Rejected query redefinitions must not replace the saved plan paired
+        # with committed candidates and cursor receipts.
+        write(workspace / "question-plan.json", plan)
+        for query in plan["queries"]:
             progress["queries"].setdefault(query["id"], {"search": query["search"], "pages": 0, "cursor": "*", "complete": False})
         headers = {"User-Agent": "Canary/coverage-native", "Cache-Control": "no-cache", "Pragma": "no-cache"}
         key = operator_key(root)

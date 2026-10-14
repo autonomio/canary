@@ -103,11 +103,12 @@ def research_prompt(question, command, minimum_papers=50):
     return f"""Read the repository AGENTS.md first, then this workspace AGENTS.md. This is real research.
 Question: {question}
 {SCIENTIFIC_RULES}
-1. Write question-plan.json conforming to question-plan-schema.json. Use 'concepts', never 'entities'.
+1. Write question-plan-draft.json conforming to question-plan-schema.json. Use 'concepts', never 'entities'.
 Translate the question into concepts/synonyms, outcomes, comparators, conditions, coverage aspects and explicit inclusion/exclusion criteria.
 Queries must use OpenAlex full-text-inclusive search=; abstract/title-only filters are prohibited. Collapse genuinely shared root queries while preserving question relevance.
 Understand: discovery searches indexed full text plus abstracts/titles; relevance triage then reads candidate abstracts, not full papers.
-2. Run {command} discover --workspace . --plan question-plan.json. Read search-progress.json and candidates.jsonl.
+Discovery alone commits the validated question-plan.json; never overwrite that canonical file directly.
+2. Run {command} discover --workspace . --plan question-plan-draft.json. Read search-progress.json and candidates.jsonl.
 Choose batches by coverage-guided marginal information gain: direct comparisons, contrasting/adverse/null findings, condition/outcome differences, methods, then needed context.
 Record selection.json as {{method:'coverage', approach, assessed_candidate_ids, decisions:[{{work_id,decision:'include|exclude|defer',evidence_role:'core|supporting|unknown',reason,criterion_matches,unknowns,supporting_abstract_text,priority_rank,coverage_contribution}}], selected_for_review_ids, stopping_reason, selection_limitations}}.
 Exact abstract support or null; missing abstracts are uncertainty, not automatic exclusion. All omitted candidates remain unassessed.
@@ -121,7 +122,7 @@ Count unique publications, not versions. Do not pad with generic context. Persis
 [{{work_id,eligibility:'core|supporting|preview|irrelevant|uncertain',reason,investigated_sections,passage_ids_read,incorporated_in_output,related_study_ids,substantive_review_note}}].
 Notes must reflect actual question-linked reading of methods/results or equivalent context, not templated status notes.
 Update progress.jsonl with UTC milestones and admitted core/supporting counts. Keep coverage-map.json by plan aspect with direct/supporting source IDs and unresolved needs.
-If fewer than {minimum_papers} remain, use targeted supplemental queries in the same plan and repeat discover/acquire; record actual assessed exhaustion and access limits in scarcity.json.
+If fewer than {minimum_papers} remain, edit question-plan-draft.json with targeted supplemental queries and repeat discover/acquire; preserve existing query IDs/searches and assign a new ID whenever changing a search string; record actual assessed exhaustion and access limits in scarcity.json.
 A timeout or inaccessible copy alone does not prove topic scarcity. The target is not {minimum_papers} independent trials: role/family accounting is essential.
 5. Save investigation.json conforming to investigation-schema.json, and return that same JSON as the final response.
 Claims -> evidence -> canonical passages -> references; executive prose links claims. Study-result fields each cite actual supporting passages or are null.

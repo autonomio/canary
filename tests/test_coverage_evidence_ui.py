@@ -557,3 +557,41 @@ for(const html of [coverageSelectionHtml(graph),queryNetHtml(graph)]) {
 Date.now=realNow;
 assert.equal(JSON.stringify(graph),before,'Rendering cannot change committed search progress or source records');
 """)
+
+
+def test_search_net_reports_successful_pages_without_asserting_unobserved_attempts(tmp_path):
+    data = {"query_net": {"queries": [{"id": "q1", "search": "completed branch"}, {"id": "q2", "search": "planned branch"}]},
+            "coverage": {"search_progress": {"queries": {"q1": {"pages": 2, "complete": True}, "q2": {"pages": 0, "complete": False}}}}}
+    run_dashboard(tmp_path, data, r"""
+const before=JSON.stringify(graph),html=queryNetHtml(graph);
+assert.match(html,/q1 · 2 result pages recorded · complete/);
+assert.match(html,/q2 · 0 result pages recorded · incomplete/);
+const failed={...graph,coverage:{search_progress:{queries:{q1:{pages:0,complete:false,error:'HTTP429'},q2:{pages:0,complete:false,error:'HTTPError'}}}}};
+const failure=queryNetHtml(failed);assert.match(failure,/q1 · 0 result pages recorded · incomplete/);assert.match(failure,/q2 · 0 result pages recorded · incomplete/);assert.doesNotMatch(failure,/not yet requested/);
+const legacy=queryNetHtml({query_net:{queries:['legacy literal search']}});assert.match(legacy,/legacy literal search/);assert.doesNotMatch(legacy,/not yet requested/);
+const unknown=queryNetHtml({query_net:{queries:[{id:'q1',search:'unknown receipts'}]}});assert.match(unknown,/unknown receipts/);assert.doesNotMatch(unknown,/result pages recorded|not yet requested/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+def test_actual_html_table_extraction_remains_legible_in_saved_source_inspector(tmp_path):
+    from canary.coverage_sources import article_text
+    raw = ('<article><h2>Results</h2><p>Measured groups.</p><table><caption>Measured mass</caption>'
+           '<thead><tr><th>Group</th><th>Early (mg)</th><th>Late (mg)</th></tr></thead>'
+           '<tbody><tr><td>A</td><td>1.<em>23</em> mg</td><td>4.56 mg</td></tr>'
+           '<tr><td>B</td><td></td><td>7.89 mg</td></tr></tbody></table></article>')
+    text = article_text(raw)
+    assert 'Group | Early (mg) | Late (mg)' in text
+    assert 'A | 1.23 mg | 4.56 mg' in text and 'B |  | 7.89 mg' in text
+    assert re.search(r'\.source-context \.context-paragraph\s*\{\s*white-space:\s*pre-wrap;', UI.read_text())
+    data = {'answer': {'references': [{'id': 'R1', 'paper': {'title': 'Synthetic saved HTML source'}}]},
+            'text': text}
+    run_dashboard(tmp_path, data, r"""
+const before=JSON.stringify(graph);S.selected='saved-table';S.sourceContexts={};
+const state={sourceId:'R1',scope:'paper'};
+S.sourceContexts[contextKey('R1',null,'paper')]={text_available:true,paragraphs:graph.text.split('\n\n').map(text=>({text}))};
+const html=sourceInspector(graph.answer,state);
+assert.match(html,/Measured mass/);assert.match(html,/Group \| Early \(mg\) \| Late \(mg\)/);
+assert.match(html,/A \| 1\.23 mg \| 4\.56 mg/);assert.match(html,/B \|  \| 7\.89 mg/);
+assert.ok(html.includes('class="context-paragraph '));assert.equal(JSON.stringify(graph),before);
+""")

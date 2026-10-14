@@ -219,7 +219,7 @@ def test_html_inline_markup_preserves_measurement_characters(paragraph):
 
 def test_html_block_and_table_boundaries_do_not_fuse_measurements():
     raw = "<article><h2>Results</h2><p><span>First</span> result.</p><p>Second result.</p><table><tr><td>1.<em>23</em></td><td>4.56</td></tr><tr><td>7.89</td><td>10.11</td></tr></table></article>"
-    assert sources.article_text(raw) == "Results\n\nFirst result.\n\nSecond result.\n\n1.23 4.56 7.89 10.11"
+    assert sources.article_text(raw) == "Results\n\nFirst result.\n\nSecond result.\n\n1.23 | 4.56\n\n7.89 | 10.11"
 
 
 def _paper_pdf(text=None):
@@ -356,10 +356,75 @@ def test_html_nested_mixed_blocks_keep_inline_runs_and_structural_boundaries():
         'Final 21.<span>23</span> mg.</div></article>')
     assert sources.article_text(raw) == (
         "Results\n\nInitial 1.23 mg.\n\nMethods\n\nNested 4.56 mg.\n\nSeparate 7.89 mg."
-        "\n\nTrailing 10.11 mg.\n\nAfter 12.34 mg.\n\n15.67 18.90\n\nFinal 21.23 mg.")
+        "\n\nTrailing 10.11 mg.\n\nAfter 12.34 mg.\n\n15.67 | 18.90\n\nFinal 21.23 mg.")
 
 
 def test_html_inline_wrapper_around_real_blocks_keeps_paragraph_boundaries():
     raw = ('<article><h2>Results</h2><div><span>Before 1.<em>23</em> mg.'
         '<div>Nested 4.<strong>56</strong> mg.</div>After 7.<em>89</em> mg.</span></div></article>')
     assert sources.article_text(raw) == "Results\n\nBefore 1.23 mg.\n\nNested 4.56 mg.\n\nAfter 7.89 mg."
+
+
+def test_html_table_preserves_caption_headers_rows_inline_units_and_empty_positions():
+    raw = ('<article><h2>Results</h2><table><caption>Table 1. Measured yields.</caption>'
+        '<thead><tr><th>Group</th><th>Yield (<span>mg</span>)</th></tr></thead>'
+        '<tbody><tr><th scope="row">A</th><td>1.<em>23</em> <span>mg</span></td></tr>'
+        '<tr><th scope="row">B</th><td>4.<strong>56</strong> mg</td></tr>'
+        '<tr><th scope="row">C</th><td></td></tr><tr><td></td><td>7.<em>89</em> mg</td></tr>'
+        '</tbody></table><p>Source caveat.</p></article>')
+    assert sources.article_text(raw) == (
+        "Results\n\nTable 1. Measured yields.\n\nGroup | Yield (mg)\n\nA | 1.23 mg"
+        "\n\nB | 4.56 mg\n\nC | \n\n | 7.89 mg\n\nSource caveat.")
+
+
+def test_html_table_spans_keep_logical_columns_without_repeating_measurements():
+    raw = ('<article><h2>Results</h2><table><thead>'
+        '<tr><th rowspan="2">Sample</th><th colspan="2">Yield (mg)</th></tr>'
+        '<tr><th>Early</th><th>Late</th></tr></thead><tbody>'
+        '<tr><th rowspan="2">A</th><td>1.<em>23</em></td><td>4.<em>56</em></td></tr>'
+        '<tr><td>7.89</td><td></td></tr></tbody></table></article>')
+    text = sources.article_text(raw)
+    assert text == "Results\n\nSample | Yield (mg) | \n\n | Early | Late\n\nA | 1.23 | 4.56\n\n | 7.89 | "
+    assert text.count("Sample") == text.count("Yield (mg)") == text.count("1.23") == text.count("4.56") == 1
+    assert "rowspan" not in text and "colspan" not in text and "span from" not in text
+
+
+def test_html_table_rowspan_zero_stops_at_its_row_group():
+    raw = ('<article><h2>Results</h2><table><tbody>'
+        '<tr><th rowspan="0">A</th><td>1.23 mg</td></tr><tr><td>4.56 mg</td></tr>'
+        '</tbody><tbody><tr><th>B</th><td>7.89 mg</td></tr></tbody></table></article>')
+    assert sources.article_text(raw) == "Results\n\nA | 1.23 mg\n\n | 4.56 mg\n\nB | 7.89 mg"
+
+
+def test_html_nested_table_rows_remain_inside_their_outer_cell():
+    raw = ('<article><h2>Results</h2><table><tr><th>Group</th><th>Records</th></tr>'
+        '<tr><th>A</th><td><table><caption>Nested measurements.</caption>'
+        '<tr><th>Time</th><th>Yield</th></tr><tr><td>Early</td><td>1.<em>23</em> mg</td></tr>'
+        '<tr><td>Late</td><td>4.56 mg</td></tr></table></td></tr>'
+        '<tr><th>B</th><td>7.89 mg</td></tr></table></article>')
+    text = sources.article_text(raw)
+    assert text == (
+        "Results\n\nGroup | Records\n\nA | [\nNested measurements.\nTime | Yield"
+        "\nEarly | 1.23 mg\nLate | 4.56 mg\n]\n\nB | 7.89 mg")
+    assert text.count("Early | 1.23 mg") == text.count("Late | 4.56 mg") == 1
+
+
+def test_html_table_canonical_passages_reproduce_exact_label_value_rows():
+    from canary.coverage_runtime import canonical_passages
+    raw = ('<article><h2>Results</h2><table><caption>Measured yields.</caption>'
+        '<tr><th>Group</th><th>Yield</th></tr><tr><th>A</th><td>1.<em>23</em> mg</td></tr>'
+        '<tr><th>B</th><td>4.56 mg</td></tr></table><p>Source caveat.</p></article>')
+    text = sources.article_text(raw)
+    passages = canonical_passages(text, "W1")
+    assert [row["text"] for row in passages] == [
+        "Results", "Measured yields.", "Group | Yield", "A | 1.23 mg", "B | 4.56 mg", "Source caveat."]
+    assert all(row["reference_id"] == "W1" and row["text"] == text[row["start"]:row["end"]] for row in passages)
+    assert "\n\n".join(row["text"] for row in passages) == text
+
+
+def test_html_table_inside_blockquote_keeps_rows_and_surrounding_source_words():
+    raw = ('<article><h2>Results</h2><blockquote>Source reports:'
+        '<table><tr><th>Group</th><th>Yield</th></tr><tr><th>A</th><td>1.<em>23</em> mg</td></tr>'
+        '<tr><th>B</th><td>4.56 mg</td></tr></table>Source caveat.</blockquote></article>')
+    assert sources.article_text(raw) == (
+        "Results\n\nSource reports:\n\nGroup | Yield\n\nA | 1.23 mg\n\nB | 4.56 mg\n\nSource caveat.")

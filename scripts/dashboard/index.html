@@ -731,6 +731,9 @@
         background: #222;
         padding: 16px;
       }
+      .source-context .context-paragraph {
+        white-space: pre-wrap;
+      }
       .prose table {
         font-size: 13px;
       }
@@ -3373,10 +3376,15 @@
     return `<span>${esc(s.keyword_searches_today)} Canary keyword requests today${s.full_day_observed===false ? " · partial day observed" : ""} · ${esc(s.date_utc || "UTC")} UTC${remaining != null ? ` · ${esc(remaining)} account credits remaining` : ""}</span><details><summary>Counting scope</summary><p>${esc(s.count_scope || "Successful Canary upstream keyword requests; each result page counts once. Cache hits and other clients are excluded.")}</p>${s.logging_started_at_utc ? `<p>Logging began ${esc(s.logging_started_at_utc)}.</p>` : ""}<p>Account credits and keyword requests are separate units.</p></details>`;
   }
   function queryNetHtml(d) {
-    const q=d.query_net || {}, r=d.run || {};
+    const q=d.query_net || {}, r=d.run || {}, progress=d.coverage?.search_progress || d.answer?.coverage?.search_progress;
+    const queryHtml=x=>{
+      const id=typeof x==='object' ? x.id : null, state=id ? progress?.queries?.[id] : null;
+      const receipt=Number.isInteger(state?.pages) ? ` · ${state.pages} result page${state.pages===1 ? '' : 's'} recorded${state.complete ? ' · complete' : ' · incomplete'}` : '';
+      return `<pre class="search-query">${id ? `<span class="hint">${esc(id)}${esc(receipt)}</span>\n` : ''}${esc(typeof x==='string' ? x : x.search || x.query)}</pre>`;
+    };
     const describe=v=>Array.isArray(v) ? v.map(describe).join(' · ') : v && typeof v==='object' ? Object.entries(v).map(([k,value])=>`${k.replaceAll('_',' ')}: ${describe(value)}`).join(' · ') : v==null ? 'Unknown' : String(v);
     const targets=Array.isArray(q.evidence_targets) ? q.evidence_targets.map(describe) : q.evidence_targets && typeof q.evidence_targets==='object' ? Object.entries(q.evidence_targets).map(([k,v])=>`${k.replaceAll('_',' ')}: ${describe(v)}`) : [];
-    return `<h2>Search net</h2>${searchProgressHtml(d)}<p>${esc(q.intent || q.explanation || "")}</p><p class="hint">${esc(r.search_scope || "OpenAlex search across titles, abstracts and indexed full text.")} · ${esc(r.keyword_requests ?? 0)} keyword search ${Number(r.keyword_requests) === 1 ? "page" : "pages"} in this run.</p><div class="question-usage">${usageHtml(r.usage_after)}</div><section class="answer-section"><h3>Exact searches</h3>${(q.queries || []).map(x=>`<pre class="search-query">${esc(typeof x==="string" ? x : x.search || x.query)}</pre>`).join("")}${q.explanation ? `<p>${esc(q.explanation)}</p>` : ""}</section><details><summary>Concepts and required anchors</summary>${q.required_concepts?.length ? `<p>Required: ${esc(q.required_concepts.join(" · "))}</p>` : ""}${(q.concepts || []).map(c=>`<p>${esc(c.name)} · ${esc((c.alternatives || c.keywords || c.synonyms || []).join(" · "))}${c.explanation ? `<br>${esc(c.explanation)}` : ""}</p>`).join("")}${(q.branches||[]).map(b=>`<p>${esc(b.name)} · ${esc((b.concepts||[]).join(" + "))}<br>${esc(b.explanation)}</p>`).join("")}</details><details><summary>What the full papers must establish</summary>${targets.map(t=>`<p>${esc(t)}</p>`).join("")}</details>${acquisitionHtml(d)}`;
+    return `<h2>Search net</h2>${searchProgressHtml(d)}<p>${esc(q.intent || q.explanation || "")}</p><p class="hint">${esc(r.search_scope || "OpenAlex search across titles, abstracts and indexed full text.")} · ${esc(r.keyword_requests ?? 0)} keyword search ${Number(r.keyword_requests) === 1 ? "page" : "pages"} in this run.</p><div class="question-usage">${usageHtml(r.usage_after)}</div><section class="answer-section"><h3>Exact searches</h3>${(q.queries || []).map(queryHtml).join("")}${q.explanation ? `<p>${esc(q.explanation)}</p>` : ""}</section><details><summary>Concepts and required anchors</summary>${q.required_concepts?.length ? `<p>Required: ${esc(q.required_concepts.join(" · "))}</p>` : ""}${(q.concepts || []).map(c=>`<p>${esc(c.name)} · ${esc((c.alternatives || c.keywords || c.synonyms || []).join(" · "))}${c.explanation ? `<br>${esc(c.explanation)}` : ""}</p>`).join("")}${(q.branches||[]).map(b=>`<p>${esc(b.name)} · ${esc((b.concepts||[]).join(" + "))}<br>${esc(b.explanation)}</p>`).join("")}</details><details><summary>What the full papers must establish</summary>${targets.map(t=>`<p>${esc(t)}</p>`).join("")}</details>${acquisitionHtml(d)}`;
   }
   function renderNativeDetail(row,d,el) {
     document.querySelector(".topbar").hidden=true;

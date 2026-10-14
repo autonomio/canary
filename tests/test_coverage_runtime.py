@@ -457,3 +457,67 @@ def test_concurrent_process_runs_have_one_atomic_workspace_owner(tmp_path, monke
     assert {name: (workspace / name).read_bytes() for name in protected} == protected
     messages.close()
     messages.join_thread()
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_rejected_query_change_keeps_committed_plan_candidates_and_exported_net(tmp_path, complete):
+    from canary.coverage_export import export_bundle
+    from test_coverage_evidence_ui import run_dashboard
+    workspace = tmp_path / "research"
+    import re
+    prompt = protocol.research_prompt("Synthetic question?", "canary", 50)
+    draft = re.search(r"1\. Write ([\w.-]+)", prompt)[1]
+    command_plan = re.search(r"discover --workspace \. --plan ([\w.-]+)", prompt)[1]
+    assert draft == command_plan and draft != "question-plan.json"
+    assert "never overwrite that canonical file directly" in prompt
+    assert "assign a new ID whenever changing a search string" in prompt
+    plan_path = workspace / draft
+    original = rich_plan(); runtime.write(plan_path, original)
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={"results": [work("W1")], "meta": {"count": 200, "next_cursor": None if complete else "page2"}})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        runtime.discover(workspace, plan_path, root=tmp_path, pages=1, client=client)
+        saved = {p.relative_to(workspace): p.read_bytes() for p in workspace.rglob("*") if p.is_file() and p != plan_path}
+        changed = rich_plan()
+        changed["queries"][0]["search"] = "silently changed query definition"
+        changed["queries"].insert(0, {"id": "qnew", "search": "new branch before invalid reused ID"})
+        runtime.write(plan_path, changed)
+        with pytest.raises(ValueError, match="Change a query ID"):
+            runtime.discover(workspace, plan_path, root=tmp_path, pages=1, client=client)
+    assert len(calls) == 1, "Rejected query changes consume no further upstream requests"
+    assert {p.relative_to(workspace): p.read_bytes() for p in workspace.rglob("*") if p.is_file() and p != plan_path} == saved
+    result = export_bundle(workspace)
+    net = runtime.read(workspace / "query-net.json")
+    assert net == original
+    assert result["coverage"]["search_progress"]["queries"]["q1"]["search"] == original["queries"][0]["search"]
+    assert runtime.read(workspace / "works.json")[0]["query_ids"] == ["q1"]
+    data = {"query_net": net, "answer": result["answer"], "coverage": result["coverage"], "run": result["run"]}
+    run_dashboard(tmp_path, data, r"""
+const before=JSON.stringify(graph),html=queryNetHtml(graph);
+assert.ok(html.includes(esc(graph.query_net.queries[0].search)));
+assert.match(html,/q1 · 1 result page recorded/);
+assert.match(html,new RegExp(graph.coverage.search_progress.queries.q1.complete ? ' · complete' : ' · incomplete'));
+assert.doesNotMatch(html,/silently changed query definition|qnew/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+def test_new_query_id_can_extend_a_committed_search_net(tmp_path):
+    plan_path = tmp_path / "input-plan.json"; workspace = tmp_path / "research"
+    runtime.write(plan_path, rich_plan()); calls = []
+    def handler(request):
+        calls.append(request)
+        ident = "W1" if request.url.params["search"] == rich_plan()["queries"][0]["search"] else "W2"
+        return httpx.Response(200, json={"results": [work(ident)], "meta": {"next_cursor": None}})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        runtime.discover(workspace, plan_path, root=tmp_path, pages=1, client=client)
+        extended = rich_plan(); extended["queries"].append({"id": "q2", "search": "new complementary query"})
+        runtime.write(plan_path, extended)
+        progress = runtime.discover(workspace, plan_path, root=tmp_path, pages=1, client=client)
+    assert len(calls) == 2 and calls[1].url.params["search"] == "new complementary query"
+    assert runtime.read(workspace / "question-plan.json") == extended
+    assert progress["queries"]["q1"]["pages"] == progress["queries"]["q2"]["pages"] == 1
+    assert progress["complete"] is True
+    assert {w["id"].split("/")[-1] for w in runtime.read(workspace / "works.json")} == {"W1", "W2"}

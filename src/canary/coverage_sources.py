@@ -109,10 +109,84 @@ def _plain(node):
     return " ".join(content(node).split())
 
 
+def _table_cell_text(node):
+    def content(current):
+        if _skip(current):
+            return ""
+        if current.tag == "table":
+            # Only delimiters are added; nested rows stay inside this cell.
+            return "\n[\n" + "\n".join(text for _, text in _table_blocks(current)) + "\n]\n"
+        text = "".join(child if isinstance(child, str) else content(child) for child in current.children)
+        boundaries = BLOCKS | {"div", "section", "br", "hr", "td", "th", "caption", "dt", "dd"}
+        return " " + text + " " if current.tag in boundaries else text
+    return "\n".join(" ".join(line.split()) for line in content(node).splitlines()).strip()
+
+
+def _table_blocks(table):
+    """Keep the literal caption and logical row/cell positions, without copying spans."""
+    rows, captions = [], []
+    def collect(node, group):
+        if _skip(node) or (node is not table and node.tag == "table"):
+            return
+        if node.tag == "caption":
+            captions.append(_plain(node))
+        elif node.tag == "tr":
+            rows.append((node, group))
+        else:
+            if node.tag in {"thead", "tbody", "tfoot"}:
+                group = id(node)
+            for child in node.children:
+                if isinstance(child, _Node):
+                    collect(child, group)
+    collect(table, id(table))
+    for caption in captions:
+        if caption:
+            yield "caption", caption
+    groups_remaining = {}
+    for _, group in rows:
+        groups_remaining[group] = groups_remaining.get(group, 0) + 1
+    def span(cell, name):
+        try:
+            return max(0, int(cell.attrs.get(name, "1")))
+        except (TypeError, ValueError):
+            return 1
+    occupied, previous_group, grid = {}, None, []
+    for row, group in rows:
+        if group != previous_group:
+            occupied = {}
+        values = {column: "" for column in occupied}
+        next_occupied = {column: count - 1 for column, count in occupied.items() if count > 1}
+        column = 0
+        for cell in row.children:
+            if not isinstance(cell, _Node) or cell.tag not in {"td", "th"} or _skip(cell):
+                continue
+            colspan = max(1, span(cell, "colspan"))
+            while any(column + offset in values for offset in range(colspan)):
+                column += 1
+            rowspan = span(cell, "rowspan") or groups_remaining[group]
+            rowspan = min(rowspan, groups_remaining[group])
+            values[column] = _table_cell_text(cell)
+            for offset in range(colspan):
+                values.setdefault(column + offset, "")
+                if rowspan > 1:
+                    next_occupied[column + offset] = rowspan - 1
+            column += colspan
+        grid.append(values)
+        occupied, previous_group = next_occupied, group
+        groups_remaining[group] -= 1
+    width = max((max(row, default=-1) + 1 for row in grid), default=0)
+    for row in grid:
+        if row:
+            yield "tr", " | ".join(row.get(column, "") for column in range(width))
+
+
 def _blocks(node):
     if _skip(node):
         return
-    if node.tag in BLOCKS:
+    if node.tag == "table":
+        yield from _table_blocks(node)
+        return
+    if node.tag in BLOCKS and not any(descendant.tag == "table" for descendant in _walk(node)):
         text = _plain(node)
         if text:
             yield node.tag, text
