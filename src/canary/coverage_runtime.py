@@ -770,7 +770,7 @@ def scientific_session(workspace, role, model, effort, prompt, shape, *, executa
     return result, receipt
 
 
-def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable=None):
+def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable=None, on_reserved=None):
     workspace = Path(workspace).resolve()
     if not question.strip() or minimum_papers < 1 or audit_seconds < 1:
         raise ValueError("Question, paper target and audit duration must be nonempty/positive")
@@ -789,6 +789,8 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
         (workspace / ".run-reservation").touch(exist_ok=False)
     except FileExistsError:
         raise ValueError("This workspace is already reserved for a research run; choose an empty workspace") from None
+    if on_reserved is not None:
+        on_reserved()
     started, before = now(), time.monotonic()
     manifest = {"question": question, "kind": "question", "execution_mode": "coverage-guided full-paper research",
         "status": "researching", "started_at": started, "generated_at": started,

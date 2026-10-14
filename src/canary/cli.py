@@ -225,14 +225,18 @@ def main(argv: list[str] | None = None) -> int:
         if workspace.exists() and (not workspace.is_dir() or any(workspace.iterdir())):
             print("Research requires a new empty workspace; existing data was not changed.", file=sys.stderr)
             return 1
+        owns_workspace = False
+        def reserved():
+            nonlocal owns_workspace
+            owns_workspace = True
         try:
             coverage_run(args.question, args.out, minimum_papers=args.minimum_papers,
-                         audit_seconds=args.audit_seconds)
+                         audit_seconds=args.audit_seconds, on_reserved=reserved)
         except Exception as error:
             print(f"Research failed: {error}", file=sys.stderr)
             return 1
         finally:
-            if (Path(args.out) / "run.json").is_file():
+            if owns_workspace and (workspace / "run.json").is_file():
                 coverage_export(args.out)
         print(str(Path(args.out).resolve() / "answer.json"))
         return 0

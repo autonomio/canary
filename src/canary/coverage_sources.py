@@ -117,16 +117,23 @@ def _blocks(node):
         if text:
             yield node.tag, text
         return
-    if not any(isinstance(child, _Node) for child in node.children):
-        text = _plain(node)
+    structural = BLOCKS | {"div", "section", "article", "main", "ul", "ol", "dl", "dt", "dd", "figure", "details", "summary"}
+    inline = []
+    def flush():
+        text = _plain(_Node("inline", children=inline))
+        inline.clear()
         if text:
             yield "p", text
-        return
     for child in node.children:
-        if isinstance(child, _Node):
+        if isinstance(child, _Node) and _skip(child):
+            continue
+        if isinstance(child, _Node) and (child.tag in structural or
+                any(descendant.tag in structural for descendant in _walk(child))):
+            yield from flush()
             yield from _blocks(child)
-        elif child.strip():
-            yield "p", " ".join(child.split())
+        else:
+            inline.append(child)
+    yield from flush()
 
 
 def _normalize(value):
@@ -285,6 +292,22 @@ def pdf_matches_work(raw, expected):
         return False
 
 
+def _validate_paper_copy(raw, kind, expected):
+    """Validate before selecting a copy, including PDFs found on HTML landings."""
+    if kind == "application/pdf":
+        text = _pdf_text(raw)[0]
+    elif kind in ("application/xml", "text/xml", "application/tei+xml"):
+        text = _xml_text(raw)
+    elif kind == "text/html":
+        text = article_text(raw, expected)
+    else:
+        raise ValueError("Unsupported paper body")
+    if PREVIEW_MARKER.search(text):
+        raise ValueError("Paper copy is a subscription preview")
+    if len(text.strip()) < 500:
+        raise ValueError("Too little source text for paper investigation")
+
+
 def public_download(client, url, resolver, expected=None, discover_pdf=True):
     for _ in range(6):
         public_url(url, resolver)
@@ -318,15 +341,17 @@ def public_download(client, url, resolver, expected=None, discover_pdf=True):
                         except httpx.TimeoutException as exc:
                             linked_timeout = exc
                             continue
-                        except (httpx.HTTPError, ValueError, OSError):
+                        except (httpx.HTTPError, ValueError, OSError, AccessFailure):
                             continue
                 try:
-                    article_text(raw, expected)
+                    _validate_paper_copy(raw, "text/html", expected)
                 except ValueError:
                     if linked_timeout is not None:
                         raise linked_timeout
                     raise
                 kind = "text/html"
+            else:
+                _validate_paper_copy(raw, kind, expected)
             return raw, kind, url
     raise ValueError("Too many content redirects")
 
@@ -511,21 +536,8 @@ def public_work_download(work, transport, resolver):
                 result = public_download(public, url, resolver, work)
                 if url in raw_hints and (result[1] != "application/pdf" or not pdf_matches_work(result[0], work)):
                     return None, False
-                raw, kind, _ = result
-                # Extractability belongs to each racing copy: a fast unreadable
-                # response must not discard an accessible alternative.
-                if kind == "application/pdf":
-                    text = _pdf_text(raw)[0]
-                elif kind in ("application/xml", "text/xml", "application/tei+xml"):
-                    text = _xml_text(raw)
-                elif kind == "text/html":
-                    text = article_text(raw, work)
-                else:
-                    return None, False
-                if PREVIEW_MARKER.search(text):
-                    return None, False  # Keep racing complete alternatives before committing a source.
-                if len(text.strip()) < 500:
-                    return None, False  # Same minimum text requirement as acquire().
+                # public_download validates each linked/direct copy before
+                # returning; do not extract a healthy winner a second time here.
                 return result, False
             except httpx.TimeoutException:
                 return None, True

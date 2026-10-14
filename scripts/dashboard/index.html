@@ -3114,24 +3114,30 @@
   }
   function qaGraph(d) { const g=d?.answer; return (Array.isArray(g?.claims) && g.claims.length) || (Array.isArray(g?.references) && g.references.length) || (Array.isArray(g?.executive_summary) && g.executive_summary.some(p=>typeof p==='string' ? p.trim() : typeof p?.text==='string' && p.text.trim())) ? g : null; }
   function qaLinks(g, id) {
-    const evidence = g?.evidence?.find(e => e.id === id) || null;
-    const passage = g?.passages?.find(p => p.id === evidence?.paragraph_id) || null;
-    const reference = g?.references?.find(r => r.id === passage?.source_id) || null;
-    return { evidence, passage, reference, claims: (g?.claims || []).filter(c => c.evidence_ids?.includes(id)) };
+    const claims=(g?.claims || []).filter(c=>c.evidence_ids?.includes(id)), empty={evidence:null,records:[],ambiguous:false,passage:null,reference:null,claims};
+    if(typeof id!=='string' || !id) return empty;
+    if((g?.binding_issues || []).some(i=>i.kind==='missing_evidence' && i.evidence_id===id)) return empty;
+    const all=Array.isArray(g?.evidence) ? g.evidence : [], navigation=all.filter(e=>e.navigation_id===id), exact=all.filter(e=>e.id===id), origins=all.filter(e=>e.origin_evidence_id===id);
+    const records=navigation.length ? navigation : origins.length ? origins : exact;
+    const ambiguous=!navigation.length && ((g?.binding_issues || []).some(i=>i.kind==='duplicate_evidence_id' && i.evidence_id===id) || exact.length>1 || new Set(records.map(e=>e.evidence_occurrence || 1)).size>1);
+    const evidence=ambiguous ? null : navigation[0] || exact[0] || origins[0] || null;
+    const passage=g?.passages?.find(p=>p.id===evidence?.paragraph_id) || null, reference=g?.references?.find(r=>r.id===passage?.source_id) || null;
+    const links=new Set([id,...records.map(e=>e.navigation_id || e.id),...(evidence ? [evidence.origin_evidence_id] : [])]);
+    return {evidence, records, ambiguous, passage, reference, claims:(g?.claims || []).filter(c=>c.evidence_ids?.some(key=>links.has(key)))};
   }
   function qaEvidencePackets(g, ids) {
     const packets=new Map(), evidence=Array.isArray(g?.evidence) ? g.evidence : [];
     for(const id of Array.isArray(ids) ? ids : []) {
-      const item=evidence.find(e=>e.id===id), originId=item?.origin_evidence_id || id;
-      if(packets.has(originId)) continue;
-      const spans=evidence.filter(e=>(e.origin_evidence_id || e.id)===originId);
-      packets.set(originId,{id:spans[0]?.id || id,originId,evidence:spans});
+      const x=qaLinks(g,id), item=x.evidence, originId=item?.origin_evidence_id || id, occurrence=item?.evidence_occurrence;
+      const key=JSON.stringify([originId,occurrence]);if(packets.has(key)) continue;
+      const spans=evidence.filter(e=>(e.origin_evidence_id || e.id)===originId && (occurrence==null || e.evidence_occurrence===occurrence));
+      packets.set(key,{id:x.ambiguous ? id : spans[0]?.navigation_id || spans[0]?.id || id,originId,occurrence,evidence:spans,ambiguous:x.ambiguous});
     }
     return [...packets.values()];
   }
   function qaEvidencePacketButton(packet) {
     const n=packet.evidence.length;
-    return qaButton('data-qa-evidence',packet.id,`${packet.originId} · ${n ? `${n} passage${n===1 ? '' : 's'}` : 'Evidence'}`);
+    return qaButton('data-qa-evidence',packet.id,`${packet.originId} · ${packet.ambiguous ? 'Ambiguous evidence' : n ? `${n} passage${n===1 ? '' : 's'}` : 'Evidence'}`);
   }
   function qaStudyReferences(g,record) {
     const ids=[...new Set([record?.source_id,...(Array.isArray(record?.source_ids) ? record.source_ids : [])].filter(Boolean))];
@@ -3248,6 +3254,7 @@
     if(records.length>1 && !issues.some(i=>i.kind==='duplicate_claim_id')) issues.push({kind:'duplicate_claim_id',claim_id:c.id,record_count:records.length});
     for(const id of c.evidence_ids || []) if(!(g.evidence || []).some(e=>e.id===id || e.origin_evidence_id===id) && !issues.some(i=>i.kind==='missing_evidence' && i.evidence_id===id))
       issues.push({kind:'missing_evidence',claim_id:c.id,evidence_id:id});
+    for(const id of c.evidence_ids || []) if(qaLinks(g,id).ambiguous && !issues.some(i=>i.kind==='duplicate_evidence_id' && i.evidence_id===id)) issues.push({kind:'duplicate_evidence_id',evidence_id:id});
     for(const id of studyIds) {
       const records=(g.study_results || []).filter(r=>r.id===id), kind=records.length>1 ? 'duplicate_study_result_id' : !records.length ? 'missing_study_result' : null;
       if(kind && !issues.some(i=>i.kind===kind && i.study_result_id===id)) issues.push({kind,claim_id:c.id,study_result_id:id,record_count:records.length});
@@ -3255,7 +3262,7 @@
     return issues;
   }
   function qaBindingReason(issue) {
-    return issue.reason || issue.description || (issue.kind==='missing_evidence' ? 'No saved evidence record matches this ID.' : issue.kind==='missing_study_result' ? 'No saved study-result record matches this ID.' : issue.kind==='duplicate_study_result_id' ? `${issue.record_count} recorded study results share this ID; the linked measurement is ambiguous.` : issue.kind==='duplicate_claim_id' ? `${issue.record_count} recorded claims share this ID; ID-only links are ambiguous.` : String(issue.kind || 'Source binding issue').replaceAll('_',' '));
+    return issue.reason || issue.description || (issue.kind==='duplicate_evidence_id' ? 'Distinct recorded evidence packets share this ID; the linked packet is ambiguous.' : issue.kind==='missing_evidence' ? 'No saved evidence record matches this ID.' : issue.kind==='missing_study_result' ? 'No saved study-result record matches this ID.' : issue.kind==='duplicate_study_result_id' ? `${issue.record_count} recorded study results share this ID; the linked measurement is ambiguous.` : issue.kind==='duplicate_claim_id' ? `${issue.record_count} recorded claims share this ID; ID-only links are ambiguous.` : String(issue.kind || 'Source binding issue').replaceAll('_',' '));
   }
   function qaProvenanceNotice(g,c) {
     return qaClaimBindingIssues(g,c).length ? `<span role="alert">${qaButton('data-qa-claim',c.id,'Provenance failure · details')}</span>` : '';
@@ -3266,7 +3273,10 @@
   }
   function claimInspector(g, id) {
     const records=(g?.claims || []).filter(c=>c.id===id);
-    if(!records.length) return '<p class="muted">Claim not recorded.</p>';
+    if(!records.length) {
+      const summaries=(g.executive_summary || []).filter(p=>Array.isArray(p?.claim_ids) && p.claim_ids.includes(id));
+      return `<h2 tabindex="-1">${esc(id)} · Claim</h2><p role="alert">Provenance failure: claim not recorded.</p><p>No saved claim record matches this ID.</p>${summaries.length ? `<h3>Linked executive summary</h3>${summaries.map(p=>`<p>${esc(p.text)}</p>`).join('')}` : ''}`;
+    }
     if(records.length===1) return claimRecordHtml(g,records[0],`<h2 tabindex="-1">${esc(id)} · Claim</h2>`);
     return `<h2 tabindex="-1">${esc(id)} · Ambiguous claim ID</h2><p role="alert">${records.length} recorded claims share this ID. ID-only links and audit judgments cannot identify one occurrence.</p>${records.map((c,i)=>`<section data-claim-occurrence="${esc(c.claim_occurrence || i+1)}">${claimRecordHtml(g,c,`<h3>Recorded claim ${esc(c.claim_occurrence || i+1)}</h3>`)}</section>`).join('')}`;
   }
@@ -3278,13 +3288,17 @@
   }
   function evidenceInspector(g, id) {
     const x = qaLinks(g,id);
+    if(x.ambiguous) {
+      const occurrences=new Map();for(const e of x.records) {const key=e.evidence_occurrence || occurrences.size+1;if(!occurrences.has(key)) occurrences.set(key,e);}
+      return `<h2 tabindex="-1">${esc(id)} · Ambiguous evidence ID</h2><p role="alert">Distinct recorded evidence packets share this ID. The claim's ID-only link cannot identify one packet.</p>${[...occurrences].map(([n,e])=>`<section data-evidence-occurrence="${esc(n)}"><h3>Recorded evidence ${esc(n)}</h3>${e.navigation_id ? evidenceInspector(g,e.navigation_id) : `<blockquote>${esc(e.quote)}</blockquote>${qaCitation(g.references?.find(r=>r.id===g.passages?.find(p=>p.id===e.paragraph_id)?.source_id))}${qaButton('data-qa-passage',e.paragraph_id,'Source passage')}`}</section>`).join('')}`;
+    }
     if (!x.evidence) {
       const issues=(g.binding_issues || []).filter(i=>i.evidence_id===id);
       return `<h2 tabindex="-1">${esc(id)} · Evidence</h2><p role="alert">Provenance failure: evidence not recorded.</p><p>${esc(issues.length ? issues.map(qaBindingReason).join(' · ') : 'No saved evidence record matches this ID.')}</p><h3>Linked claims</h3><div class="finding-links">${x.claims.map(c=>qaButton('data-qa-claim',c.id,`${c.id} · ${c.text}`)).join('')}</div>`;
     }
     const packet=qaEvidencePackets(g,[id])[0];
     const relation=['supports','qualifies','contradicts'].includes(x.evidence.relation) ? x.evidence.relation : 'unknown';
-    const siblings=packet.evidence.length>1 ? `<details data-detail="evidence-packet-${esc(packet.originId)}"><summary>All ${packet.evidence.length} passages in ${esc(packet.originId)}</summary><div class="finding-links">${packet.evidence.map((e,i)=>{const ref=qaLinks(g,e.id).reference;return qaButton('data-qa-evidence',e.id,`Passage ${i+1} · ${ref?.paper?.title || ref?.id || e.paragraph_id || e.id}`);}).join(' ')}</div></details>` : '';
+    const siblings=packet.evidence.length>1 ? `<details data-detail="evidence-packet-${esc(packet.originId)}${packet.occurrence ? `-${esc(packet.occurrence)}` : ''}"><summary>All ${packet.evidence.length} passages in ${esc(packet.originId)}</summary><div class="finding-links">${packet.evidence.map((e,i)=>{const ref=qaLinks(g,e.navigation_id || e.id).reference;return qaButton('data-qa-evidence',e.navigation_id || e.id,`Passage ${i+1} · ${ref?.paper?.title || ref?.id || e.paragraph_id || e.id}`);}).join(' ')}</div></details>` : '';
     return `<h2 tabindex="-1">${esc(id)} · Evidence</h2><div class="inspector-quote"><blockquote>${esc(x.evidence.quote)}</blockquote></div><p class="hint">${x.passage?.kind === "abstract" ? "Exact passage from the recorded abstract" : x.passage?.kind === "fulltext" ? "Exact passage from the saved full paper" : "Recorded evidence passage"}${x.passage?.start != null ? ` · characters ${esc(x.passage.start)}–${esc(x.passage.end)}` : ""}.</p><div class="source-actions">${qaButton("data-qa-context",id,"Read in source context →")}</div>${siblings}${x.evidence.anchored===false ? '<p role="alert">This passage did not match the saved source text at its recorded offsets.</p>' : ""}${x.evidence.interpretation ? `<details><summary>Model interpretation</summary><p>${esc(x.evidence.interpretation)}</p></details>` : ""}${qaCitation(x.reference)}<p class="hint">Recorded relation: ${esc(relation)}</p><h3>Linked claims</h3><div class="finding-links">${x.claims.map(c=>qaButton("data-qa-claim",c.id,`${c.id} · ${c.text}`)).join("")}</div>`;
   }
   function findingHtml(g,c) {
@@ -3326,7 +3340,7 @@
   function answerHtml(row,d) {
     const g=qaGraph(d), claims=(Array.isArray(g?.claims) ? g.claims : []).filter(c=>typeof c?.text==='string' && c.text.trim()), summaries=(Array.isArray(g?.executive_summary) ? g.executive_summary : []).filter(p=>typeof p==='string' ? p.trim() : typeof p?.text==='string' && p.text.trim());
     if (!claims.length && !summaries.length) return `${acquisitionHtml(d)}${coverageAuditHtml(d)}${peerReviewHtml(d,{claims:[],passages:[]})}<p>${esc(active(row) ? (cliResearch(d) ? "Reading selected sources from the saved corpus…" : "Building the search net and reading accessible full papers…") : "No grounded answer is available yet.")}</p>${(d.decisions || d.journal?.events)?.length ? `<details open><summary>Progress</summary>${(d.decisions || d.journal.events).slice(-4).map(e=>`<p>${esc(e.detail || e.event || "")}</p>`).join("")}</details>` : ""}`;
-    const summary = summaries.length ? `<section class="answer-summary" aria-label="Executive summary">${summaries.map(p=>`<p>${esc(typeof p === "string" ? p : p.text)} <span class="finding-links">${(p.claim_ids || []).map(id=>qaButton("data-qa-claim",id,id)).join(" ")}</span></p>`).join("")}</section>` : "";
+    const summary = summaries.length ? `<section class="answer-summary" aria-label="Executive summary">${summaries.map(p=>`<p>${esc(typeof p === "string" ? p : p.text)} <span class="finding-links">${(p.claim_ids || []).map(id=>qaButton("data-qa-claim",id,id)).join(" ")}</span>${(p.claim_ids || []).some(id=>!(g.claims || []).some(c=>c.id===id)) ? '<span role="alert">Provenance failure · missing claim link</span>' : ''}</p>`).join("")}</section>` : "";
     return `${summary}${acquisitionHtml(d)}${coverageAuditHtml(d)}${sourceEfficiencyHtml(d)}${peerReviewHtml(d,g)}${claims.length ? `<section class="answer-findings"><div class="answer-section-title"><h2>Claims</h2><details class="uncertainty-key" data-detail="uncertainty-key"><summary>Reading uncertainty</summary><p>1/3 Low · 2/3 Moderate · 3/3 High. More filled bars mean more uncertainty. These are ordinal judgments; each claim carries its reasoning.</p></details></div>${claims.map(c=>findingHtml(g,c)).join("")}</section>` : ''}<section class="answer-gaps">${researchStructureHtml(g)}${(g.caveats || []).length ? `<details data-detail="caveats"><summary>Caveats (${g.caveats.length})</summary>${g.caveats.map(c=>`<p>${esc(typeof c==="string" ? c : c.text)}</p>`).join("")}</details>` : ""}<div class="answer-section"><h2>Most important next questions</h2>${(g.next_questions || []).map((q,i)=>`<details data-detail="next-${i}"><summary>${esc(q.question)}</summary><p>${esc(q.justification)}</p><button type="button" class="text-action" data-question="${esc(q.question)}">Ask this question →</button></details>`).join("")}</div>${!g.gaps?.length && (g.unanswered || []).length ? `<details data-detail="unanswered"><summary>Remains unanswered in this scope (${g.unanswered.length})</summary>${g.unanswered.map(q=>`<p>${esc(typeof q==="string" ? q : q.question || q.text)}</p>`).join("")}</details>` : ""}</section>`;
   }
   function modernPapersHtml(d) {
@@ -3406,7 +3420,7 @@
     const prev=S.inspector || {};
     let state;
     if(kind==="claim") {
-      if(!g.claims?.some(c=>c.id===id)) return;
+      if(!g.claims?.some(c=>c.id===id) && !(g.executive_summary || []).some(p=>p?.claim_ids?.includes(id)) && !(g.binding_issues || []).some(i=>i.kind==='missing_summary_claim' && i.claim_id===id)) return;
       state={kind,claimId:id};
     } else if(kind==="study") {
       const x=qaStudyLinks(g,id);
@@ -3423,7 +3437,7 @@
         fieldName:checkedClaim ? 'Source check' : context.fieldName || prev.fieldName,claimId:checkedClaim || prev.claimId,scope:'section'};
     } else if(kind==="evidence" || kind==="context") {
       const x=qaLinks(g,id);
-      if(!x.evidence && !x.claims.length) return;
+      if(!x.evidence && !x.ambiguous && !x.claims.length && !(g.binding_issues || []).some(i=>i.evidence_id===id) && !['contradictions','gaps','residue'].some(key=>(g[key] || []).some(r=>r.evidence_ids?.includes(id)))) return;
       state={kind,claimId:x.claims.some(c=>c.id===prev.claimId) ? prev.claimId : x.claims[0]?.id,evidenceId:id,sourceId:x.reference?.id,scope:"section"};
     } else {
       const ref=g.references?.find(r=>r.id===id);

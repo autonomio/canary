@@ -41,6 +41,17 @@ def _unique(values):
     return list(dict.fromkeys(value for value in values if isinstance(value, str) and value))
 
 
+def _typed_links(value, key):
+    """Read every typed link in nested committed records, including broken links."""
+    if isinstance(value, dict):
+        yield from _unique(value.get(key, []))
+        for child in value.values():
+            yield from _typed_links(child, key)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _typed_links(child, key)
+
+
 def _copy(source: Path, target: Path):
     """Keep saved files inside the bundle for the existing source-context API."""
     if source.resolve() == target.resolve():
@@ -144,13 +155,16 @@ def _save_markdown(path: Path, graph: dict):
         path.unlink(missing_ok=True)  # Remove a stale derived stub, never source/research records.
         return
     lines = ["# " + str(graph.get("question", "?")), "", str(graph.get("scope_note", "")), ""]
-    for summary in graph.get("executive_summary", []):
+    for summary_index, summary in enumerate(graph.get("executive_summary", []), 1):
         if isinstance(summary, str):
             lines.extend([summary, ""])
         elif isinstance(summary, dict):
             lines.extend([str(summary.get("text", "")), "Claims: " + ", ".join(summary.get("claim_ids", [])), ""])
+        for issue in _rows(graph.get("binding_issues")):
+            if issue.get("kind") == "missing_summary_claim" and issue.get("summary_index") == summary_index:
+                lines.extend(["Provenance failure: executive summary links missing claim " + str(issue.get("claim_id")), ""])
     checks = {r.get("claim_id"): r for r in _rows(graph.get("source_checks"))}
-    evidence = {r.get("id"): r for r in _rows(graph.get("evidence"))}
+    evidence = _rows(graph.get("evidence"))
     passages = {r.get("id"): r for r in _rows(graph.get("passages"))}
     for claim in _rows(graph.get("claims")):
         label = str(claim["id"]) + (f" · recorded occurrence {claim['claim_occurrence']}" if "claim_occurrence" in claim else "")
@@ -159,11 +173,14 @@ def _save_markdown(path: Path, graph: dict):
                       str(claim.get("uncertainty_rationale", "")), "Audit: " + str(checks.get(claim["id"], {}).get("assessment", "not_checked")), ""])
         for issue in _rows(graph.get("binding_issues")):
             linked = issue.get("claim_id") == claim["id"] or (
-                not issue.get("claim_id") and issue.get("study_result_id") in claim.get("study_result_ids", []))
+                not issue.get("claim_id") and (issue.get("study_result_id") in claim.get("study_result_ids", []) or
+                issue.get("evidence_id") in claim.get("evidence_ids", [])))
             if not linked or issue.get("claim_occurrence", claim.get("claim_occurrence")) != claim.get("claim_occurrence"):
                 continue
             if issue.get("kind") == "missing_evidence":
                 lines.extend(["Provenance failure: missing evidence " + str(issue.get("evidence_id")), ""])
+            elif issue.get("kind") == "duplicate_evidence_id":
+                lines.extend(["Provenance failure: duplicate evidence ID " + str(issue.get("evidence_id")) + "; the ID-only link cannot identify one recorded packet.", ""])
             elif issue.get("kind") == "duplicate_claim_id":
                 lines.extend(["Provenance failure: duplicate claim ID " + str(claim["id"]) + "; ID-only audit checks are not assigned.", ""])
             elif issue.get("kind") == "missing_study_result":
@@ -171,12 +188,15 @@ def _save_markdown(path: Path, graph: dict):
             elif issue.get("kind") == "duplicate_study_result_id":
                 lines.extend(["Provenance failure: duplicate study result ID " + str(issue.get("study_result_id")) + "; the linked measurement is ambiguous.", ""])
         for eid in claim.get("evidence_ids", []):
-            item = evidence.get(eid)
-            if not isinstance(item, dict):
-                continue  # The linked binding issue above names the missing provenance.
-            span = passages.get(item.get("paragraph_id"), {})
-            lines.extend([f'Evidence {eid} · {item.get("relation", "supports")} · {span.get("source_id", "?")} / {item.get("paragraph_id", "?")}',
-                          str(item.get("interpretation", "")), "", *["> " + line for line in str(item.get("quote", "")).splitlines()], ""])
+            ambiguous = any(i.get("kind") == "duplicate_evidence_id" and i.get("evidence_id") == eid
+                            for i in graph.get("binding_issues", []))
+            items = [r for r in evidence if (r.get("origin_evidence_id") == eid if ambiguous else
+                                             r.get("navigation_id", r.get("id")) == eid)]
+            for item in items:
+                span = passages.get(item.get("paragraph_id"), {})
+                occurrence = f" · recorded occurrence {item['evidence_occurrence']}" if "evidence_occurrence" in item else ""
+                lines.extend([f'Evidence {eid}{occurrence} · {item.get("relation", "supports")} · {span.get("source_id", "?")} / {item.get("paragraph_id", "?")}',
+                              str(item.get("interpretation", "")), "", *["> " + line for line in str(item.get("quote", "")).splitlines()], ""])
     for key, label in (("contradictions", "Contradictions"), ("gaps", "Gaps"), ("residue", "Residue"), ("next_questions", "Next questions")):
         rows = _rows(graph.get(key))
         if rows:
@@ -296,28 +316,47 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                      for pid in _unique(comparison.get("passage_ids", []))}
     evidence_map = {}
     raw_evidence = _rows(investigation.get("evidence"))
-    # Reserve recorded IDs before deriving passage IDs: E1.1 may be a distinct packet.
-    reserved_evidence_ids = {e.get("id") for e in raw_evidence}
+    evidence_counts = Counter(e.get("id") for e in raw_evidence)
+    duplicate_evidence_ids = {key for key, count in evidence_counts.items() if count > 1}
+    for identifier, count in evidence_counts.items():
+        if count > 1:
+            graph["binding_issues"].append({"kind": "duplicate_evidence_id", "evidence_id": identifier,
+                                            "record_count": count,
+                                            "reason": "Distinct evidence packets share this ID; an ID-only link cannot select one occurrence."})
+    # Unknown typed links are reserved too: generating their ID must not repair them.
+    reserved_evidence_ids = set(evidence_counts) | set(_typed_links(investigation, "evidence_ids")) | set(_typed_links(efficiency, "evidence_ids"))
     allocated_evidence_ids = set()
+
+    def derived_id(base):
+        identifier, suffix = base, 0
+        while identifier in reserved_evidence_ids or identifier in allocated_evidence_ids:
+            suffix += 1
+            identifier = f"{base}~{suffix}"
+        allocated_evidence_ids.add(identifier)
+        return identifier
+
+    evidence_occurrences = Counter()
     for evidence in raw_evidence:
+        identifier = evidence["id"]
+        evidence_occurrences[identifier] += 1
+        occurrence = evidence_occurrences[identifier]
+        ambiguous = identifier in duplicate_evidence_ids
         identifiers = _unique(evidence.get("passage_ids", []))
-        evidence_map[evidence.get("id")] = []
+        evidence_map.setdefault(identifier, [identifier] if ambiguous else [])
         for n, pid in enumerate(identifiers, 1):
             span = spans.get(pid)
             if span is None:
-                graph["binding_issues"].append({"kind": "missing_passage", "evidence_id": evidence.get("id"), "passage_id": pid})
+                graph["binding_issues"].append({"kind": "missing_passage", "evidence_id": identifier, "passage_id": pid})
                 continue
-            eid = evidence["id"] if len(identifiers) == 1 else f'{evidence["id"]}.{n}'
-            if len(identifiers) != 1:
-                base, suffix = eid, 0
-                while eid in reserved_evidence_ids or eid in allocated_evidence_ids:
-                    suffix += 1
-                    eid = f"{base}~{suffix}"
-            allocated_evidence_ids.add(eid)
-            graph["evidence"].append({"id": eid, "origin_evidence_id": evidence["id"], "paragraph_id": pid,
-                                      "quote": span.get("text", ""), "interpretation": evidence.get("interpretation", ""),
-                                      "relation": evidence.get("relation", "supports")})
-            evidence_map[evidence["id"]].append(eid)
+            eid = identifier if len(identifiers) == 1 else derived_id(f"{identifier}.{n}")
+            item = {"id": eid, "origin_evidence_id": identifier, "paragraph_id": pid,
+                    "quote": span.get("text", ""), "interpretation": evidence.get("interpretation", ""),
+                    "relation": evidence.get("relation", "supports")}
+            if ambiguous:
+                item.update(evidence_occurrence=occurrence, navigation_id=derived_id(f"{identifier}~occurrence{occurrence}.{n}"))
+            graph["evidence"].append(item)
+            if not ambiguous:
+                evidence_map[identifier].append(eid)
             used_passages.add(pid)
     raw_study_results = _rows(investigation.get("study_results"))
     study_counts = Counter(r.get("id") for r in raw_study_results)
@@ -328,6 +367,11 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                                             "reason": "Distinct recorded study results share this ID; the linked measurement is ambiguous."})
     raw_claims = _rows(investigation.get("claims"))
     claim_counts = Counter(c.get("id") for c in raw_claims)
+    for summary_index, summary in enumerate(graph["executive_summary"], 1):
+        if isinstance(summary, dict):
+            for identifier in _unique(summary.get("claim_ids", [])):
+                if identifier not in claim_counts:
+                    graph["binding_issues"].append({"kind": "missing_summary_claim", "summary_index": summary_index, "claim_id": identifier})
     duplicate_claim_ids = {identifier for identifier, count in claim_counts.items() if count > 1}
     for identifier, count in claim_counts.items():
         if count > 1:
@@ -398,7 +442,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         if ambiguous:
             bound_check["claim_occurrence"] = claim["claim_occurrence"]
         graph["source_checks"].append(bound_check)
-    used_sources = set(admitted)
+    used_sources = set(admitted) | {sid for result in raw_study_results for sid in _unique(result.get("reference_ids", []))}
     source_texts = {}
     for pid in sorted(used_passages):
         span = spans.get(pid)

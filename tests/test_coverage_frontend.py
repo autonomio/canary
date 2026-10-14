@@ -1,5 +1,7 @@
 """Deterministic production entrypoint, source-context and operational receipts."""
 import json
+from concurrent.futures import ThreadPoolExecutor
+import threading
 import sqlite3
 from pathlib import Path
 
@@ -11,8 +13,10 @@ from canary import cli, coverage_runtime, coverage_export, dashboard, runs
 def test_ask_routes_to_coverage_without_touching_legacy_review(tmp_path, monkeypatch):
     calls = []
     def research(question, workspace, **options):
+        reserved = options.pop("on_reserved")
         calls.append((question, workspace, options))
         Path(workspace).mkdir()
+        reserved()
         (Path(workspace) / "run.json").write_text('{}')
     monkeypatch.setattr(coverage_runtime, "run", research)
     monkeypatch.setattr(coverage_export, "export_bundle", lambda directory: calls.append(directory))
@@ -402,3 +406,81 @@ def test_nested_search_progress_is_exported_unchanged_with_committed_candidates(
     assert result["run"]["status"] == "in_progress"
     assert dashboard.research_bundle(tmp_path)["coverage"]["search_progress"] == progress
     assert json.loads((source / "search-progress.json").read_text()) == progress
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_ask_exports_only_after_its_own_runtime_reservation(tmp_path, monkeypatch, fails):
+    workspace = tmp_path / "owned"
+    exports = []
+    def research(question, directory, **options):
+        Path(directory).mkdir()
+        options["on_reserved"]()
+        (Path(directory) / "run.json").write_text(json.dumps({"question": question, "status": "failed" if fails else "complete"}))
+        if fails:
+            raise RuntimeError("Offline owned failure")
+    monkeypatch.setattr(coverage_runtime, "run", research)
+    monkeypatch.setattr(coverage_export, "export_bundle", lambda directory: exports.append(directory))
+    assert cli.main(["ask", "Owned question?", "--out", str(workspace)]) == (1 if fails else 0)
+    assert exports == [str(workspace)]
+
+
+def test_ask_pre_reservation_failure_cannot_export_a_competing_run(tmp_path, monkeypatch):
+    workspace = tmp_path / "racing"
+    exports = []
+    def fail_before_reservation(question, directory, **options):
+        # Another caller acquires this directory after CLI's preflight.
+        Path(directory).mkdir()
+        (Path(directory) / "run.json").write_text('{"question":"Other owner?","status":"researching"}')
+        raise RuntimeError("Offline pre-reservation failure")
+    monkeypatch.setattr(coverage_runtime, "run", fail_before_reservation)
+    monkeypatch.setattr(coverage_export, "export_bundle", lambda directory: exports.append(directory))
+    assert cli.main(["ask", "New question?", "--out", str(workspace)]) == 1
+    assert exports == []
+    assert json.loads((workspace / "run.json").read_text())["question"] == "Other owner?"
+
+
+def test_concurrent_same_question_cli_loser_never_exports_owner_artifacts(tmp_path, monkeypatch):
+    workspace = (tmp_path / "same-question").resolve()
+    workspace.mkdir()
+    barriers = [threading.Barrier(2), threading.Barrier(2)]
+    local = threading.local()
+    original_iterdir = Path.iterdir
+    entered, returned, release = threading.Event(), threading.Event(), threading.Event()
+    exports = []
+    def synchronized_empty_check(path):
+        if path == workspace:
+            number = getattr(local, "checks", 0)
+            if number < 2:
+                local.checks = number + 1
+                snapshot = list(original_iterdir(path))
+                barriers[number].wait(timeout=5)
+                return iter(snapshot)
+        return original_iterdir(path)
+    def offline_session(*args, **kwargs):
+        entered.set()
+        assert release.wait(timeout=10)
+        raise RuntimeError("Offline owned failure")
+    def export(directory):
+        exports.append(json.loads((Path(directory) / "run.json").read_text())["status"])
+        (Path(directory) / "answer.json").write_text('{"owner":"retained partial"}')
+    monkeypatch.setattr(Path, "iterdir", synchronized_empty_check)
+    monkeypatch.setattr(coverage_runtime.shutil, "which", lambda command: "offline-codex")
+    monkeypatch.setattr(coverage_runtime, "scientific_session", offline_session)
+    monkeypatch.setattr(coverage_export, "export_bundle", export)
+    def attempt():
+        code = cli.main(["ask", "Same question?", "--out", str(workspace)])
+        returned.set()
+        return code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(attempt) for _ in range(2)]
+        try:
+            assert entered.wait(timeout=5)
+            assert returned.wait(timeout=5), "Rejected caller must finish while owner is active"
+            assert exports == [], "Rejected caller must not export the owner's active run"
+            assert not (workspace / "answer.json").exists()
+            assert json.loads((workspace / "run.json").read_text())["status"] == "researching"
+        finally:
+            release.set()
+        assert [future.result(timeout=5) for future in futures] == [1, 1]
+    assert exports == ["failed"], "Only the reserved owner exports its retained partial run"
+    assert json.loads((workspace / "answer.json").read_text()) == {"owner": "retained partial"}
