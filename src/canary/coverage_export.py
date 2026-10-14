@@ -179,14 +179,27 @@ def _save_markdown(path: Path, graph: dict):
         linked_passages = {e.get("paragraph_id") for e in evidence
                            if e.get("navigation_id", e.get("id")) in linked_evidence
                            or e.get("origin_evidence_id") in linked_evidence}
+        linked_studies = [r for r in _rows(graph.get("study_results")) if r.get("id") in claim.get("study_result_ids", [])]
+        linked_passages.update(pid for r in linked_studies for f in r.get("fields", {}).values()
+                               if isinstance(f, dict) for pid in f.get("paragraph_ids", []))
+        linked_sources = {passages.get(pid, {}).get("source_id") for pid in linked_passages}
+        linked_sources.update(sid for r in linked_studies for sid in r.get("source_ids", []))
         for issue in _rows(graph.get("binding_issues")):
             linked = issue.get("claim_id") == claim["id"] or (
                 not issue.get("claim_id") and (issue.get("study_result_id") in claim.get("study_result_ids", []) or
                 issue.get("evidence_id") in linked_evidence or
-                (issue.get("kind") == "span_mismatch" and issue.get("passage_id") in linked_passages)))
+                (issue.get("kind") == "span_mismatch" and issue.get("passage_id") in linked_passages) or
+                (issue.get("kind") in ("body_hash_mismatch", "text_hash_mismatch") and issue.get("reference_id") in linked_sources)))
             if not linked or issue.get("claim_occurrence", claim.get("claim_occurrence")) != claim.get("claim_occurrence"):
                 continue
-            if issue.get("kind") == "span_mismatch":
+            if issue.get("kind") in ("body_hash_mismatch", "text_hash_mismatch"):
+                material = "original paper" if issue["kind"] == "body_hash_mismatch" else "extracted text"
+                lines.extend([f"Provenance failure: saved {material} for source {issue.get('reference_id')} differs from its recorded acquisition hash.", ""])
+            elif issue.get("kind") == "undeclared_study_reference":
+                occurrence = f" · recorded occurrence {issue['study_result_occurrence']}" if "study_result_occurrence" in issue else ""
+                declared = ", ".join(issue.get("declared_reference_ids", [])) or "none"
+                lines.extend([f"Provenance failure: study result {issue.get('study_result_id')}{occurrence}, field {issue.get('field')}, cites passage {issue.get('passage_id')} from source {issue.get('reference_id')} outside its declared references ({declared}).", ""])
+            elif issue.get("kind") == "span_mismatch":
                 lines.extend([f"Provenance failure: recorded passage {issue.get('passage_id')} did not match the saved source text at its recorded offsets; the quotation below is recorded, not verified.", ""])
             elif issue.get("kind") == "missing_passage":
                 occurrence = f" · recorded occurrence {issue['evidence_occurrence']}" if "evidence_occurrence" in issue else ""
@@ -488,12 +501,22 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     for record in raw_study_results:
         study_occurrences[record.get("id")] += 1
         fields = {}
+        sources = _unique(record.get("reference_ids", []))
         for name, f in record.get("fields", {}).items():
             if isinstance(f, dict):
                 ids = _unique(f.get("passage_ids", []))
                 fields[field_map.get(name, name)] = {"value": f.get("text"), "paragraph_ids": ids}
                 used_passages.update(ids)
-        sources = _unique(record.get("reference_ids", []))
+                for pid in ids:
+                    span = spans.get(pid)
+                    sid = span.get("reference_id", span.get("source_id")) if span is not None else None
+                    if span is not None and sid not in sources:
+                        issue = {"kind": "undeclared_study_reference", "study_result_id": record.get("id"),
+                                 "field": field_map.get(name, name), "passage_id": pid,
+                                 "reference_id": sid, "declared_reference_ids": sources}
+                        if study_counts[record.get("id")] > 1:
+                            issue["study_result_occurrence"] = study_occurrences[record.get("id")]
+                        graph["binding_issues"].append(issue)
         exported = dict(record, source_id=sources[0] if len(sources) == 1 else None,
                         source_ids=sources, fields=fields,
                         result_type=type_map.get(record.get("result_type"), record.get("result_type")))

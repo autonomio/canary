@@ -428,3 +428,50 @@ def test_html_table_inside_blockquote_keeps_rows_and_surrounding_source_words():
         '<tr><th>B</th><td>4.56 mg</td></tr></table>Source caveat.</blockquote></article>')
     assert sources.article_text(raw) == (
         "Results\n\nSource reports:\n\nGroup | Yield\n\nA | 1.23 mg\n\nB | 4.56 mg\n\nSource caveat.")
+
+
+@pytest.mark.parametrize("colspan", ["1000000000", "1001", "1000"])
+def test_html_giant_colspan_is_bounded_before_expansion_without_duplicating_values(monkeypatch, colspan):
+    expansions = []
+    def bounded_range(*args):
+        result = range(*args)
+        # Fail before the old implementation could loop/allocate a billion slots.
+        assert len(result) <= 1001, "Public column span was not bounded before expansion"
+        expansions.append(len(result))
+        return result
+    monkeypatch.setattr(sources, "range", bounded_range, raising=False)
+    raw = ('<article><h2>Results</h2><table>'
+        '<tr><td colspan="' + colspan + '">1.<em>23</em> mg</td><td>4.56 mg</td></tr>'
+        '<tr><td colspan="' + colspan + '">7.89 mg</td><td>10.11 mg</td></tr>'
+        '</table></article>')
+    text = sources.article_text(raw)
+    rows = text.split("\n\n")[1:]
+    assert len(rows) == 2
+    assert rows[0].split(" | ") == ["1.23 mg"] + [""] * 999 + ["4.56 mg"]
+    assert rows[1].split(" | ") == ["7.89 mg"] + [""] * 999 + ["10.11 mg"]
+    assert max(expansions) == 1001
+    assert all(text.count(value) == 1 for value in ("1.23 mg", "4.56 mg", "7.89 mg", "10.11 mg"))
+
+
+@pytest.mark.parametrize("attrs", [
+    'colspan="not-a-number" rowspan="not-a-number"',
+    'colspan="-2" rowspan="-2"',
+    'colspan="1.5" rowspan="1.5"',
+    'colspan="" rowspan=""',
+    'colspan rowspan',
+    'colspan="0" rowspan="1"',
+])
+def test_html_malformed_span_attributes_keep_ordinary_cell_alignment(attrs):
+    raw = ('<article><h2>Results</h2><table>'
+        '<tr><th>Group</th><th>Yield</th></tr>'
+        '<tr><th ' + attrs + '>A</th><td>1.<em>23</em> mg</td></tr>'
+        '<tr><th>B</th><td>4.56 mg</td></tr></table></article>')
+    assert sources.article_text(raw) == "Results\n\nGroup | Yield\n\nA | 1.23 mg\n\nB | 4.56 mg"
+
+
+def test_html_ordinary_colspan_still_preserves_empty_slots_and_inline_numbers():
+    raw = ('<article><h2>Results</h2><table>'
+        '<tr><th colspan="2">Yield (<span>mg</span>)</th></tr>'
+        '<tr><td>1.<em>23</em> mg</td><td>4.56 mg</td></tr>'
+        '<tr><td></td><td>7.89 mg</td></tr></table></article>')
+    assert sources.article_text(raw) == "Results\n\nYield (mg) | \n\n1.23 mg | 4.56 mg\n\n | 7.89 mg"

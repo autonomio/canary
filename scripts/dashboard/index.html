@@ -3159,11 +3159,25 @@
     return [...new Set(Array.isArray(c?.study_result_ids) ? c.study_result_ids : [])]
       .map(id=>qaStudyLinks(g,id).record || {id});
   }
+  function qaSourceIntegrityIssues(g,ids) {
+    const sources=new Set(Array.isArray(ids) ? ids : [ids]);
+    return (g.binding_issues || []).filter(i=>['body_hash_mismatch','text_hash_mismatch'].includes(i.kind) && sources.has(i.reference_id));
+  }
+  function qaSourceIntegrityHtml(g,ids) {
+    const issues=qaSourceIntegrityIssues(g,ids);
+    return issues.length ? `<p role="alert">Source integrity failure: ${issues.map(qaBindingReason).map(esc).join(' · ')}</p>` : '';
+  }
+  function qaStudyFieldWarnings(g,r,name,field) {
+    const records=(g.study_results || []).filter(x=>x.id===r.id), occurrence=records.length>1 ? r.study_result_occurrence || records.indexOf(r)+1 : null;
+    const issues=(g.binding_issues || []).filter(i=>i.kind==='undeclared_study_reference' && i.study_result_id===r.id && i.field===name && (i.study_result_occurrence==null || i.study_result_occurrence===occurrence));
+    const actualSources=(field?.paragraph_ids || []).map(id=>g.passages?.find(p=>p.id===id)?.source_id).filter(Boolean);
+    return `${issues.length ? `<p role="alert">Provenance failure: ${issues.map(qaBindingReason).map(esc).join(' · ')}</p>` : ''}${qaSourceIntegrityHtml(g,actualSources)}`;
+  }
   function studyPassageLinks(g,r,ids,field) {
     if(!Array.isArray(ids) || !ids.length) return '<span class="hint">No source passage saved.</span>';
     return ids.map((id,i)=>{
-      const p=g.passages?.find(p=>p.id===id && (p.source_id===r.source_id || r.source_ids?.includes(p.source_id)));
-      return p ? `<button type="button" class="text-action" data-qa-passage="${esc(id)}" data-study-result="${esc(r.id)}" data-study-field="${esc(field)}">Source ${i+1}</button>` : '<span class="hint">Source passage unavailable.</span>';
+      const p=g.passages?.find(p=>p.id===id);
+      return p ? `<button type="button" class="text-action" data-qa-passage="${esc(id)}" data-study-result="${esc(r.id)}" data-study-field="${esc(field)}">Source ${i+1}${p.source_id ? ` · ${esc(p.source_id)}` : ''}</button>` : '<span class="hint">Source passage unavailable.</span>';
     }).join(' ');
   }
   function studyResultInspector(g,id) {
@@ -3178,14 +3192,14 @@
     const display=v=>esc(typeof v==='object' ? JSON.stringify(v) : String(v));
     const field=(name,label)=>{
       const f=r.fields?.[name],known=f?.value != null && f.value !== '';
-      return `<dt>${esc(label)}</dt><dd>${known ? `<p>${display(f.value)}</p><div class="source-actions">${studyPassageLinks(g,r,f.paragraph_ids,label)}</div>` : '<span class="muted">Not extracted</span>'}</dd>`;
+      return `<dt>${esc(label)}</dt><dd>${known ? `<p>${display(f.value)}</p><div class="source-actions">${studyPassageLinks(g,r,f.paragraph_ids,label)}</div>` : '<span class="muted">Not extracted</span>'}${qaStudyFieldWarnings(g,r,name,f)}</dd>`;
     };
-    return `${heading}<p class="hint">Model-extracted interpretation; not independent scientific validation. Verify each field against its source passages. “Not extracted” does not establish that the paper omitted it.</p><dl class="study-fields"><dt>Result type</dt><dd>${r.result_type ? `<p>${esc(String(r.result_type).replaceAll('_',' '))}</p><div class="source-actions">${studyPassageLinks(g,r,r.result_type_paragraph_ids,'Result type')}</div>` : '<span class="muted">Not extracted</span>'}</dd>${fields.map(([name,label])=>field(name,label)).join('')}</dl>${references.length ? references.map(qaCitation).join('') : qaCitation(null)}`;
+    return `${heading}<p class="hint">Model-extracted interpretation; not independent scientific validation. Verify each field against its source passages. “Not extracted” does not establish that the paper omitted it.</p><dl class="study-fields"><dt>Result type</dt><dd>${r.result_type ? `<p>${esc(String(r.result_type).replaceAll('_',' '))}</p><div class="source-actions">${studyPassageLinks(g,r,r.result_type_paragraph_ids,'Result type')}</div>` : '<span class="muted">Not extracted</span>'}</dd>${fields.map(([name,label])=>field(name,label)).join('')}</dl>${qaSourceIntegrityHtml(g,references.map(r=>r.id))}${references.length ? references.map(qaCitation).join('') : qaCitation(null)}`;
   }
   function paragraphInspector(g,id,field='') {
     const p=g?.passages?.find(p=>p.id===id),ref=g?.references?.find(r=>r.id===p?.source_id);
     if(!p) return '<p class="muted">Source passage not saved.</p>';
-    return `<h2 tabindex="-1">${field ? `${esc(field)} · ` : ''}Source passage</h2><p class="hint">${p.anchored===false ? 'Recorded passage; unverified against saved source text' : `Exact saved ${p.kind === 'abstract' ? 'abstract' : 'paper'} text`}${p.start != null ? ` · characters ${esc(p.start)}–${esc(p.end)}` : ''}; distinct from the model-extracted field.</p>${p.anchored===false ? '<p role="alert">This passage did not match the saved source text at its recorded offsets.</p>' : ''}<blockquote class="inspector-quote">${esc(p.text)}</blockquote><div class="source-actions">${qaButton('data-qa-paragraph-context',id,'Read in source context →')}</div>${qaCitation(ref)}`;
+    return `<h2 tabindex="-1">${field ? `${esc(field)} · ` : ''}Source passage</h2><p class="hint">${p.anchored===false ? 'Recorded passage; unverified against saved source text' : `Exact saved ${p.kind === 'abstract' ? 'abstract' : 'paper'} text`}${p.start != null ? ` · characters ${esc(p.start)}–${esc(p.end)}` : ''}; distinct from the model-extracted field.</p>${qaSourceIntegrityHtml(g,p.source_id)}${p.anchored===false ? '<p role="alert">This passage did not match the saved source text at its recorded offsets.</p>' : ''}<blockquote class="inspector-quote">${esc(p.text)}</blockquote><div class="source-actions">${qaButton('data-qa-paragraph-context',id,'Read in source context →')}</div>${qaCitation(ref)}`;
   }
   function qaUncertainty(c) {
     const recordedClass=c?.uncertainty_class ?? c?.uncertainty?.class, recordedScore=c?.uncertainty_score ?? c?.uncertainty?.score;
@@ -3258,8 +3272,11 @@
   function qaClaimBindingIssues(g,c) {
     const ids=new Set(Array.isArray(c.evidence_ids) ? c.evidence_ids : []), studyIds=new Set(Array.isArray(c.study_result_ids) ? c.study_result_ids : []), occurrence=qaClaimOccurrence(g,c), records=(g.claims || []).filter(x=>x.id===c.id);
     for(const e of g.evidence || []) if(ids.has(e.id) && e.origin_evidence_id) ids.add(e.origin_evidence_id);
-    const linkedEvidence=(g.evidence || []).filter(e=>ids.has(e.navigation_id || e.id) || ids.has(e.origin_evidence_id)), passageIds=new Set(linkedEvidence.map(e=>e.paragraph_id).filter(Boolean));
-    const issues=(Array.isArray(g.binding_issues) ? g.binding_issues : []).filter(i=>(i.claim_id===c.id || (!i.claim_id && (ids.has(i.evidence_id) || studyIds.has(i.study_result_id) || (i.kind==='span_mismatch' && passageIds.has(i.passage_id))))) && (i.claim_occurrence==null || i.claim_occurrence===occurrence));
+    const linkedEvidence=(g.evidence || []).filter(e=>ids.has(e.navigation_id || e.id) || ids.has(e.origin_evidence_id)), linkedStudies=(g.study_results || []).filter(r=>studyIds.has(r.id)), passageIds=new Set(linkedEvidence.map(e=>e.paragraph_id).filter(Boolean));
+    for(const r of linkedStudies) for(const f of Object.values(r.fields || {})) for(const id of f?.paragraph_ids || []) passageIds.add(id);
+    const sourceIds=new Set([...passageIds].map(id=>g.passages?.find(p=>p.id===id)?.source_id).filter(Boolean));
+    for(const r of linkedStudies) for(const id of r.source_ids || []) sourceIds.add(id);
+    const issues=(Array.isArray(g.binding_issues) ? g.binding_issues : []).filter(i=>(i.claim_id===c.id || (!i.claim_id && (ids.has(i.evidence_id) || studyIds.has(i.study_result_id) || (i.kind==='span_mismatch' && passageIds.has(i.passage_id)) || (['body_hash_mismatch','text_hash_mismatch'].includes(i.kind) && sourceIds.has(i.reference_id))))) && (i.claim_occurrence==null || i.claim_occurrence===occurrence));
     for(const e of linkedEvidence) if(e.paragraph_id && e.anchored===false && !issues.some(i=>i.kind==='span_mismatch' && i.passage_id===e.paragraph_id)) issues.push({kind:'span_mismatch',passage_id:e.paragraph_id});
     const uncertainty=qaUncertainty(c);
     if(uncertainty.mismatch && !issues.some(i=>i.kind==='uncertainty_mismatch')) issues.push({kind:'uncertainty_mismatch',claim_id:c.id,recorded_class:uncertainty.recordedClass,recorded_score:uncertainty.recordedScore});
@@ -3276,14 +3293,14 @@
     return issues;
   }
   function qaBindingReason(issue) {
-    return issue.reason || issue.description || (issue.kind==='span_mismatch' ? `Recorded passage ${issue.passage_id} did not match the saved source text at its recorded offsets.` : issue.kind==='missing_passage' ? `Recorded passage ${issue.passage_id} is unavailable.` : issue.kind==='lacks_verbatim' ? `Evidence packet${issue.evidence_occurrence ? ` occurrence ${issue.evidence_occurrence}` : ''} has no recorded verbatim passages.` : issue.kind==='uncertainty_mismatch' ? `Recorded uncertainty class ${issue.recorded_class} conflicts with score ${issue.recorded_score}/3; both values are retained.` : issue.kind==='lacks_evidence' ? 'This claim has no recorded evidence IDs.' : issue.kind==='duplicate_evidence_id' ? 'Distinct recorded evidence packets share this ID; the linked packet is ambiguous.' : issue.kind==='missing_evidence' ? 'No saved evidence record matches this ID.' : issue.kind==='missing_study_result' ? 'No saved study-result record matches this ID.' : issue.kind==='duplicate_study_result_id' ? `${issue.record_count} recorded study results share this ID; the linked measurement is ambiguous.` : issue.kind==='duplicate_claim_id' ? `${issue.record_count} recorded claims share this ID; ID-only links are ambiguous.` : String(issue.kind || 'Source binding issue').replaceAll('_',' '));
+    return issue.reason || issue.description || (['body_hash_mismatch','text_hash_mismatch'].includes(issue.kind) ? `Saved ${issue.kind==='body_hash_mismatch' ? 'original paper' : 'extracted text'} for source ${issue.reference_id} differs from its recorded acquisition hash.` : issue.kind==='undeclared_study_reference' ? `Field ${issue.field} cites saved passage ${issue.passage_id} from source ${issue.reference_id}, outside its declared references (${(issue.declared_reference_ids || []).join(', ') || 'none'}).` : issue.kind==='span_mismatch' ? `Recorded passage ${issue.passage_id} did not match the saved source text at its recorded offsets.` : issue.kind==='missing_passage' ? `Recorded passage ${issue.passage_id} is unavailable.` : issue.kind==='lacks_verbatim' ? `Evidence packet${issue.evidence_occurrence ? ` occurrence ${issue.evidence_occurrence}` : ''} has no recorded verbatim passages.` : issue.kind==='uncertainty_mismatch' ? `Recorded uncertainty class ${issue.recorded_class} conflicts with score ${issue.recorded_score}/3; both values are retained.` : issue.kind==='lacks_evidence' ? 'This claim has no recorded evidence IDs.' : issue.kind==='duplicate_evidence_id' ? 'Distinct recorded evidence packets share this ID; the linked packet is ambiguous.' : issue.kind==='missing_evidence' ? 'No saved evidence record matches this ID.' : issue.kind==='missing_study_result' ? 'No saved study-result record matches this ID.' : issue.kind==='duplicate_study_result_id' ? `${issue.record_count} recorded study results share this ID; the linked measurement is ambiguous.` : issue.kind==='duplicate_claim_id' ? `${issue.record_count} recorded claims share this ID; ID-only links are ambiguous.` : String(issue.kind || 'Source binding issue').replaceAll('_',' '));
   }
   function qaProvenanceNotice(g,c) {
     return qaClaimBindingIssues(g,c).length ? `<span role="alert">${qaButton('data-qa-claim',c.id,'Provenance failure · details')}</span>` : '';
   }
   function qaProvenanceDetails(g,c) {
     const issues=qaClaimBindingIssues(g,c);
-    return issues.length ? `<details open data-detail="provenance-${esc(c.id)}${qaClaimOccurrence(g,c) ? `-${qaClaimOccurrence(g,c)}` : ''}"><summary>Provenance failure (${issues.length})</summary><p class="hint">Audit support does not repair missing source links.</p>${issues.map(i=>`<p>${i.evidence_id ? qaButton('data-qa-evidence',i.evidence_id,i.evidence_id) : i.study_result_id ? studyResultButton(i.study_result_id,c.id) : i.kind==='span_mismatch' && i.passage_id ? qaButton('data-qa-passage',i.passage_id,i.passage_id) : esc(i.kind)} · ${esc(qaBindingReason(i))}</p>`).join('')}</details>` : '';
+    return issues.length ? `<details open data-detail="provenance-${esc(c.id)}${qaClaimOccurrence(g,c) ? `-${qaClaimOccurrence(g,c)}` : ''}"><summary>Provenance failure (${issues.length})</summary><p class="hint">Audit support does not repair missing source links.</p>${issues.map(i=>`<p>${i.evidence_id ? qaButton('data-qa-evidence',i.evidence_id,i.evidence_id) : i.study_result_id ? studyResultButton(i.study_result_id,c.id) : i.reference_id && ['body_hash_mismatch','text_hash_mismatch'].includes(i.kind) ? qaButton('data-qa-source',i.reference_id,i.reference_id) : i.kind==='span_mismatch' && i.passage_id ? qaButton('data-qa-passage',i.passage_id,i.passage_id) : esc(i.kind)} · ${esc(qaBindingReason(i))}</p>`).join('')}</details>` : '';
   }
   function claimInspector(g, id) {
     const records=(g?.claims || []).filter(c=>c.id===id);
@@ -3319,7 +3336,7 @@
     const packet=qaEvidencePackets(g,[id])[0];
     const relation=['supports','qualifies','contradicts'].includes(x.evidence.relation) ? x.evidence.relation : 'unknown', unverified=x.evidence.anchored===false || x.passage?.anchored===false;
     const siblings=packet.evidence.length>1 ? `<details data-detail="evidence-packet-${esc(packet.originId)}${packet.occurrence ? `-${esc(packet.occurrence)}` : ''}"><summary>All ${packet.evidence.length} passages in ${esc(packet.originId)}</summary><div class="finding-links">${packet.evidence.map((e,i)=>{const ref=qaLinks(g,e.navigation_id || e.id).reference;return qaButton('data-qa-evidence',e.navigation_id || e.id,`Passage ${i+1} · ${ref?.paper?.title || ref?.id || e.paragraph_id || e.id}`);}).join(' ')}</div></details>` : '';
-    return `<h2 tabindex="-1">${esc(id)} · Evidence</h2>${missingHtml}<div class="inspector-quote"><blockquote>${esc(x.evidence.quote)}</blockquote></div><p class="hint">${unverified ? "Recorded quotation; unverified against saved source text" : x.passage?.kind === "abstract" ? "Exact passage from the recorded abstract" : x.passage?.kind === "fulltext" ? "Exact passage from the saved full paper" : "Recorded evidence passage"}${x.passage?.start != null ? ` · characters ${esc(x.passage.start)}–${esc(x.passage.end)}` : ""}.</p><div class="source-actions">${qaButton("data-qa-context",id,"Read in source context →")}</div>${siblings}${unverified ? '<p role="alert">This passage did not match the saved source text at its recorded offsets.</p>' : ""}${x.evidence.interpretation ? `<details><summary>Model interpretation</summary><p>${esc(x.evidence.interpretation)}</p></details>` : ""}${qaCitation(x.reference)}<p class="hint">Recorded relation: ${esc(relation)}</p><h3>Linked claims</h3><div class="finding-links">${x.claims.map(c=>qaButton("data-qa-claim",c.id,`${c.id} · ${c.text}`)).join("")}</div>`;
+    return `<h2 tabindex="-1">${esc(id)} · Evidence</h2>${missingHtml}${qaSourceIntegrityHtml(g,x.passage?.source_id)}<div class="inspector-quote"><blockquote>${esc(x.evidence.quote)}</blockquote></div><p class="hint">${unverified ? "Recorded quotation; unverified against saved source text" : x.passage?.kind === "abstract" ? "Exact passage from the recorded abstract" : x.passage?.kind === "fulltext" ? "Exact passage from the saved full paper" : "Recorded evidence passage"}${x.passage?.start != null ? ` · characters ${esc(x.passage.start)}–${esc(x.passage.end)}` : ""}.</p><div class="source-actions">${qaButton("data-qa-context",id,"Read in source context →")}</div>${siblings}${unverified ? '<p role="alert">This passage did not match the saved source text at its recorded offsets.</p>' : ""}${x.evidence.interpretation ? `<details><summary>Model interpretation</summary><p>${esc(x.evidence.interpretation)}</p></details>` : ""}${qaCitation(x.reference)}<p class="hint">Recorded relation: ${esc(relation)}</p><h3>Linked claims</h3><div class="finding-links">${x.claims.map(c=>qaButton("data-qa-claim",c.id,`${c.id} · ${c.text}`)).join("")}</div>`;
   }
   function findingHtml(g,c) {
     const refs = new Set((c.evidence_ids || []).map(id=>qaLinks(g,id).reference?.id).filter(Boolean));
@@ -3409,7 +3426,7 @@
         return `<p class="context-paragraph ${p.selected ? "selected" : ""}" ${p.selected ? 'id="selected-source-passage"' : ""}>${content}</p>`;
       }).join("")}</div>`;
     }
-    return `<h2 tabindex="-1">${state.scope==="paper" ? "Complete paper" : "Source context"}</h2>${qaCitation(ref)}${text}`;
+    return `<h2 tabindex="-1">${state.scope==="paper" ? "Complete paper" : "Source context"}</h2>${qaCitation(ref)}${qaSourceIntegrityHtml(g,state.sourceId)}${text}`;
   }
   function paintInspector(focus=false,retainedScrolls=[]) {
     const pane=document.getElementById("evidence-inspector"), state=S.inspector, g=qaGraph(S.research[S.selected]);

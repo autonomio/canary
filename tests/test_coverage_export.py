@@ -593,3 +593,99 @@ for(const e of graph.evidence.filter(e=>e.paragraph_id==='p2' || e.paragraph_id=
 const stale={...graph,binding_issues:[]};assert.ok(qaClaimBindingIssues(stale,bad).some(i=>i.kind==='span_mismatch' && i.passage_id==='p1'));
 assert.equal(JSON.stringify(graph),before);
 """)
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_undeclared_study_reference_warns_and_opens_actual_saved_passage(tmp_path, duplicate):
+    import hashlib
+    from canary.coverage_runtime import bind_payload
+    investigation = {"claims": [{"id": "C_bad", "text": "Recorded misbound field.", "evidence_ids": ["E1"], "study_result_ids": ["SR_bad"]},
+                                  {"id": "C_good", "text": "Correctly bound field.", "evidence_ids": ["E1"], "study_result_ids": ["SR_good"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}],
+                     "study_results": [{"id": "SR_bad", "reference_ids": ["R1"], "result_type": "measured",
+                                        "fields": {"value": {"text": "Recorded 23 percent", "passage_ids": ["p3"]}}},
+                                       *([{"id": "SR_bad", "reference_ids": ["R1"], "result_type": "measured",
+                                           "fields": {"value": {"text": "Correct duplicate occurrence", "passage_ids": ["p1"]}}}] if duplicate else []),
+                                       {"id": "SR_good", "reference_ids": ["R1"], "result_type": "measured",
+                                        "fields": {"value": {"text": "Bound 11 percent", "passage_ids": ["p1"]}}}]}
+    saved_bundle(tmp_path, investigation)
+    refs = json.loads((tmp_path / "references.json").read_text()); (tmp_path / "download-receipts").mkdir()
+    for ref in refs:
+        ref["body_sha256"] = hashlib.sha256((tmp_path / ref["file"]).read_bytes()).hexdigest()
+        ref["text_sha256"] = hashlib.sha256((tmp_path / ref["text_file"]).read_bytes()).hexdigest()
+        (tmp_path / "download-receipts" / (ref["id"] + ".json")).write_text(json.dumps({"reference": ref}))
+    (tmp_path / "question-plan.json").write_text(json.dumps({"question": "Synthetic question?"}))
+    audit = bind_payload(tmp_path)
+    assert "Result field uses undeclared reference: SR_bad.value" in audit["mechanical_audit"]["issues"]
+    graph = export_bundle(tmp_path)["answer"]
+    assert [i for i in graph["binding_issues"] if i["kind"] == "undeclared_study_reference"] == [
+        dict(kind="undeclared_study_reference", study_result_id="SR_bad", field="value", passage_id="p3",
+             reference_id="R2", declared_reference_ids=["R1"], **({"study_result_occurrence": 1} if duplicate else {}))]
+    assert graph["study_results"][0]["source_ids"] == ["R1"]
+    assert graph["study_results"][0]["fields"]["value"] == {"value": "Recorded 23 percent", "paragraph_ids": ["p3"]}
+    assert {r["id"] for r in graph["references"]} == {"R1", "R2"}
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    assert "cites passage p3 from source R2 outside its declared references (R1)" in report.split("## C_bad", 1)[1].split("## C_good", 1)[0]
+    assert "outside its declared references" not in report.split("## C_good", 1)[1]
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),bad=graph.claims[0],good=graph.claims[1];
+assert.ok(qaClaimBindingIssues(graph,bad).some(i=>i.kind==='undeclared_study_reference'));
+assert.doesNotMatch(findingHtml(graph,good),/Provenance failure/);
+const html=studyResultInspector(graph,'SR_bad');assert.match(html,/Recorded 23 percent/);
+assert.match(html,/Field value cites saved passage p3 from source R2, outside its declared references \(R1\)/);
+assert.match(html,/data-qa-passage="p3"/);assert.match(html,/Source 1 · R2/);assert.doesNotMatch(html,/Source passage unavailable/);
+const passage=paragraphInspector(graph,'p3');assert.match(passage,/Different paper quotation\./);assert.match(passage,/DOI 10\.9999\/R2/);
+assert.doesNotMatch(passage,/DOI 10\.9999\/R1/);
+if(graph.study_results[0].study_result_occurrence) {
+ const second=html.split('data-study-occurrence="2"')[1].split('</section>')[0];
+ assert.match(second,/Correct duplicate occurrence/);assert.doesNotMatch(second,/outside its declared references/);
+}
+global.document={getElementById:()=>null};S.selected='actual-study-source';S.research[S.selected]={answer:graph};
+(async()=>{await inspectAnswer('passage','p3');assert.equal(S.inspector.sourceId,'R2');assert.equal(JSON.stringify(graph),before);})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+@pytest.mark.parametrize("kind", ["body", "text"])
+def test_hash_failures_reach_actual_evidence_and_study_sources_without_hiding_quotes(tmp_path, kind):
+    import hashlib
+    investigation = {"claims": [{"id": "C_evidence", "text": "Claim quoting changed source.", "evidence_ids": ["E_bad"]},
+                                  {"id": "C_study", "text": "Claim using a changed study source.", "evidence_ids": ["E_good"], "study_result_ids": ["SR_bad"]},
+                                  {"id": "C_good", "text": "Unaffected source.", "evidence_ids": ["E_good"], "study_result_ids": ["SR_good"]}],
+                     "evidence": [{"id": "E_bad", "passage_ids": ["p1"]}, {"id": "E_good", "passage_ids": ["p3"]}],
+                     "study_results": [{"id": "SR_bad", "reference_ids": ["R1"], "fields": {"value": {"text": "Recorded bad source value", "passage_ids": ["p1"]}}},
+                                       {"id": "SR_good", "reference_ids": ["R2"], "fields": {"value": {"text": "Recorded good source value", "passage_ids": ["p3"]}}}]}
+    saved_bundle(tmp_path, investigation)
+    refs = json.loads((tmp_path / "references.json").read_text())
+    for ref in refs:
+        ref["body_sha256"] = hashlib.sha256((tmp_path / ref["file"]).read_bytes()).hexdigest()
+        ref["text_sha256"] = hashlib.sha256((tmp_path / ref["text_file"]).read_bytes()).hexdigest()
+    (tmp_path / "references.json").write_text(json.dumps(refs))
+    path = tmp_path / ("papers/R1.pdf" if kind == "body" else "texts/R1.txt")
+    path.write_bytes(path.read_bytes() + b"\nChanged after acquisition, outside the quoted passage.")
+    modified = path.read_bytes()
+    graph = export_bundle(tmp_path)["answer"]
+    issue = {"kind": kind + "_hash_mismatch", "reference_id": "R1"}
+    assert issue in graph["binding_issues"]
+    assert next(e for e in graph["evidence"] if e["id"] == "E_bad")["anchored"] is True
+    assert path.read_bytes() == modified and json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    material = "original paper" if kind == "body" else "extracted text"
+    warning = f"saved {material} for source R1 differs from its recorded acquisition hash"
+    assert warning in report.split("## C_evidence", 1)[1].split("## C_study", 1)[0]
+    assert warning in report.split("## C_study", 1)[1].split("## C_good", 1)[0]
+    assert "acquisition hash" not in report.split("## C_good", 1)[1]
+    assert "> First exact quotation." in report and "> Different paper quotation." in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),affected=graph.claims.slice(0,2),good=graph.claims[2];
+for(const c of affected) {assert.ok(qaClaimBindingIssues(graph,c).some(i=>i.kind.endsWith('_hash_mismatch')));assert.match(findingHtml(graph,c),/Provenance failure/);assert.match(claimInspector(graph,c.id),/source R1 differs from its recorded acquisition hash/);}
+assert.doesNotMatch(findingHtml(graph,good),/Provenance failure/);
+assert.match(evidenceInspector(graph,'E_bad'),/Source integrity failure/);assert.match(evidenceInspector(graph,'E_bad'),/First exact quotation\./);
+assert.doesNotMatch(evidenceInspector(graph,'E_good'),/Source integrity failure/);
+assert.match(paragraphInspector(graph,'p1'),/Source integrity failure/);assert.doesNotMatch(paragraphInspector(graph,'p3'),/Source integrity failure/);
+assert.match(studyResultInspector(graph,'SR_bad'),/Source integrity failure/);assert.match(studyResultInspector(graph,'SR_bad'),/Recorded bad source value/);
+assert.doesNotMatch(studyResultInspector(graph,'SR_good'),/Source integrity failure/);
+S.selected='changed-source';S.sourceContexts={};S.sourceContexts[contextKey('R1',null,'paper')]={paragraphs:[{text:'First exact quotation.'}],text_available:true};
+assert.match(sourceInspector(graph,{sourceId:'R1',scope:'paper'}),/Source integrity failure/);
+assert.equal(JSON.stringify(graph),before);
+""")

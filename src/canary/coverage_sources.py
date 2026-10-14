@@ -147,7 +147,8 @@ def _table_blocks(table):
         groups_remaining[group] = groups_remaining.get(group, 0) + 1
     def span(cell, name):
         try:
-            return max(0, int(cell.attrs.get(name, "1")))
+            value = int(cell.attrs.get(name, "1"))
+            return value if value >= 0 else 1
         except (TypeError, ValueError):
             return 1
     occupied, previous_group, grid = {}, None, []
@@ -160,7 +161,8 @@ def _table_blocks(table):
         for cell in row.children:
             if not isinstance(cell, _Node) or cell.tag not in {"td", "th"} or _skip(cell):
                 continue
-            colspan = max(1, span(cell, "colspan"))
+            # Match HTML's column-span limit before expanding public markup.
+            colspan = min(1000, max(1, span(cell, "colspan")))
             while any(column + offset in values for offset in range(colspan)):
                 column += 1
             rowspan = span(cell, "rowspan") or groups_remaining[group]
