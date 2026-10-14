@@ -913,3 +913,46 @@ S.selected='missing-source-navigation';S.research[S.selected]={answer:graph};
  assert.equal(JSON.stringify(graph),before,'Navigation must preserve the saved source ID, verbatim and raw findings');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """)
+
+
+def test_audit_source_button_opens_saved_verbatim_without_citation_metadata(tmp_path):
+    investigation = {"claims": [{"id": "C1", "text": "Recorded audited claim.", "evidence_ids": ["E1"]},
+                                  {"id": "C2", "text": "Recorded audit control.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p3"]}]}
+    audit = {"claim_checks": [{"claim_id": "C1", "assessment": "supported", "reason": "Recorded audit reasoning.", "passage_ids": ["p1", "p_missing"]},
+                               {"claim_id": "C2", "assessment": "supported", "reason": "Bound audit control.", "passage_ids": ["p3"]}]}
+    saved_bundle(tmp_path, investigation)
+    (tmp_path / "audit.json").write_text(json.dumps(audit))
+    refs = json.loads((tmp_path / "references.json").read_text())
+    (tmp_path / "references.json").write_text(json.dumps([r for r in refs if r["id"] != "R1"]))
+    graph = export_bundle(tmp_path)["answer"]
+    assert graph["source_checks"][0]["paragraph_ids"] == ["p1", "p_missing"]
+    assert next(p for p in graph["passages"] if p["id"] == "p1")["text"] == "First exact quotation."
+    assert json.loads((tmp_path / "audit.json").read_text()) == audit
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),noop=()=>{},classes={add:noop,toggle:noop,remove:noop};
+const pane={hidden:true,innerHTML:'',querySelectorAll:()=>[],contains:()=>false,querySelector:()=>({focus:noop}),closest:()=>({classList:classes})};
+global.document={getElementById:id=>id==='evidence-inspector' ? pane : null,body:{classList:classes},querySelectorAll:()=>[],activeElement:null};
+global.window={matchMedia:()=>({matches:false})};global.fetch=()=>{throw new Error('Saved audit-passage navigation must not need a source request');};
+S.selected='audit-missing-citation';S.research[S.selected]={answer:graph};
+(async()=>{
+ await inspectAnswer('claim','C1');
+ const auditHtml=sourceCheckHtml(graph,graph.claims[0]);
+ assert.match(auditHtml,/Source 1 · R1 · Citation not recorded/);assert.match(auditHtml,/Recorded audit reasoning/);
+ assert.equal((auditHtml.match(/Source passage unavailable/g)||[]).length,1,'Only the absent passage is unavailable');
+ assert.doesNotMatch(auditHtml,/data-qa-passage="p_missing"/);
+ const button=pane.innerHTML.match(/<button[^>]*data-qa-passage="([^"]+)"[^>]*data-source-check-claim="([^"]+)"/);
+ assert.ok(button,'The actual audit Source button must be present');assert.equal(button[1],'p1');assert.equal(button[2],'C1');
+ await inspectAnswer('passage',button[1],{sourceCheckClaim:button[2]});
+ assert.equal(S.inspector.kind,'passage');assert.equal(S.inspector.paragraphId,'p1');assert.equal(S.inspector.claimId,'C1');assert.equal(S.inspector.fieldName,'Source check');
+ assert.equal(S.inspector.sourceId,undefined);assert.match(pane.innerHTML,/<blockquote[^>]*>First exact quotation\.<\/blockquote>/);
+ assert.match(pane.innerHTML,/Source R1 has no recorded reference/);assert.match(pane.innerHTML,/Source context unavailable/);
+ assert.doesNotMatch(pane.innerHTML,/data-qa-(source|paper|paragraph-context)=/);
+ const previous=S.inspector;await inspectAnswer('passage','p3',{sourceCheckClaim:'C1'});assert.equal(S.inspector,previous,'An audit control cannot navigate a passage absent from that check');
+ assert.match(sourceCheckHtml(graph,graph.claims[1]),/Source 1 · Saved paper R2/);
+ await inspectAnswer('passage','p3',{sourceCheckClaim:'C2'});assert.equal(S.inspector.sourceId,'R2');assert.equal(S.inspector.claimId,'C2');
+ assert.match(pane.innerHTML,/Different paper quotation\./);assert.match(pane.innerHTML,/data-qa-paragraph-context="p3"/);
+ assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")

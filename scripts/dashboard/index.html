@@ -3252,7 +3252,7 @@
     const ids=[...new Set(Array.isArray(check.paragraph_ids) ? check.paragraph_ids : [])];
     const sources=ids.map((id,i)=>{
       const p=g.passages?.find(p=>p.id===id),ref=g.references?.find(r=>r.id===p?.source_id);
-      return p && ref ? `<button type="button" class="text-action" data-qa-passage="${esc(id)}" data-source-check-claim="${esc(c.id)}">Source ${i+1} · ${esc(ref.paper?.title || ref.id)}</button>` : '<span class="hint">Source passage unavailable.</span>';
+      return p ? `<button type="button" class="text-action" data-qa-passage="${esc(id)}" data-source-check-claim="${esc(c.id)}">Source ${i+1} · ${esc(ref?.paper?.title || ref?.id || p.source_id || id)}${ref ? '' : ' · Citation not recorded'}</button>` : '<span class="hint">Source passage unavailable.</span>';
     }).join(' ');
     const changed=typeof check.original_text==='string' && check.original_text.length && check.original_text!==c.text;
     const effort=['high','xhigh','max','ultra'].includes(g.source_check_reasoning_effort) ? g.source_check_reasoning_effort : '';

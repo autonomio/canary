@@ -546,3 +546,61 @@ def test_html_compact_fallback_keeps_source_cells_spans_caption_and_exact_passag
     passages = canonical_passages(text, "W1")
     assert all(row["text"] == text[row["start"]:row["end"]] for row in passages)
     assert "\n\n".join(row["text"] for row in passages) == text
+
+
+@pytest.mark.parametrize("rows", [
+    "<tr><td>A<td>12<tr><td>B<td>19",
+    "<tr><td>A<td>12</tr><tr><td>B<td>19</tr>",
+    "<tr><td>A</td><td>12</td><tr><td>B</td><td>19</td>",
+    "<tr><th>A<td>12<tr><th>B<td>19",
+])
+def test_html_optional_cell_and_row_endings_preserve_exact_label_value_rows(rows):
+    raw = "<article><h2>Results</h2><table>" + rows + "</table></article>"
+    explicit = "<article><h2>Results</h2><table><tr><td>A</td><td>12</td></tr><tr><td>B</td><td>19</td></tr></table></article>"
+    assert sources.article_text(raw) == sources.article_text(explicit) == "Results\n\nA | 12\n\nB | 19"
+
+
+def test_html_optional_group_endings_preserve_caption_headers_spans_and_empty_cells():
+    raw = ('<article><h2>Results</h2><table><caption>Reported yields.</caption><thead>'
+        '<tr><th rowspan="2">Sample<th colspan="2">Yield (mg)<tr><th>Early<th>Late'
+        '<tbody><tr><th rowspan="2">A<td>1.<em>23</em><td>4.<strong>56</strong>'
+        '<tr><td>7.89<td><tfoot><tr><td colspan="3">Source caveat.</table></article>')
+    assert sources.article_text(raw) == (
+        "Results\n\nReported yields.\n\nSample | Yield (mg) | \n\n | Early | Late"
+        "\n\nA | 1.23 | 4.56\n\n | 7.89 | \n\nSource caveat. |  | ")
+
+
+def test_html_optional_endings_in_nested_tables_do_not_close_outer_cells():
+    raw = ('<article><h2>Results</h2><table><tr><th>Group<th>Records<th>Note'
+        '<tr><th>A<td><table><tr><th>Time<th>Yield<tr><th>Early<td>1.<em>23</em> mg'
+        '<tr><th>Late<td>4.56 mg</table><td>Independent note.'
+        '<tr><th>B<td>7.89 mg<td>Other note.</table></article>')
+    assert sources.article_text(raw) == (
+        "Results\n\nGroup | Records | Note\n\nA | [\nTime | Yield\nEarly | 1.23 mg"
+        "\nLate | 4.56 mg\n] | Independent note.\n\nB | 7.89 mg | Other note.")
+
+
+def test_html_optional_endings_keep_compact_fallback_rows_and_original_spans(monkeypatch):
+    monkeypatch.setattr(sources, "MAX_HTML_TABLE_EXPANSION", 1)
+    raw = ('<article><h2>Results</h2><table><tbody>'
+        '<tr><td rowspan="0" colspan="1000">A 1.<em>23</em> mg'
+        '<tr><td>B 4.<strong>56</strong> mg</table></article>')
+    text = sources.article_text(raw)
+    table = ElementTree.fromstring(text.split("\n\n", 1)[1])
+    rows = table.findall("./tbody/tr")
+    assert len(rows) == 2
+    assert [row.find("td").text for row in rows] == ["A 1.23 mg", "B 4.56 mg"]
+    assert rows[0].find("td").attrib == {"rowspan": "0", "colspan": "1000"}
+
+
+def test_html_optional_endings_canonical_passages_reproduce_measurements_and_offsets():
+    from canary.coverage_runtime import canonical_passages
+    raw = ('<article><h2>Results</h2><table><tr><th>Group<th>Yield'
+        '<tr><td>A<td>1.<em>23</em> mg<tr><td>B<td>4.<span>56</span> mg'
+        '</table><p>Source caveat.</p></article>')
+    text = sources.article_text(raw)
+    passages = canonical_passages(text, "W1")
+    assert [row["text"] for row in passages] == [
+        "Results", "Group | Yield", "A | 1.23 mg", "B | 4.56 mg", "Source caveat."]
+    assert all(row["reference_id"] == "W1" and row["text"] == text[row["start"]:row["end"]] for row in passages)
+    assert "\n\n".join(row["text"] for row in passages) == text

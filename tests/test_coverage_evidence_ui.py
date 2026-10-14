@@ -615,3 +615,21 @@ assert.match(html,/&lt;td colspan=&quot;2&quot;&gt;1\.23 mg&lt;\/td&gt;/);
 assert.match(html,/4\.56 mg/);assert.doesNotMatch(html,/<table>/);
 assert.equal((html.match(/1\.23 mg/g) || []).length,1);assert.equal(JSON.stringify(graph),before);
 """)
+
+
+def test_optional_end_tag_table_rows_remain_distinct_in_saved_source_view(tmp_path):
+    from canary.coverage_sources import article_text
+    text = article_text('<article><h2>Results</h2><table><tr><th>Group<th>Mass (mg)'
+                        '<tr><td>A<td>1.<em>23</em><tr><td>B<td>4.56</table></article>')
+    assert text == 'Results\n\nGroup | Mass (mg)\n\nA | 1.23\n\nB | 4.56'
+    data = {"answer": {"references": [{"id": "R1", "paper": {"title": "Synthetic optional-tag table"}}]}, "text": text}
+    run_dashboard(tmp_path, data, r"""
+const before=JSON.stringify(graph);S.selected='optional-table';S.sourceContexts={};
+const state={sourceId:'R1',scope:'paper'};
+S.sourceContexts[contextKey('R1',null,'paper')]={text_available:true,paragraphs:graph.text.split('\n\n').map(text=>({text}))};
+const html=sourceInspector(graph.answer,state);
+assert.match(html,/Group \| Mass \(mg\)/);assert.match(html,/A \| 1\.23/);assert.match(html,/B \| 4\.56/);
+assert.ok(html.indexOf('A | 1.23')<html.indexOf('B | 4.56'));
+assert.doesNotMatch(html,/A1\.23B4\.56|A \| 1\.23B/);
+assert.equal(JSON.stringify(graph),before);
+""")

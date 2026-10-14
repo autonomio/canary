@@ -58,6 +58,20 @@ class _ArticleParser(HTMLParser):
         self.feed(raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw)
 
     def handle_starttag(self, tag, attrs):
+        # HTML permits omitted cell/row/group endings. Limit implicit closure
+        # to the nearest table so an inner table cannot close an outer cell.
+        if tag in {"td", "th", "tr", "thead", "tbody", "tfoot"}:
+            table = next((index for index in range(len(self.stack) - 1, 0, -1)
+                          if self.stack[index].tag == "table"), None)
+            if table is not None:
+                if tag in {"thead", "tbody", "tfoot"}:
+                    del self.stack[table + 1:]
+                else:
+                    endings = {"td", "th"} if tag in {"td", "th"} else {"tr"}
+                    for index in range(len(self.stack) - 1, table, -1):
+                        if self.stack[index].tag in endings:
+                            del self.stack[index:]
+                            break
         values = {key: value or "" for key, value in attrs}
         node = _Node(tag, values)
         self.stack[-1].children.append(node)
