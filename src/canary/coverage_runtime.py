@@ -578,7 +578,7 @@ def command_line(executable, model, effort, workspace, shape, output):
         "--approve-for-me", "--output-schema", str(shape), "-o", str(output), "-"]
 
 
-def refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed):
+def refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed, *, finished=False):
     """Refresh committed artifacts and exact native receipts without another model call."""
     from .coverage_export import export_bundle
     try:
@@ -586,11 +586,17 @@ def refresh_committed_progress(workspace, role, model, effort, thread_id, starte
         roles = profile.get("roles")
         roles = dict(roles) if isinstance(roles, dict) else {
             name: record for name, record in profile.items() if name in ("research", "audit") and isinstance(record, dict)}
+        for name in ("research", "audit"):
+            receipt = read(workspace / (name + "-receipt.json"))
+            if isinstance(receipt, dict) and receipt.get("ended_at"):
+                recorded_usage = receipt.get("usage", {})
+                roles[name] = dict(receipt, active=False, tokens=recorded_usage.get("totals", {}),
+                                   receipts=recorded_usage.get("receipts", []))
         usage = native_usage(thread_id) if thread_id else {"available": False, "reason": "Thread not yet recorded"}
-        roles[role] = {"active": True, "thread_id": thread_id, "model": model, "reasoning_effort": effort,
-                       "started_at": started, "ended_at": None, "seconds": round(elapsed, 3),
+        roles[role] = {"active": not finished, "thread_id": thread_id, "model": model, "reasoning_effort": effort,
+                       "started_at": started, "ended_at": now() if finished else None, "seconds": round(elapsed, 3),
                        "usage": usage, "tokens": usage.get("totals", {}), "receipts": usage.get("receipts", [])}
-        write(workspace / "profile.json", {"roles": roles, "active_role": role})
+        write(workspace / "profile.json", {"roles": roles, "active_role": None if finished else role})
         return export_bundle(workspace)
     except Exception as error:
         event(workspace, "progress_export_failed", role=role, error=type(error).__name__ + ": " + str(error))
@@ -690,6 +696,7 @@ def scientific_session(workspace, role, model, effort, prompt, shape, *, executa
         raise RuntimeError("Research session failed to produce structured final research; partial files and receipts are preserved")
     if exit_code and role == "research":
         raise RuntimeError("Research session failed; existing partial investigation remains available")
+    refresh_committed_progress(workspace, role, model, effort, thread_id, started, receipt["seconds"], finished=True)
     return result, receipt
 
 

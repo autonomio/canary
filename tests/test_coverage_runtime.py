@@ -201,6 +201,12 @@ def test_progress_refresh_exports_committed_claims_and_exact_role_usage(tmp_path
     assert profile["active_role"] == "research"
     assert profile["roles"]["research"]["ended_at"] is None
     assert profile["roles"]["research"]["tokens"] == usage["totals"]
+    runtime.write(tmp_path / "research-receipt.json", {"ended_at": "2026-10-14T00:01:00Z", "seconds": 60, "usage": usage})
+    runtime.refresh_committed_progress(tmp_path, "audit", "gpt-6-astra", "ultra", "audit-solo", "2026-10-14T00:01:00Z", 2)
+    refreshed = runtime.read(tmp_path / "profile.json")
+    assert refreshed["roles"]["research"]["active"] is False
+    assert refreshed["roles"]["research"]["ended_at"] == "2026-10-14T00:01:00Z"
+    assert refreshed["active_role"] == "audit"
     from canary import coverage_export
     monkeypatch.setattr(coverage_export, "export_bundle", lambda workspace: (_ for _ in ()).throw(ValueError("Malformed intermediate artifact")))
     assert runtime.refresh_committed_progress(tmp_path, "research", "gpt-6.1-sol", "xhigh", "solo", "2026-10-14T00:00:00Z", 22) is None
