@@ -189,10 +189,15 @@ def _save_markdown(path: Path, graph: dict):
                 not issue.get("claim_id") and (issue.get("study_result_id") in claim.get("study_result_ids", []) or
                 issue.get("evidence_id") in linked_evidence or
                 (issue.get("kind") == "span_mismatch" and issue.get("passage_id") in linked_passages) or
-                (issue.get("kind") in ("body_hash_mismatch", "text_hash_mismatch") and issue.get("reference_id") in linked_sources)))
+                (issue.get("kind") in ("body_hash_mismatch", "text_hash_mismatch", "missing_reference") and issue.get("reference_id") in linked_sources)))
             if not linked or issue.get("claim_occurrence", claim.get("claim_occurrence")) != claim.get("claim_occurrence"):
                 continue
-            if issue.get("kind") in ("body_hash_mismatch", "text_hash_mismatch"):
+            if issue.get("kind") == "missing_reference":
+                lines.extend([f"Provenance failure: source {issue.get('reference_id')} has no recorded reference; its citation is unavailable.", ""])
+            elif issue.get("kind") == "missing_study_reference":
+                occurrence = f" · recorded occurrence {issue['study_result_occurrence']}" if "study_result_occurrence" in issue else ""
+                lines.extend([f"Provenance failure: study result {issue.get('study_result_id')}{occurrence} declares missing reference {issue.get('reference_id')}; its citation is unavailable.", ""])
+            elif issue.get("kind") in ("body_hash_mismatch", "text_hash_mismatch"):
                 material = "original paper" if issue["kind"] == "body_hash_mismatch" else "extracted text"
                 lines.extend([f"Provenance failure: saved {material} for source {issue.get('reference_id')} differs from its recorded acquisition hash.", ""])
             elif issue.get("kind") in ("lacks_study_passage", "missing_study_passage"):
@@ -246,8 +251,13 @@ def _save_markdown(path: Path, graph: dict):
                 lines.extend([str(row.get("description", row.get("observation", row.get("question", "")))),
                               str(row.get("why_it_matters", row.get("justification", ""))), ""])
                 for issue in _rows(graph.get("binding_issues")):
-                    if issue.get("kind") == "missing_linked_claim" and issue.get("section") == key and issue.get("record_index") == record_index:
-                        lines.extend([f"Provenance failure: missing claim {issue.get('claim_id')} in {key} record {row.get('id', record_index)}.", ""])
+                    if issue.get("section") != key or issue.get("record_index") != record_index:
+                        continue
+                    if issue.get("kind") in ("missing_linked_claim", "missing_linked_evidence"):
+                        kind = "claim" if issue["kind"] == "missing_linked_claim" else "evidence"
+                        lines.extend([f"Provenance failure: missing {kind} {issue.get(kind + '_id')} in {key} record {row.get('id', record_index)}.", ""])
+                    elif issue.get("kind") == "missing_linked_record":
+                        lines.extend([f"Provenance failure: missing {issue.get('target_section')} record {issue.get('target_id')} in {key} record {row.get('id', record_index)}.", ""])
     if graph.get("caveats"):
         lines.extend(["## Caveats", "", *[str(x) for x in graph["caveats"]], ""])
     lines.extend(["## References", ""])
@@ -451,11 +461,20 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                     graph["binding_issues"].append({"kind": "missing_summary_claim", "summary_index": summary_index, "claim_id": identifier})
     for section in ("gaps", "contradictions", "residue"):
         for record_index, record in enumerate(_rows(graph.get(section)), 1):
-            for identifier in _unique(record.get("claim_ids", [])):
-                if identifier not in claim_counts:
-                    graph["binding_issues"].append({"kind": "missing_linked_claim", "section": section,
+            for kind, available in (("claim", claim_counts), ("evidence", evidence_counts)):
+                for identifier in _unique(record.get(kind + "_ids", [])):
+                    if identifier not in available:
+                        graph["binding_issues"].append({"kind": "missing_linked_" + kind, "section": section,
+                                                        "record_id": record.get("id"), "record_index": record_index,
+                                                        kind + "_id": identifier})
+    for record_index, record in enumerate(_rows(graph.get("next_questions")), 1):
+        for target, key in (("gaps", "gap_ids"), ("residue", "residue_ids")):
+            available = {r.get("id") for r in _rows(graph.get(target))}
+            for identifier in _unique(record.get(key, [])):
+                if identifier not in available:
+                    graph["binding_issues"].append({"kind": "missing_linked_record", "section": "next_questions",
                                                     "record_id": record.get("id"), "record_index": record_index,
-                                                    "claim_id": identifier})
+                                                    "target_section": target, "target_id": identifier})
     duplicate_claim_ids = {identifier for identifier, count in claim_counts.items() if count > 1}
     for identifier, count in claim_counts.items():
         if count > 1:
@@ -507,6 +526,12 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         study_occurrences[record.get("id")] += 1
         fields = {}
         sources = _unique(record.get("reference_ids", []))
+        for sid in sources:
+            if sid not in refs:
+                issue = {"kind": "missing_study_reference", "study_result_id": record.get("id"), "reference_id": sid}
+                if study_counts[record.get("id")] > 1:
+                    issue["study_result_occurrence"] = study_occurrences[record.get("id")]
+                graph["binding_issues"].append(issue)
         for name, f in record.get("fields", {}).items():
             if isinstance(f, dict):
                 ids = _unique(f.get("passage_ids", []))

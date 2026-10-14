@@ -740,3 +740,144 @@ if(record.study_result_occurrence) {const second=html.split('data-study-occurren
 assert.doesNotMatch(studyResultInspector(graph,'SR_good'),/Provenance failure/);
 assert.equal(JSON.stringify(graph),before);
 """)
+
+
+def bind_saved_bundle(path):
+    """Use authoritative acquisition receipts, just as the production binder does."""
+    import hashlib
+    from canary.coverage_runtime import bind_payload
+    (path / "download-receipts").mkdir(exist_ok=True)
+    for ref in json.loads((path / "references.json").read_text()):
+        ref["body_sha256"] = hashlib.sha256((path / ref["file"]).read_bytes()).hexdigest()
+        ref["text_sha256"] = hashlib.sha256((path / ref["text_file"]).read_bytes()).hexdigest()
+        (path / "download-receipts" / (ref["id"] + ".json")).write_text(json.dumps({"reference": ref}))
+    (path / "question-plan.json").write_text(json.dumps({"question": "Synthetic question?"}))
+    return bind_payload(path)
+
+
+@pytest.mark.parametrize("section", ["gaps", "contradictions", "residue"])
+def test_missing_section_evidence_is_scoped_and_opens_recorded_failure(tmp_path, section):
+    broken = {"id": "X_same", "description": "Recorded unbound statement.", "observation": "Recorded unbound statement.",
+              "claim_ids": ["C1"], "evidence_ids": ["E1.1"]}
+    intact = dict(broken, description="Bound statement.", observation="Bound statement.", evidence_ids=["E1"])
+    investigation = {"claims": [{"id": "C1", "text": "Bound claim.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1", "p2"]}], section: [broken, intact]}
+    saved_bundle(tmp_path, investigation)
+    assert "X_same: unknown evidence E1.1" in bind_saved_bundle(tmp_path)["mechanical_audit"]["issues"]
+    graph = export_bundle(tmp_path)["answer"]
+    assert [i for i in graph["binding_issues"] if i["kind"] == "missing_linked_evidence"] == [
+        dict(kind="missing_linked_evidence", section=section, record_id="X_same", record_index=1, evidence_id="E1.1")]
+    assert graph[section] == [broken, intact]
+    assert all(e.get("navigation_id", e["id"]) != "E1.1" for e in graph["evidence"])
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    assert f"missing evidence E1.1 in {section} record X_same" in report
+    assert "Provenance failure" not in report.split("Bound statement.", 1)[1]
+    run_dashboard(tmp_path, graph, "const section=" + json.dumps(section) + ";\n" + r"""
+const before=JSON.stringify(graph),html=researchStructureHtml(graph),articles=html.split('<article>').slice(1);
+assert.match(articles[0],/missing evidence link/);assert.match(articles[0],/data-qa-evidence="E1.1"/);
+assert.doesNotMatch(articles[1],/Provenance failure/);
+assert.match(evidenceInspector(graph,'E1.1'),new RegExp(section+' record X_same links missing evidence E1\\.1'));
+assert.equal(qaLinks(graph,'E1.1').evidence,null);
+const old={...graph,binding_issues:[]};assert.match(researchStructureHtml(old),/missing evidence link/);
+S.selected='section-missing';S.research[S.selected]={answer:graph};global.document={getElementById:()=>null};
+(async()=>{await inspectAnswer('evidence','E1.1');assert.equal(S.inspector.kind,'evidence');assert.equal(S.inspector.sourceId,undefined);assert.equal(JSON.stringify(graph),before);})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_next_question_orphan_links_are_occurrence_scoped_without_fake_navigation(tmp_path):
+    bad = {"id": "N_same", "question": "Recorded follow-up?", "justification": "Recorded reason.",
+           "gap_ids": ["G_missing"], "residue_ids": ["R_missing"]}
+    good = dict(bad, question="Bound follow-up?", gap_ids=["G1"], residue_ids=["R1"])
+    investigation = {"claims": [{"id": "C1", "text": "Bound claim.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}],
+                     "gaps": [{"id": "G1", "description": "Known gap.", "claim_ids": ["C1"], "evidence_ids": ["E1"]}],
+                     "residue": [{"id": "R1", "observation": "Known residue.", "claim_ids": ["C1"], "evidence_ids": ["E1"]}],
+                     "next_questions": [bad, good]}
+    saved_bundle(tmp_path, investigation)
+    audit = bind_saved_bundle(tmp_path)["mechanical_audit"]["issues"]
+    assert "N_same: unknown gap G_missing" in audit and "N_same: unknown residue R_missing" in audit
+    graph = export_bundle(tmp_path)["answer"]
+    assert [i for i in graph["binding_issues"] if i["kind"] == "missing_linked_record"] == [
+        dict(kind="missing_linked_record", section="next_questions", record_id="N_same", record_index=1,
+             target_section=target, target_id=identifier) for target, identifier in (("gaps", "G_missing"), ("residue", "R_missing"))]
+    assert graph["next_questions"] == [bad, good]
+    report = (tmp_path / "answer.md").read_text()
+    assert "missing gaps record G_missing in next_questions record N_same" in report
+    assert "missing residue record R_missing in next_questions record N_same" in report
+    assert "Provenance failure" not in report.split("Bound follow-up?", 1)[1]
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),html=answerHtml({}, {answer:graph}),bad=html.split('data-detail="next-0"')[1].split('</details>')[0],good=html.split('data-detail="next-1"')[1].split('</details>')[0];
+assert.match(bad,/Recorded follow-up\?/);assert.match(bad,/Recorded reason/);
+assert.match(bad,/missing gaps link.*G_missing/);assert.match(bad,/missing residue link.*R_missing/);
+assert.doesNotMatch(good,/Provenance failure/);assert.doesNotMatch(bad,/data-qa-(claim|evidence|source)="[GR]_missing"/);
+assert.match(qaSectionLinkWarnings({...graph,binding_issues:[]},'next_questions',graph.next_questions[0],0),/missing gaps link/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_missing_declared_study_citation_retains_ids_and_scopes_occurrence(tmp_path, duplicate):
+    bad = {"id": "SR_bad", "reference_ids": ["R1", "R_missing"], "fields": {"value": None}}
+    investigation = {"claims": [{"id": "C_bad", "text": "Claim with missing declared citation.", "evidence_ids": ["E1"], "study_result_ids": ["SR_bad"]},
+                                  {"id": "C_good", "text": "Bound control.", "evidence_ids": ["E1"], "study_result_ids": ["SR_good"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}],
+                     "study_results": [bad, *([dict(bad, reference_ids=["R1"])] if duplicate else []),
+                                       {"id": "SR_good", "reference_ids": ["R1"], "fields": {"value": {"text": "Recorded 11 percent", "passage_ids": ["p1"]}}}]}
+    saved_bundle(tmp_path, investigation)
+    assert "SR_bad: unknown reference R_missing" in bind_saved_bundle(tmp_path)["mechanical_audit"]["issues"]
+    graph = export_bundle(tmp_path)["answer"]
+    assert [i for i in graph["binding_issues"] if i["kind"] == "missing_study_reference"] == [
+        dict(kind="missing_study_reference", study_result_id="SR_bad", reference_id="R_missing",
+             **({"study_result_occurrence": 1} if duplicate else {}))]
+    assert graph["study_results"][0]["source_ids"] == ["R1", "R_missing"]
+    assert all(r["id"] != "R_missing" for r in graph["references"])
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    assert "declares missing reference R_missing; its citation is unavailable" in report.split("## C_bad", 1)[1].split("## C_good", 1)[0]
+    assert "Provenance failure" not in report.split("## C_good", 1)[1]
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),html=studyResultInspector(graph,'SR_bad');
+assert.match(findingHtml(graph,graph.claims[0]),/Provenance failure/);assert.doesNotMatch(findingHtml(graph,graph.claims[1]),/Provenance failure/);
+assert.match(claimInspector(graph,'C_bad'),/Declared reference R_missing is not recorded/);
+assert.match(html,/declared reference R_missing is not recorded; its citation is unavailable/);
+assert.match(html,/DOI 10\.9999\/R1/);assert.doesNotMatch(html,/data-qa-(source|paper)="R_missing"/);
+assert.doesNotMatch(html,/Field value has no recorded source passages/);
+if(graph.study_results[0].study_result_occurrence) {const second=html.split('data-study-occurrence="2"')[1].split('</section>')[0];assert.doesNotMatch(second,/R_missing|Provenance failure/);}
+assert.match(studyResultInspector(graph,'SR_good'),/data-qa-passage="p1"/);
+assert.doesNotMatch(studyResultInspector(graph,'SR_good'),/Provenance failure/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+def test_missing_actual_passage_reference_reaches_evidence_and_study_claims(tmp_path):
+    investigation = {"claims": [{"id": "C_evidence", "text": "Quote retains missing source ID.", "evidence_ids": ["E_bad"]},
+                                  {"id": "C_study", "text": "Study field retains missing source ID.", "evidence_ids": ["E_good"], "study_result_ids": ["SR_bad"]},
+                                  {"id": "C_good", "text": "Bound source control.", "evidence_ids": ["E_good"]}],
+                     "evidence": [{"id": "E_bad", "passage_ids": ["p1"]}, {"id": "E_good", "passage_ids": ["p3"]}],
+                     "study_results": [{"id": "SR_bad", "reference_ids": ["R2"], "fields": {"value": {"text": "Recorded 11 percent", "passage_ids": ["p1"]}}}]}
+    saved_bundle(tmp_path, investigation)
+    refs = json.loads((tmp_path / "references.json").read_text())
+    (tmp_path / "references.json").write_text(json.dumps([r for r in refs if r["id"] != "R1"]))
+    assert "Passage lacks committed source: p1" in bind_saved_bundle(tmp_path)["mechanical_audit"]["issues"]
+    graph = export_bundle(tmp_path)["answer"]
+    assert {"kind": "missing_reference", "reference_id": "R1"} in graph["binding_issues"]
+    assert next(p for p in graph["passages"] if p["id"] == "p1")["source_id"] == "R1"
+    assert next(e for e in graph["evidence"] if e["id"] == "E_bad")["quote"] == "First exact quotation."
+    assert all(r["id"] != "R1" for r in graph["references"])
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    for start, end in (("## C_evidence", "## C_study"), ("## C_study", "## C_good")):
+        assert "source R1 has no recorded reference; its citation is unavailable" in report.split(start, 1)[1].split(end, 1)[0]
+    assert "Provenance failure" not in report.split("## C_good", 1)[1]
+    assert "> First exact quotation." in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph);
+for(const c of graph.claims.slice(0,2)) {assert.ok(qaClaimBindingIssues(graph,c).some(i=>i.kind==='missing_reference' && i.reference_id==='R1'));assert.match(findingHtml(graph,c),/Provenance failure/);assert.match(claimInspector(graph,c.id),/Source R1 has no recorded reference/);}
+assert.doesNotMatch(findingHtml(graph,graph.claims[2]),/Provenance failure/);
+for(const html of [evidenceInspector(graph,'E_bad'),paragraphInspector(graph,'p1')]) {assert.match(html,/First exact quotation\./);assert.match(html,/Source R1 has no recorded reference/);assert.match(html,/Source context unavailable/);assert.doesNotMatch(html,/data-qa-(context|paragraph-context|source|paper)=/);}
+assert.match(studyResultInspector(graph,'SR_bad'),/Source R1 has no recorded reference/);
+assert.match(studyResultInspector(graph,'SR_bad'),/data-qa-passage="p1"/);
+assert.match(evidenceInspector(graph,'E_good'),/data-qa-context=/);
+assert.equal(JSON.stringify(graph),before);
+""")
