@@ -221,6 +221,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "ask":
         from .coverage_runtime import run as coverage_run
         from .coverage_export import export_bundle as coverage_export
+        workspace = Path(args.out)
+        if workspace.exists() and (not workspace.is_dir() or any(workspace.iterdir())):
+            print("Research requires a new empty workspace; existing data was not changed.", file=sys.stderr)
+            return 1
         try:
             coverage_run(args.question, args.out, minimum_papers=args.minimum_papers,
                          audit_seconds=args.audit_seconds)

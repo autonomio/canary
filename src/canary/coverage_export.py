@@ -113,6 +113,41 @@ def _audit_record(audit: dict) -> dict:
     return cases[0] if len(cases) == 1 else audit
 
 
+def _save_markdown(path: Path, graph: dict):
+    """Deterministic downloadable answer; researcher wording stays unchanged."""
+    lines = ["# " + str(graph.get("question", "?")), "", str(graph.get("scope_note", "")), ""]
+    for summary in _rows(graph.get("executive_summary")):
+        lines.extend([str(summary.get("text", "")), "Claims: " + ", ".join(summary.get("claim_ids", [])), ""])
+    checks = {r.get("claim_id"): r for r in _rows(graph.get("source_checks"))}
+    evidence = {r.get("id"): r for r in _rows(graph.get("evidence"))}
+    passages = {r.get("id"): r for r in _rows(graph.get("passages"))}
+    for claim in _rows(graph.get("claims")):
+        lines.extend(["## " + str(claim["id"]), "", str(claim.get("text", "")), "",
+                      f'Uncertainty: {claim.get("uncertainty_class", "unknown")} ({claim.get("uncertainty_score", "unknown")}/3; ordinal).',
+                      str(claim.get("uncertainty_rationale", "")), "Audit: " + str(checks.get(claim["id"], {}).get("assessment", "not_checked")), ""])
+        for eid in claim.get("evidence_ids", []):
+            item = evidence.get(eid, {})
+            span = passages.get(item.get("paragraph_id"), {})
+            lines.extend([f'Evidence {eid} · {item.get("relation", "supports")} · {span.get("source_id", "?")} / {item.get("paragraph_id", "?")}',
+                          str(item.get("interpretation", "")), "", *["> " + line for line in str(item.get("quote", "")).splitlines()], ""])
+    for key, label in (("contradictions", "Contradictions"), ("gaps", "Gaps"), ("residue", "Residue"), ("next_questions", "Next questions")):
+        rows = _rows(graph.get(key))
+        if rows:
+            lines.extend(["## " + label, ""])
+            for row in rows:
+                lines.extend([str(row.get("description", row.get("observation", row.get("question", "")))),
+                              str(row.get("why_it_matters", row.get("justification", ""))), ""])
+    if graph.get("caveats"):
+        lines.extend(["## Caveats", "", *[str(x) for x in graph["caveats"]], ""])
+    lines.extend(["## References", ""])
+    for ref in _rows(graph.get("references")):
+        paper = ref.get("paper", {})
+        lines.append(f'{ref.get("id")} · {paper.get("title", "Unknown source")} · {paper.get("doi") or paper.get("url") or "See saved source graph"}')
+    temporary = path.with_name(path.name + ".export.tmp")
+    temporary.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
 def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                   research_dir: str | Path | None = None) -> dict:
     """Export committed stages into answer/run/access artifacts, including live runs.
@@ -327,7 +362,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     status = ("in_progress" if lifecycle in ("planning", "researching", "reading", "acquiring", "auditing")
               else "answered" if lifecycle in ("complete", "completed") and graph["claims"]
               else lifecycle)
-    requests = _load(bundle / "openalex-request-log.json", [])
+    requests = _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None))
     graph["audit"] = {"status": "pending" if not audit else "complete" if audit_case.get("audit_complete") else "partial",
                        "model": "gpt-6-astra", "reasoning_effort": "ultra",
                        "checked_claims": sum(check.get("assessment") != "not_checked" for check in graph["source_checks"]),
@@ -344,10 +379,11 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                              for record in _profile_roles(profile).values()),
                papers_reviewed=covered, papers_core=roles.get("core", 0), papers_supporting=roles.get("supporting", 0),
                target_papers=target, audit_status=graph["audit"]["status"], coverage=coverage,
-               keyword_requests=len(requests) if isinstance(requests, list) else run.get("keyword_requests"),
+               keyword_requests=sum(r.get("status") == 200 for r in requests if isinstance(r, dict)) if isinstance(requests, list) else run.get("keyword_requests"),
                search_scope="OpenAlex search across titles, abstracts, keywords and indexed full text; abstract relevance assessment followed by full-paper review.")
     access = {"accepted": accepted, "excluded": [r for r in receipts if r.get("status") not in ("downloaded_full_paper", "source_retrieved")],
               "scope_note": "Public full-paper copies; successful downloads alone do not establish full review."}
+    _save_markdown(bundle / "answer.md", graph)
     _save(bundle / "answer.json", graph)
     _save(bundle / "access.json", access)
     _save(bundle / "query-net.json", plan)

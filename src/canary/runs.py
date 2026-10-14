@@ -438,6 +438,10 @@ def _reviewed_papers(bundle: Path, run: dict) -> int | None:
 
 
 def _has_answer(bundle: Path, run: dict, status: str) -> bool:
+    if run.get("execution_mode") == "coverage-guided full-paper research":
+        answer = _load_json(bundle / "answer.json", {})
+        # Answer availability is independent of coverage target or audit status.
+        return isinstance(answer, dict) and bool(answer.get("executive_summary") or answer.get("claims"))
     if status in _FAILURE_STATUS or str(status).startswith("failed"):
         return False
     if run.get("kind") == "question":

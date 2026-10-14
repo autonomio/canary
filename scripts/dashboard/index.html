@@ -1990,7 +1990,7 @@
       }
       function active(r) {
         return ["starting", "running", "paused"].includes(r.status) ||
-          (r.kind === "question" && ["started", "in_progress"].includes(r.status));
+          (r.kind === "question" && ["started", "in_progress", "planning", "researching", "reading", "acquiring", "auditing"].includes(r.status));
       }
       function hasReport(r) {
         return (
@@ -2011,7 +2011,7 @@
       }
       function statusInfo(r) {
         const reason = r.status || "unknown";
-        if (r.kind === "question" && ["started", "in_progress"].includes(reason))
+        if (r.kind === "question" && ["started", "in_progress", "planning", "researching", "reading", "acquiring", "auditing"].includes(reason))
           return ["active", "Researching", "The research is in progress. Findings will appear as they become available."];
         const map = {
           answered: ["ready", "Answered", "The question has a grounded answer."],

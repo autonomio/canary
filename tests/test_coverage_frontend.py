@@ -60,3 +60,31 @@ def test_coverage_run_api_keeps_audit_unknown_separate_from_answer(tmp_path):
     assert result["run"]["audit_status"] == "partial"
     assert result["answer"]["source_checks"][0]["assessment"] == "not_checked"
     assert result["coverage"]["target_papers"] == 50
+
+
+def test_ask_refusal_keeps_existing_bundle_byte_identical(tmp_path, monkeypatch):
+    old = tmp_path / "old"
+    old.mkdir()
+    (old / "run.json").write_text('{"kind":"cycle","status":"converged"}')
+    (old / "synthesis.md").write_text("Existing work")
+    before = {p.name: p.read_bytes() for p in old.iterdir()}
+    monkeypatch.setattr(coverage_runtime, "run", lambda *a, **k: pytest.fail("Existing workspace admitted"))
+    monkeypatch.setattr(coverage_export, "export_bundle", lambda *a, **k: pytest.fail("Existing bundle exported"))
+    assert cli.main(["ask", "New question?", "--out", str(old)]) == 1
+    assert {p.name: p.read_bytes() for p in old.iterdir()} == before
+
+
+def test_export_reports_real_search_count_and_saves_partial_answer(tmp_path):
+    run = {"kind": "question", "question": "Synthetic question?", "status": "partial", "answered": True}
+    (tmp_path / "run.json").write_text(json.dumps(run))
+    claim = {"id": "C1", "text": "Source reports a synthetic result.", "uncertainty": {"class": "high", "score": 3, "rationale": "Fixture only."}, "evidence_ids": []}
+    (tmp_path / "investigation.json").write_text(json.dumps({"claims": [claim]}))
+    (tmp_path / "openalex-requests.json").write_text(json.dumps([{"status": 200}, {"status": 429}, {"status": 200}]))
+    result = coverage_export.export_bundle(tmp_path)
+    assert result["run"]["keyword_requests"] == 2
+    assert result["run"]["status"] == "partial"
+    report = (tmp_path / "answer.md").read_text()
+    assert claim["text"] in report and "Uncertainty: high (3/3; ordinal)" in report
+    assert "Audit: not_checked" in report
+    assert dashboard.research_bundle(tmp_path)["synthesis_md"] == report
+    assert runs._has_answer(tmp_path, result["run"], "partial") is True
