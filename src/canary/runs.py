@@ -567,7 +567,7 @@ def log_rows(path: str | Path = REGISTRY, root: str | Path = ROOT) -> list[dict]
                 entry["duration_seconds"] = (end - start).total_seconds()
                 entry["timing_source"] = "registry"
         entry["answered"] = bool(entry.get("answered"))
-        if str(row.get("status", "")) in _FAILURE_STATUS or str(row.get("status", "")).startswith("failed"):
+        if (str(row.get("status", "")) in _FAILURE_STATUS or str(row.get("status", "")).startswith("failed")) and parsed.get("profile") != "question":
             entry["answered"] = False
         entry["ended_at_estimated"] = bool(entry.get("ended_at_estimated"))
         result.append(entry)
