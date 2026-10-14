@@ -455,6 +455,9 @@ def test_review_count_matches_actual_audit_binder_and_keeps_full_ledger(tmp_path
     if duplicate_version:
         refs[1]["doi"] = refs[0]["doi"]
     (tmp_path / "references.json").write_text(json.dumps(refs))
+    (tmp_path / "download-receipts").mkdir()
+    for ref in refs:
+        (tmp_path / "download-receipts" / (ref["id"] + ".json")).write_text(json.dumps({"reference": ref}))
     def review(work, role, note):
         return {"work_id": work, "eligibility": role, "substantive_review_note": note,
                 "passage_ids_read": ["p1" if work == "R1" else "p3"], "investigated_sections": ["Results"]}
