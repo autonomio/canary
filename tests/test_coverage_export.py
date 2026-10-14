@@ -689,3 +689,54 @@ S.selected='changed-source';S.sourceContexts={};S.sourceContexts[contextKey('R1'
 assert.match(sourceInspector(graph,{sourceId:'R1',scope:'paper'}),/Source integrity failure/);
 assert.equal(JSON.stringify(graph),before);
 """)
+
+
+@pytest.mark.parametrize("ids", [[], ["p_missing"], ["p1", "p_missing"]])
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_missing_study_passages_reach_linked_claims_and_occurrence_fields(tmp_path, ids, duplicate):
+    import hashlib
+    from canary.coverage_runtime import bind_payload
+    investigation = {"claims": [{"id": "C_bad", "text": "Recorded value with incomplete source binding.", "evidence_ids": ["E_good"], "study_result_ids": ["SR_bad"]},
+                                  {"id": "C_good", "text": "Bound control with a genuinely nullable field.", "evidence_ids": ["E_good"], "study_result_ids": ["SR_good"]}],
+                     "evidence": [{"id": "E_good", "passage_ids": ["p3"]}],
+                     "study_results": [{"id": "SR_bad", "reference_ids": ["R1"],
+                                        "fields": {"value": {"text": "Recorded 11 percent", "passage_ids": ids}, "conditions": None}},
+                                       *([{"id": "SR_bad", "reference_ids": ["R1"],
+                                           "fields": {"value": {"text": "Bound duplicate occurrence", "passage_ids": ["p1"]}}}] if duplicate else []),
+                                       {"id": "SR_good", "reference_ids": ["R1"],
+                                        "fields": {"value": {"text": "Bound 12 percent", "passage_ids": ["p1"]}, "conditions": None}}]}
+    saved_bundle(tmp_path, investigation)
+    (tmp_path / "download-receipts").mkdir()
+    for ref in json.loads((tmp_path / "references.json").read_text()):
+        ref["body_sha256"] = hashlib.sha256((tmp_path / ref["file"]).read_bytes()).hexdigest()
+        ref["text_sha256"] = hashlib.sha256((tmp_path / ref["text_file"]).read_bytes()).hexdigest()
+        (tmp_path / "download-receipts" / (ref["id"] + ".json")).write_text(json.dumps({"reference": ref}))
+    (tmp_path / "question-plan.json").write_text(json.dumps({"question": "Synthetic question?"}))
+    audit = bind_payload(tmp_path)
+    issue_text = "SR_bad.value: unknown passage p_missing" if ids else "Result field lacks passage: SR_bad.value"
+    assert issue_text in audit["mechanical_audit"]["issues"]
+    graph = export_bundle(tmp_path)["answer"]
+    kind = "missing_study_passage" if ids else "lacks_study_passage"
+    assert [i for i in graph["binding_issues"] if i["kind"] in ("missing_study_passage", "lacks_study_passage")] == [
+        dict(kind=kind, study_result_id="SR_bad", field="value", **({"passage_id": "p_missing"} if ids else {}),
+             **({"study_result_occurrence": 1} if duplicate else {}))]
+    assert graph["study_results"][0]["fields"]["value"] == {"value": "Recorded 11 percent", "paragraph_ids": ids}
+    assert all(p["id"] != "p_missing" for p in graph["passages"])
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    bad_report = report.split("## C_bad", 1)[1].split("## C_good", 1)[0]
+    assert ("names unavailable passage p_missing" if ids else "has no recorded source passages") in bad_report
+    assert "Provenance failure" not in report.split("## C_good", 1)[1]
+    assert "> Different paper quotation." in report and "/ p_missing" not in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),bad=graph.claims[0],good=graph.claims[1],record=graph.study_results[0],unknown=record.fields.value.paragraph_ids.includes('p_missing');
+assert.ok(qaClaimBindingIssues(graph,bad).some(i=>i.kind==='missing_study_passage' || i.kind==='lacks_study_passage'));
+assert.match(findingHtml(graph,bad),/Provenance failure/);assert.doesNotMatch(findingHtml(graph,good),/Provenance failure/);
+const html=studyResultInspector(graph,'SR_bad');assert.match(html,/Recorded 11 percent/);
+assert.match(html,unknown ? /Field value names unavailable passage p_missing/ : /Field value has no recorded source passages/);
+assert.doesNotMatch(html,/data-qa-passage="p_missing"/);
+if(record.fields.value.paragraph_ids.includes('p1')) assert.match(html,/data-qa-passage="p1"/);
+if(record.study_result_occurrence) {const second=html.split('data-study-occurrence="2"')[1].split('</section>')[0];assert.match(second,/Bound duplicate occurrence/);assert.doesNotMatch(second,/Provenance failure/);}
+assert.doesNotMatch(studyResultInspector(graph,'SR_good'),/Provenance failure/);
+assert.equal(JSON.stringify(graph),before);
+""")

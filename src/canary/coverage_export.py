@@ -195,6 +195,11 @@ def _save_markdown(path: Path, graph: dict):
             if issue.get("kind") in ("body_hash_mismatch", "text_hash_mismatch"):
                 material = "original paper" if issue["kind"] == "body_hash_mismatch" else "extracted text"
                 lines.extend([f"Provenance failure: saved {material} for source {issue.get('reference_id')} differs from its recorded acquisition hash.", ""])
+            elif issue.get("kind") in ("lacks_study_passage", "missing_study_passage"):
+                occurrence = f" · recorded occurrence {issue['study_result_occurrence']}" if "study_result_occurrence" in issue else ""
+                detail = ("has no recorded source passages" if issue["kind"] == "lacks_study_passage"
+                          else f"names unavailable passage {issue.get('passage_id')}")
+                lines.extend([f"Provenance failure: study result {issue.get('study_result_id')}{occurrence}, field {issue.get('field')}, {detail}.", ""])
             elif issue.get("kind") == "undeclared_study_reference":
                 occurrence = f" · recorded occurrence {issue['study_result_occurrence']}" if "study_result_occurrence" in issue else ""
                 declared = ", ".join(issue.get("declared_reference_ids", [])) or "none"
@@ -507,6 +512,13 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                 ids = _unique(f.get("passage_ids", []))
                 fields[field_map.get(name, name)] = {"value": f.get("text"), "paragraph_ids": ids}
                 used_passages.update(ids)
+                missing = ([{"kind": "lacks_study_passage"}] if not ids else
+                           [{"kind": "missing_study_passage", "passage_id": pid} for pid in ids if pid not in spans])
+                for issue in missing:
+                    issue.update(study_result_id=record.get("id"), field=field_map.get(name, name))
+                    if study_counts[record.get("id")] > 1:
+                        issue["study_result_occurrence"] = study_occurrences[record.get("id")]
+                    graph["binding_issues"].append(issue)
                 for pid in ids:
                     span = spans.get(pid)
                     sid = span.get("reference_id", span.get("source_id")) if span is not None else None

@@ -595,3 +595,23 @@ assert.match(html,/Measured mass/);assert.match(html,/Group \| Early \(mg\) \| L
 assert.match(html,/A \| 1\.23 mg \| 4\.56 mg/);assert.match(html,/B \|  \| 7\.89 mg/);
 assert.ok(html.includes('class="context-paragraph '));assert.equal(JSON.stringify(graph),before);
 """)
+
+
+def test_compact_html_table_fallback_is_literal_accessible_source_text(tmp_path, monkeypatch):
+    from canary import coverage_sources as sources
+    monkeypatch.setattr(sources, "MAX_HTML_TABLE_EXPANSION", 1)
+    raw = ('<article><h2>Results</h2><table><tr><td colspan="2">1.<em>23</em> mg</td>'
+           '<td>4.56 mg</td></tr></table></article>')
+    text = sources.article_text(raw)
+    assert text == 'Results\n\n<table>\n<tr><td colspan="2">1.23 mg</td><td>4.56 mg</td></tr>\n</table>'
+    data = {"answer": {"references": [{"id": "R1", "paper": {"title": "Synthetic literal source"}}]}, "text": text}
+    run_dashboard(tmp_path, data, r"""
+const before=JSON.stringify(graph);S.selected='literal-fallback';S.sourceContexts={};
+const state={sourceId:'R1',scope:'paper'};
+S.sourceContexts[contextKey('R1',null,'paper')]={text_available:true,paragraphs:graph.text.split('\n\n').map(text=>({text}))};
+const html=sourceInspector(graph.answer,state);
+assert.ok(html.includes(esc(graph.text.split('\n\n')[1])));
+assert.match(html,/&lt;td colspan=&quot;2&quot;&gt;1\.23 mg&lt;\/td&gt;/);
+assert.match(html,/4\.56 mg/);assert.doesNotMatch(html,/<table>/);
+assert.equal((html.match(/1\.23 mg/g) || []).length,1);assert.equal(JSON.stringify(graph),before);
+""")

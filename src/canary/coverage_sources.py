@@ -6,6 +6,7 @@ No provider, ledger, worker-service or experiment dependencies; no paid content.
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from html import escape
 from html.parser import HTMLParser
 import io
 import ipaddress
@@ -23,6 +24,7 @@ import httpx
 from pypdf import PdfReader
 
 PUBLIC_DOWNLOAD_TIMEOUT_SECONDS = 10
+MAX_HTML_TABLE_EXPANSION = 100_000
 PUBLIC_SSL_CONTEXT = httpx.create_ssl_context(trust_env=False)
 _PUBLIC_DOWNLOAD_POOL = ThreadPoolExecutor(max_workers=32, thread_name_prefix="coverage-public-copy")
 _PUBLIC_METADATA_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="coverage-public-metadata")
@@ -109,20 +111,40 @@ def _plain(node):
     return " ".join(content(node).split())
 
 
-def _table_cell_text(node):
+def _compact_table(table):
+    """Retain source table markup/cells when logical blank padding would amplify it."""
+    tags = {"table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td"}
+    def content(node):
+        if _skip(node):
+            return ""
+        text = "".join(escape(re.sub(r"\s+", " ", child), quote=False) if isinstance(child, str) else content(child)
+                       for child in node.children)
+        if node.tag not in tags:
+            boundaries = BLOCKS | {"div", "section", "br", "hr"}
+            return " " + text + " " if node.tag in boundaries else text
+        attrs = "".join(' ' + name + '="' + escape(value or "", quote=True) + '"'
+                        for name, value in node.attrs.items() if name in {"colspan", "rowspan", "scope", "headers", "id"})
+        if node.tag in {"table", "thead", "tbody", "tfoot"}:
+            return "<" + node.tag + attrs + ">\n" + text.strip() + "\n</" + node.tag + ">\n"
+        suffix = "\n" if node.tag in {"tr", "caption"} else ""
+        return "<" + node.tag + attrs + ">" + text.strip() + "</" + node.tag + ">" + suffix
+    return "\n".join(line.strip() for line in content(table).splitlines() if line.strip())
+
+
+def _table_cell_text(node, table_budget=None):
     def content(current):
         if _skip(current):
             return ""
         if current.tag == "table":
             # Only delimiters are added; nested rows stay inside this cell.
-            return "\n[\n" + "\n".join(text for _, text in _table_blocks(current)) + "\n]\n"
+            return "\n[\n" + "\n".join(text for _, text in _table_blocks(current, table_budget)) + "\n]\n"
         text = "".join(child if isinstance(child, str) else content(child) for child in current.children)
         boundaries = BLOCKS | {"div", "section", "br", "hr", "td", "th", "caption", "dt", "dd"}
         return " " + text + " " if current.tag in boundaries else text
     return "\n".join(" ".join(line.split()) for line in content(node).splitlines()).strip()
 
 
-def _table_blocks(table):
+def _table_blocks(table, table_budget=None):
     """Keep the literal caption and logical row/cell positions, without copying spans."""
     rows, captions = [], []
     def collect(node, group):
@@ -139,9 +161,6 @@ def _table_blocks(table):
                 if isinstance(child, _Node):
                     collect(child, group)
     collect(table, id(table))
-    for caption in captions:
-        if caption:
-            yield "caption", caption
     groups_remaining = {}
     for _, group in rows:
         groups_remaining[group] = groups_remaining.get(group, 0) + 1
@@ -151,23 +170,46 @@ def _table_blocks(table):
             return value if value >= 0 else 1
         except (TypeError, ValueError):
             return 1
-    occupied, previous_group, grid = {}, None, []
+    # Count only literal source cells. No logical padding/copies/search happens
+    # until a conservative bound covers grid retention and final rectangular output.
+    row_cells, group_total, group_max, spanning_groups = [], {}, {}, set()
     for row, group in rows:
+        cells = [cell for cell in row.children if isinstance(cell, _Node) and cell.tag in {"td", "th"} and not _skip(cell)]
+        row_cells.append((cells, group))
+        width = sum(min(1000, max(1, span(cell, "colspan"))) for cell in cells)
+        group_total[group] = group_total.get(group, 0) + width
+        group_max[group] = max(group_max.get(group, 0), width)
+        if groups_remaining[group] > 1 and any(span(cell, "rowspan") != 1 for cell in cells):
+            spanning_groups.add(group)
+    width_bound = max((group_total[group] if group in spanning_groups else group_max[group] for group in group_total), default=0)
+    expansion = 6 * len(rows) * width_bound
+    if table_budget is None:
+        table_budget = [MAX_HTML_TABLE_EXPANSION]
+    if expansion > table_budget[0]:
+        yield "table", _compact_table(table)
+        return
+    table_budget[0] -= expansion
+    for caption in captions:
+        if caption:
+            yield "caption", caption
+    occupied, previous_group, grid = {}, None, []
+    for cells, group in row_cells:
         if group != previous_group:
             occupied = {}
         values = {column: "" for column in occupied}
         next_occupied = {column: count - 1 for column, count in occupied.items() if count > 1}
         column = 0
-        for cell in row.children:
-            if not isinstance(cell, _Node) or cell.tag not in {"td", "th"} or _skip(cell):
-                continue
+        for cell in cells:
             # Match HTML's column-span limit before expanding public markup.
             colspan = min(1000, max(1, span(cell, "colspan")))
-            while any(column + offset in values for offset in range(colspan)):
-                column += 1
+            while True:
+                conflict = next((column + offset for offset in range(colspan) if column + offset in values), None)
+                if conflict is None:
+                    break
+                column = conflict + 1  # Skip checked gaps instead of rescanning them one start at a time.
             rowspan = span(cell, "rowspan") or groups_remaining[group]
             rowspan = min(rowspan, groups_remaining[group])
-            values[column] = _table_cell_text(cell)
+            values[column] = _table_cell_text(cell, table_budget)
             for offset in range(colspan):
                 values.setdefault(column + offset, "")
                 if rowspan > 1:
@@ -182,11 +224,13 @@ def _table_blocks(table):
             yield "tr", " | ".join(row.get(column, "") for column in range(width))
 
 
-def _blocks(node):
+def _blocks(node, table_budget=None):
+    if table_budget is None:
+        table_budget = [MAX_HTML_TABLE_EXPANSION]
     if _skip(node):
         return
     if node.tag == "table":
-        yield from _table_blocks(node)
+        yield from _table_blocks(node, table_budget)
         return
     if node.tag in BLOCKS and not any(descendant.tag == "table" for descendant in _walk(node)):
         text = _plain(node)
@@ -206,7 +250,7 @@ def _blocks(node):
         if isinstance(child, _Node) and (child.tag in structural or
                 any(descendant.tag in structural for descendant in _walk(child))):
             yield from flush()
-            yield from _blocks(child)
+            yield from _blocks(child, table_budget)
         else:
             inline.append(child)
     yield from flush()

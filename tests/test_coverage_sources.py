@@ -4,6 +4,7 @@ import socket
 import textwrap
 from threading import Event
 from types import SimpleNamespace
+from xml.etree import ElementTree
 
 import httpx
 import pytest
@@ -475,3 +476,73 @@ def test_html_ordinary_colspan_still_preserves_empty_slots_and_inline_numbers():
         '<tr><td>1.<em>23</em> mg</td><td>4.56 mg</td></tr>'
         '<tr><td></td><td>7.89 mg</td></tr></table></article>')
     assert sources.article_text(raw) == "Results\n\nYield (mg) | \n\n1.23 mg | 4.56 mg\n\n | 7.89 mg"
+
+
+def test_html_thousand_accumulating_rowspans_fall_back_before_logical_expansion(monkeypatch):
+    def no_dense_expansion(*args):
+        result = range(*args)
+        assert len(result) < 1000, "Accumulating table entered dense expansion instead of compact fallback"
+        return result
+    monkeypatch.setattr(sources, "range", no_dense_expansion, raising=False)
+    values = ["R" + str(index).zfill(4) + " 1." + str(index).zfill(4) + " mg" for index in range(1000)]
+    raw = '<article><h2>Results</h2><table><tbody>' + ''.join(
+        '<tr><td rowspan="0" colspan="1000">' + value + '</td></tr>' for value in values) + '</tbody></table></article>'
+    text = sources.article_text(raw)
+    table = ElementTree.fromstring(text.split("\n\n", 1)[1])
+    rows = table.findall("./tbody/tr")
+    assert len(rows) == 1000
+    assert [row.find("td").text for row in rows] == values
+    assert all(row.find("td").attrib == {"rowspan": "0", "colspan": "1000"} for row in rows)
+    assert len(text) < 100_000
+
+
+def test_html_thousand_flat_rows_keep_ordinary_layout():
+    values = [("R" + str(index).zfill(4), str(index) + ".23 mg") for index in range(1000)]
+    raw = '<article><h2>Results</h2><table><tbody>' + ''.join(
+        '<tr><th>' + label + '</th><td>' + value + '</td></tr>' for label, value in values) + '</tbody></table></article>'
+    text = sources.article_text(raw)
+    assert text == "Results\n\n" + "\n\n".join(label + " | " + value for label, value in values)
+    assert "<table>" not in text
+
+
+def test_html_multiple_tables_share_one_body_expansion_budget(monkeypatch):
+    monkeypatch.setattr(sources, "MAX_HTML_TABLE_EXPANSION", 36)
+    raw = ('<article><h2>Results</h2>'
+        '<table><tr><th>A</th><td>1.<em>23</em> mg</td></tr></table>'
+        '<table><tr><th>B</th><td>4.56 mg</td></tr><tr><th>C</th><td>7.89 mg</td></tr></table>'
+        '<table><tr><td>10.11 mg</td></tr></table></article>')
+    assert sources.article_text(raw) == (
+        "Results\n\nA | 1.23 mg\n\nB | 4.56 mg\n\nC | 7.89 mg"
+        "\n\n<table>\n<tr><td>10.11 mg</td></tr>\n</table>")
+
+
+def test_html_nested_tables_share_parent_expansion_budget(monkeypatch):
+    monkeypatch.setattr(sources, "MAX_HTML_TABLE_EXPANSION", 30)
+    raw = ('<article><h2>Results</h2><table><tr><th>A</th><td>'
+        '<table><tr><th>Early</th><td>1.<em>23</em> mg</td></tr><tr><th>Late</th><td>4.56 mg</td></tr></table>'
+        '</td></tr></table></article>')
+    assert sources.article_text(raw) == (
+        "Results\n\nA | [\n<table>\n<tr><th>Early</th><td>1.23 mg</td></tr>"
+        "\n<tr><th>Late</th><td>4.56 mg</td></tr>\n</table>\n]")
+
+
+def test_html_compact_fallback_keeps_source_cells_spans_caption_and_exact_passages(monkeypatch):
+    from canary.coverage_runtime import canonical_passages
+    monkeypatch.setattr(sources, "MAX_HTML_TABLE_EXPANSION", 1)
+    raw = ('<article><h2>Results</h2><table><caption>Measured yields.</caption><thead>'
+        '<tr><th id="yield" colspan="2" scope="colgroup">Yield (<em>mg</em>)</th></tr></thead><tbody>'
+        '<tr><td rowspan="2" headers="yield">1.<em>23</em> mg</td><td>p&lt;<span>0.05</span></td></tr>'
+        '<tr><td></td></tr></tbody></table><p>Source caveat.</p></article>')
+    text = sources.article_text(raw)
+    markup = text.split("\n\n")[1]
+    table = ElementTree.fromstring(markup)
+    assert table.find("caption").text == "Measured yields."
+    assert table.find("./thead/tr/th").text == "Yield (mg)"
+    assert table.find("./thead/tr/th").attrib == {"id": "yield", "colspan": "2", "scope": "colgroup"}
+    cells = table.findall("./tbody/tr/td")
+    assert [cell.text or "" for cell in cells] == ["1.23 mg", "p<0.05", ""]
+    assert cells[0].attrib == {"rowspan": "2", "headers": "yield"}
+    assert "span from" not in text and "1.<em>23" not in text
+    passages = canonical_passages(text, "W1")
+    assert all(row["text"] == text[row["start"]:row["end"]] for row in passages)
+    assert "\n\n".join(row["text"] for row in passages) == text
