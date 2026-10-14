@@ -63,3 +63,28 @@ def test_xml_requires_full_body_and_keeps_abstract_and_references():
     assert all(value in text for value in ("Synthetic abstract.", "Synthetic result.", "Source citation."))
     with pytest.raises(sources.AccessFailure):
         sources._xml_text(b"<article><abstract>Only abstract.</abstract></article>")
+
+
+def test_subscription_preview_is_not_a_full_html_paper():
+    raw = b'<meta name="citation_title" content="Synthetic paper"><article><h2>Methods</h2><p>Results are described briefly.</p><p>This is a preview of subscription content.</p></article>'
+    with pytest.raises(ValueError):
+        sources.article_text(raw, {"title": "Synthetic paper"})
+
+
+def test_raw_source_pdf_hint_must_match_the_selected_paper(monkeypatch):
+    url = "https://example.org/author/paper.pdf"
+    work = {"display_name": "Synthetic paper", "primary_location": {"raw_source_name": url},
+            "locations": [{"raw_source_name": "Journal with https://example.org/other.pdf"},
+                          {"raw_source_name": "file:///private/paper.pdf"}]}
+    assert sources.public_candidates(work) == [url]
+    seen = []
+    def download(client, requested, resolver, expected):
+        seen.append((requested, expected))
+        sources.public_url(requested, resolver)
+        return b"%PDF synthetic", "application/pdf", requested
+    monkeypatch.setattr(sources, "public_download", download)
+    monkeypatch.setattr(sources, "pdf_matches_work", lambda raw, expected: False)
+    assert sources.public_work_download(work, None, public_resolver)[0] is None
+    monkeypatch.setattr(sources, "pdf_matches_work", lambda raw, expected: True)
+    assert sources.public_work_download(work, None, public_resolver)[0][2] == url
+    assert seen == [(url, work), (url, work)]

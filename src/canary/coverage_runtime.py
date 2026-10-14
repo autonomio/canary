@@ -358,12 +358,13 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
                     immutable_bytes(original, raw)
                     immutable_bytes(text_path, text.encode("utf-8"))
                     immutable_bytes(passage_path, "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in canonical_passages(text, identifier)).encode("utf-8"))
-                    preview = bool(re.search(r"article[- ]preview|section snippets|access through your organization|purchase this article", text, re.I))
+                    preview = bool(re.search(r"article[- ]preview|section snippets|access through your organization|purchase this article|preview of subscription content", text, re.I))
                     reference = {"id": identifier, "title": work.get("display_name"), "doi": work.get("doi"),
                         "year": work.get("publication_year"), "authors": [a.get("author", {}).get("display_name") for a in work.get("authorships", [])],
                         "url": url, "file": str(original.relative_to(workspace)), "text_file": str(text_path.relative_to(workspace)),
                         "content_kind": kind, "body_sha256": body_sha, "text_sha256": text_sha,
                         "pages": pages, "blank_pages": blank, "text_chars": len(text), "fresh_download_at": now(),
+                        "preview_marker_detected": preview,
                         "full_text_status": "preview_suspected" if preview else "requires_source_verification"}
                     receipt.update(status="source_retrieved", reference=reference, url=url, bytes=len(raw))
             except Exception as error:
@@ -479,7 +480,8 @@ def bind_payload(workspace):
         identifier = review.get("work_id")
         reference = references.get(identifier)
         require(review.get("passage_ids_read", []), passages, "passage", str(identifier))
-        eligible = (identifier in selected and reference is not None and review.get("eligibility") in ("core", "supporting")
+        eligible = (identifier in selected and reference is not None and not reference.get("preview_marker_detected")
+                    and reference.get("full_text_status") != "preview_suspected" and review.get("eligibility") in ("core", "supporting")
                     and review.get("passage_ids_read") and review.get("substantive_review_note", "").strip()
                     and review.get("investigated_sections"))
         if not eligible:

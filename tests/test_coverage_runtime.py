@@ -169,3 +169,21 @@ def test_successful_upstream_search_count_survives_bad_metadata(tmp_path):
     assert progress["keyword_requests"] == 1
     assert progress["usage"]["keyword_searches_today"] == 1
     assert runtime.read(tmp_path / "research" / "openalex-requests.json")[0]["status"] == 200
+
+
+def test_subscription_preview_is_labeled_and_never_counted_as_full_review(tmp_path):
+    setup_sources(tmp_path, ("W1",))
+    def fetch(work, transport):
+        return (b"%PDF synthetic", "application/pdf", "https://example.org/preview.pdf"), False
+    def preview(raw, kind, work):
+        return ("This is a preview of subscription content.\n\n" + "Synthetic context. " * 50, 1, [], "pdf")
+    runtime.acquire(tmp_path, ["W1"], fetch=fetch, extract=preview, transport=Transport())
+    reference = runtime.catalog(tmp_path)[0]
+    assert reference["preview_marker_detected"] is True
+    assert reference["full_text_status"] == "preview_suspected"
+    pid = runtime.source(tmp_path, "W1")[0]["id"]
+    runtime.write(tmp_path / "investigation.json", {"claims": [], "evidence": [], "study_results": []})
+    runtime.write(tmp_path / "selection.json", {"selected_for_review_ids": ["W1"]})
+    runtime.write(tmp_path / "reviewed-papers.json", [{"work_id": "W1", "eligibility": "core", "passage_ids_read": [pid],
+        "substantive_review_note": "A preview was incorrectly marked core", "investigated_sections": ["methods"]}])
+    assert runtime.bind_payload(tmp_path)["accounting"]["substantively_reviewed_publications"] == 0

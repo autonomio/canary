@@ -36,7 +36,7 @@ SCIENCE = re.compile(r"\b(introduction|background|method(?:s|ology)?|materials|r
                      r"experimental|theory|analysis|case study|literature review|findings)\b", re.I)
 ACCESS_PROMPT = re.compile(r"\b(access denied|verify you are human|checking your browser|"
                            r"sign in to (?:read|access)|subscribe to (?:read|access)|"
-                           r"purchase (?:this|the) article|enable javascript to continue)\b", re.I)
+                           r"purchase (?:this|the) article|preview of subscription content|enable javascript to continue)\b", re.I)
 
 
 @dataclass
@@ -352,6 +352,27 @@ def pmc_identifier(value, explicit=False):
     return None
 
 
+def raw_pdf_candidates(work):
+    """Legacy location hints authorize only literal HTTP(S) PDF candidates.
+
+    These are weaker than a pdf_url field, so public_work_download also verifies
+    the returned PDF's paper identity before accepting one.
+    """
+    locations = [work.get("best_oa_location"), work.get("primary_location"), *(work.get("locations") or [])]
+    urls = []
+    for location in locations:
+        if not isinstance(location, dict):
+            continue
+        value = location.get("raw_source_name")
+        if not isinstance(value, str) or value != value.strip() or any(c.isspace() for c in value):
+            continue
+        parsed = urlsplit(value)
+        if (parsed.scheme in ("http", "https") and parsed.hostname and not parsed.username and not parsed.password
+                and parsed.path.casefold().endswith(".pdf")):
+            urls.append(value)
+    return list(dict.fromkeys(urls))
+
+
 def public_candidates(work):
     locations = []
     best = work.get("best_oa_location")
@@ -406,7 +427,7 @@ def public_candidates(work):
         if isinstance(identifier, str) and re.fullmatch(
                 r"(?:[0-9]{4}\.[0-9]{4,5}|[a-zA-Z.-]+/[0-9]{7})(?:v[0-9]+)?", identifier):
             urls.insert(0, "https://arxiv.org/pdf/" + identifier)
-    return list(dict.fromkeys(urls))
+    return list(dict.fromkeys([*urls, *raw_pdf_candidates(work)]))
 
 
 def normalized_doi(value):
@@ -474,10 +495,15 @@ def public_work_download(work, transport, resolver):
         return httpx.Client(trust_env=False, follow_redirects=False, verify=PUBLIC_SSL_CONTEXT,
                             transport=_BorrowedPublicTransport(transport) if transport else None)
 
+    raw_hints = set(raw_pdf_candidates(work))
+
     def download(url):
         with client() as public:
             try:
-                return public_download(public, url, resolver, work), False
+                result = public_download(public, url, resolver, work)
+                if url in raw_hints and (result[1] != "application/pdf" or not pdf_matches_work(result[0], work)):
+                    return None, False
+                return result, False
             except httpx.TimeoutException:
                 return None, True
             except (httpx.HTTPError, ValueError, OSError):
