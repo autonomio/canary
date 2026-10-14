@@ -176,13 +176,19 @@ def _save_markdown(path: Path, graph: dict):
         linked_evidence = set(claim.get("evidence_ids", []))
         linked_evidence.update(e.get("origin_evidence_id") for e in evidence
                                if e.get("navigation_id", e.get("id")) in linked_evidence)
+        linked_passages = {e.get("paragraph_id") for e in evidence
+                           if e.get("navigation_id", e.get("id")) in linked_evidence
+                           or e.get("origin_evidence_id") in linked_evidence}
         for issue in _rows(graph.get("binding_issues")):
             linked = issue.get("claim_id") == claim["id"] or (
                 not issue.get("claim_id") and (issue.get("study_result_id") in claim.get("study_result_ids", []) or
-                issue.get("evidence_id") in linked_evidence))
+                issue.get("evidence_id") in linked_evidence or
+                (issue.get("kind") == "span_mismatch" and issue.get("passage_id") in linked_passages)))
             if not linked or issue.get("claim_occurrence", claim.get("claim_occurrence")) != claim.get("claim_occurrence"):
                 continue
-            if issue.get("kind") == "missing_passage":
+            if issue.get("kind") == "span_mismatch":
+                lines.extend([f"Provenance failure: recorded passage {issue.get('passage_id')} did not match the saved source text at its recorded offsets; the quotation below is recorded, not verified.", ""])
+            elif issue.get("kind") == "missing_passage":
                 occurrence = f" · recorded occurrence {issue['evidence_occurrence']}" if "evidence_occurrence" in issue else ""
                 lines.extend([f"Provenance failure: recorded passage {issue.get('passage_id')} for evidence {issue.get('evidence_id')}{occurrence} is unavailable.", ""])
             elif issue.get("kind") == "lacks_verbatim":

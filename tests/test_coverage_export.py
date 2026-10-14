@@ -540,3 +540,56 @@ if(item.evidence_occurrence) {
 S.selected='unavailable';S.research.unavailable={answer:graph};global.document={getElementById:()=>null};
 (async()=>{await inspectAnswer('evidence',id);if(item.verbatim_status==='unavailable') assert.equal(S.inspector.sourceId,undefined);assert.equal(JSON.stringify(graph),before);})().catch(error=>{console.error(error);process.exitCode=1;});
 """)
+
+
+@pytest.mark.parametrize("mismatch", ["offset", "saved_text"])
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_source_span_mismatch_reaches_claim_report_and_actual_ui(tmp_path, mismatch, duplicate):
+    investigation = {"claims": [{"id": "C_bad", "text": "Recorded claim with an unverified quotation.", "evidence_ids": ["E_bad"]},
+                                  {"id": "C_good", "text": "Bound positive control.", "evidence_ids": ["E_good"]}],
+                     "evidence": [{"id": "E_bad", "passage_ids": ["p1", "p2"]},
+                                  *([{"id": "E_bad", "passage_ids": ["p3"]}] if duplicate else []),
+                                  {"id": "E_good", "passage_ids": ["p3"]}]}
+    saved_bundle(tmp_path, investigation)
+    path = tmp_path / "passages/R1.jsonl"
+    if mismatch == "offset":
+        spans = [json.loads(line) for line in path.read_text().splitlines()]
+        spans[0]["start"] += 1; spans[0]["end"] += 1
+        path.write_text("".join(json.dumps(p) + "\n" for p in spans))
+    else:
+        text_path = tmp_path / "texts/R1.txt"
+        text_path.write_text(text_path.read_text().replace("First exact quotation.", "Xirst exact quotation."))
+    raw_passages = path.read_bytes(); raw_source = (tmp_path / "texts/R1.txt").read_bytes()
+    graph = export_bundle(tmp_path)["answer"]
+    assert [i for i in graph["binding_issues"] if i["kind"] == "span_mismatch"] == [{"kind": "span_mismatch", "passage_id": "p1"}]
+    bad = next(e for e in graph["evidence"] if e.get("paragraph_id") == "p1")
+    assert bad["anchored"] is False and bad["quote"] == "First exact quotation."
+    assert all(e["anchored"] for e in graph["evidence"] if e.get("paragraph_id") in ("p2", "p3"))
+    assert path.read_bytes() == raw_passages and (tmp_path / "texts/R1.txt").read_bytes() == raw_source
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    bad_report = report.split("## C_bad", 1)[1].split("## C_good", 1)[0]
+    good_report = report.split("## C_good", 1)[1]
+    assert "recorded passage p1 did not match the saved source text at its recorded offsets" in bad_report
+    assert "the quotation below is recorded, not verified" in bad_report and "> First exact quotation." in bad_report
+    assert "> Second exact quotation." in bad_report, "Bound sibling quotations must remain available"
+    assert "did not match" not in good_report and "> Different paper quotation." in good_report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),bad=graph.claims[0],good=graph.claims[1],record=graph.evidence.find(e=>e.paragraph_id==='p1');
+assert.ok(qaClaimBindingIssues(graph,bad).some(i=>i.kind==='span_mismatch' && i.passage_id==='p1'));
+assert.ok(!qaClaimBindingIssues(graph,good).some(i=>i.kind==='span_mismatch'));
+assert.match(findingHtml(graph,bad),/Provenance failure/);assert.doesNotMatch(findingHtml(graph,good),/Provenance failure/);
+assert.match(claimInspector(graph,'C_bad'),/Recorded passage p1 did not match the saved source text/);
+assert.match(claimInspector(graph,'C_bad'),/data-qa-passage="p1"/);
+const html=evidenceInspector(graph,record.navigation_id || record.id);
+assert.match(html,/First exact quotation\./);assert.match(html,/Recorded quotation; unverified against saved source text/);
+assert.match(html,/This passage did not match the saved source text/);assert.doesNotMatch(html,/Exact passage from the saved full paper/);
+const source=paragraphInspector(graph,'p1');assert.match(source,/First exact quotation\./);
+assert.match(source,/Recorded passage; unverified against saved source text/);assert.match(source,/This passage did not match/);
+assert.doesNotMatch(source,/Exact saved paper text/);
+for(const e of graph.evidence.filter(e=>e.paragraph_id==='p2' || e.paragraph_id==='p3')) {
+ const html=evidenceInspector(graph,e.navigation_id || e.id);assert.match(html,/Exact passage from the saved full paper/);assert.doesNotMatch(html,/This passage did not match/);
+}
+const stale={...graph,binding_issues:[]};assert.ok(qaClaimBindingIssues(stale,bad).some(i=>i.kind==='span_mismatch' && i.passage_id==='p1'));
+assert.equal(JSON.stringify(graph),before);
+""")
