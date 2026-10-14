@@ -507,13 +507,15 @@ def public_work_download(work, transport, resolver):
                 # Extractability belongs to each racing copy: a fast unreadable
                 # response must not discard an accessible alternative.
                 if kind == "application/pdf":
-                    _pdf_text(raw)
+                    text = _pdf_text(raw)[0]
                 elif kind in ("application/xml", "text/xml", "application/tei+xml"):
-                    _xml_text(raw)
+                    text = _xml_text(raw)
                 elif kind == "text/html":
-                    article_text(raw, work)
+                    text = article_text(raw, work)
                 else:
                     return None, False
+                if len(text.strip()) < 500:
+                    return None, False  # Same minimum text requirement as acquire().
                 return result, False
             except httpx.TimeoutException:
                 return None, True

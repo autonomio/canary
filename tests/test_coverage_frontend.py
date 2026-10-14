@@ -224,3 +224,17 @@ def test_native_failure_and_restart_completion_remain_visible(tmp_path):
     run.update(status="answered", ended_at="2026-10-14T00:02:00Z")
     (bundle / "run.json").write_text(json.dumps(run))
     assert runs.log_rows(registry, tmp_path)[0]["status"] == "answered"
+
+
+def test_failed_coverage_log_preserves_answer_and_unknown_role_totals(tmp_path):
+    bundle = tmp_path / "bundle";bundle.mkdir()
+    registry = tmp_path / "registry.json"
+    (bundle / "run.json").write_text(json.dumps({"question": "Synthetic?", "status": "failed"}))
+    (bundle / "investigation.json").write_text(json.dumps({"claims": [{"id": "C1", "text": "Preserved attributed finding", "evidence_ids": []}]}))
+    (bundle / "profile.json").write_text(json.dumps({"research": {"usage": {"totals": {"input_tokens": 100, "output_tokens": 10, "cached_input_tokens": 80}}},
+        "audit": {"usage": {"available": False, "reason": "Receipt unavailable"}}}))
+    coverage_export.export_bundle(bundle)
+    runs.upsert({"key": "failed", "name": "Failed coverage", "kind": "question", "status": "failed", "bundle": str(bundle)}, registry)
+    row = runs.log_rows(registry, tmp_path)[0]
+    assert row["answered"] is True
+    assert row["input_tokens"] is None and row["output_tokens"] is None

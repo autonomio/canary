@@ -86,7 +86,7 @@ def test_raw_source_pdf_hint_must_match_the_selected_paper(monkeypatch):
         sources.public_url(requested, resolver)
         return b"%PDF synthetic", "application/pdf", requested
     monkeypatch.setattr(sources, "public_download", download)
-    monkeypatch.setattr(sources, "_pdf_text", lambda raw: ("Synthetic readable paper", 1, ()))
+    monkeypatch.setattr(sources, "_pdf_text", lambda raw: ("Synthetic readable paper. " * 30, 1, ()))
     monkeypatch.setattr(sources, "pdf_matches_work", lambda raw, expected: False)
     assert sources.public_work_download(work, None, public_resolver)[0] is None
     monkeypatch.setattr(sources, "pdf_matches_work", lambda raw, expected: True)
@@ -100,7 +100,7 @@ def test_unreadable_fast_pdf_does_not_discard_readable_copy_or_wait_for_loser(mo
     writer.add_blank_page(width=72, height=72)
     writer.write(pdf)
     raw_pdf = pdf.getvalue()
-    raw_xml = b"<article><body><sec><title>Results</title><p>Readable synthetic result.</p></sec></body></article>"
+    raw_xml = b"<article><body><sec><title>Results</title><p>" + b"Readable synthetic result. " * 30 + b"</p></sec></body></article>"
     unreadable_rejected, loser_started, release_loser = Event(), Event(), Event()
     monkeypatch.setattr(sources, "_native_pdf_text", lambda raw: None)
     extract_pdf = sources._pdf_text
