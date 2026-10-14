@@ -358,7 +358,9 @@ class LoggedTransport(httpx.BaseTransport):
 def canonical_passages(text, reference_id):
     """Every verbatim is exactly reproducible as canonical_text[start:end]."""
     rows, page = [], None
-    for match in re.finditer(r"\S(?:.*?\S)?(?=\n\s*\n|\Z)", text, re.S):
+    # Trailing horizontal whitespace can encode an empty final table cell.
+    # Consume it within this paragraph instead of searching into the next one.
+    for match in re.finditer(r"\S(?:.*?\S)?[^\S\n]*(?=\n\s*\n|\s*\Z)", text, re.S):
         start, end = match.span()
         marker = re.search(r"\[PDF page (\d+)\]", match.group())
         if marker:

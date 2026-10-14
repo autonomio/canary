@@ -573,3 +573,29 @@ const legacy=queryNetHtml(stale);assert.match(legacy,/Search incomplete/);assert
 assert.ok(legacy.includes(esc(state.queries.q1.search)));assert.match(legacy,/q1 · (1|2) result pages? recorded · incomplete/);
 assert.equal(JSON.stringify(graph),before);
 """)
+
+
+@pytest.mark.parametrize("separator", ["\n\n", "\n \t\n"])
+@pytest.mark.parametrize("ending", ["", "\n"])
+def test_canonical_passages_keep_empty_final_table_cell_separate_from_following_prose(separator, ending):
+    blocks = ["[PDF page 7]", "Group | Value", "A | 12", "Summary | \t", "Source caveat."]
+    text = separator.join(blocks) + ending
+    rows = runtime.canonical_passages(text, "W1")
+    assert [r["text"] for r in rows] == blocks
+    assert [r["id"] for r in rows] == [f"W1-p{index:04}" for index in range(1, 6)]
+    assert all(r["page"] == 7 and r["reference_id"] == "W1" for r in rows)
+    assert all(text[r["start"]:r["end"]] == r["text"] for r in rows)
+    assert [cell.strip() for cell in rows[3]["text"].split("|")] == ["Summary", ""]
+    assert rows[3]["end"] < rows[4]["start"]
+
+
+def test_canonical_passage_boundary_fix_retains_pdf_page_and_long_paragraph_chunking():
+    body = ("Measured source line with exact values 1.23 and 4.56.\n" * 180) + "Summary | \t"
+    text = "[PDF page 8]\n\n" + body + "\n\nFollowing source prose.\n"
+    rows = runtime.canonical_passages(text, "W1")
+    chunks = rows[1:-1]
+    assert rows[0]["text"] == "[PDF page 8]" and rows[-1]["text"] == "Following source prose."
+    assert len(chunks) >= 2 and all(len(r["text"]) <= 4000 for r in chunks)
+    assert "".join(r["text"] for r in chunks) == body
+    assert all(left["end"] == right["start"] for left, right in zip(chunks, chunks[1:]))
+    assert all(r["page"] == 8 and text[r["start"]:r["end"]] == r["text"] for r in rows)
