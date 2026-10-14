@@ -236,7 +236,7 @@ def test_nullable_study_fields_preserve_committed_references_and_saved_papers(tm
 const before=JSON.stringify(graph),x=qaStudyLinks(graph,'SR1');assert.equal(x.reference.id,'R2');
 const html=studyResultInspector(graph,'SR1');assert.match(html,/10\.9999\/R2/);assert.match(html,/Not extracted/);assert.match(html,/data-qa-paper="R2"/);
 S.selected='nullable';S.research.nullable={answer:graph};global.document={getElementById:()=>null};
-S.sourceContexts[contextKey('R2',null,'paper')]={paragraphs:[],context_label:'Saved paper'};
+S.sourceContexts={};S.sourceContexts[contextKey('R2',null,'paper')]={paragraphs:[],context_label:'Saved paper'};
 global.fetch=()=>{throw new Error('The saved paper context is already committed');};
 (async()=>{
  await inspectAnswer('study','SR1');assert.equal(S.inspector.sourceId,'R2');
