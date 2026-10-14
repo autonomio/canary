@@ -148,7 +148,7 @@ def test_xml_preserves_table_cell_and_row_boundaries(raw):
 def test_readable_preview_cannot_win_race_over_complete_copy(monkeypatch, kind):
     preview_text = "This is a preview of subscription content. " + "Synthetic section excerpt. " * 30
     preview_xml = b"<article><body><sec><title>Results</title><p>" + preview_text.encode() + b"</p></sec></body></article>"
-    raw_preview = b"%PDF synthetic preview" if kind == "pdf" else preview_xml
+    raw_preview = b"%PDF-1.7 synthetic preview\n%%EOF" if kind == "pdf" else preview_xml
     complete_xml = b"<article><body><sec><title>Results</title><p>" + b"Complete synthetic result. " * 30 + b"</p></sec></body></article>"
     preview_extracted, loser_started, release_loser = Event(), Event(), Event()
     extract_xml = sources._xml_text
