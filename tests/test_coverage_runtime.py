@@ -61,6 +61,7 @@ def test_fresh_search_cap_resume_and_rich_plan_preservation(tmp_path, monkeypatc
     assert len(requests) == 2  # Only same-run completed receipts are resumable.
     assert all(r.headers["Authorization"] == "Bearer synthetic-source-key" for r in requests)
     assert all("filter" not in r.url.params for r in requests)
+    assert all("abstract_inverted_index" in r.url.params["select"] and "locations" in r.url.params["select"] for r in requests)
     assert runtime.read(tmp_path / "research" / "question-plan.json") == rich_plan()
     logs = (tmp_path / "research" / "openalex-requests.json").read_text()
     assert "synthetic-source-key" not in logs
@@ -153,3 +154,18 @@ def test_scientific_invocation_keeps_authorized_models_and_approval_review(tmp_p
     assert "--approve-for-me" in command and "agents.enabled=false" in command
     assert "--dangerously-bypass-approvals-and-sandbox" not in command
     assert protocol.AUDIT_MODEL == "gpt-6-astra" and protocol.AUDIT_EFFORT == "ultra"
+
+
+def test_successful_upstream_search_count_survives_bad_metadata(tmp_path):
+    import pytest
+    plan_path = tmp_path / "input-plan.json"
+    runtime.write(plan_path, rich_plan())
+    def handler(request):
+        return httpx.Response(200, json={"results": [{"display_name": "Malformed work"}], "meta": {"next_cursor": None}})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(KeyError):
+            runtime.discover(tmp_path / "research", plan_path, root=tmp_path, pages=1, client=client)
+    progress = runtime.read(tmp_path / "research" / "search-progress.json")
+    assert progress["keyword_requests"] == 1
+    assert progress["usage"]["keyword_searches_today"] == 1
+    assert runtime.read(tmp_path / "research" / "openalex-requests.json")[0]["status"] == 200

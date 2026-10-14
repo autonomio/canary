@@ -187,7 +187,8 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                     started = time.monotonic()
                     try:
                         response = client.get("https://api.openalex.org/works",
-                            params={"search": query["search"], "per_page": 200, "cursor": cursor}, headers=headers)
+                            params={"search": query["search"], "per_page": 200, "cursor": cursor,
+                                    "select": "id,doi,display_name,title,publication_year,abstract_inverted_index,open_access,primary_location,best_oa_location,locations,authorships,ids,type"}, headers=headers)
                     except httpx.HTTPError as error:
                         receipt = {"query_id": query["id"], "search": query["search"], "page": state["pages"] + 1,
                             "requested_at": now(), "status": None, "error": type(error).__name__, "local_cache_used": False}
@@ -208,6 +209,11 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                         write(workspace / "search-progress.json", progress)
                         event(workspace, "search_failed", query_id=query["id"], status=response.status_code)
                         break  # Keep other branches and already committed candidates usable; no hidden retry/sleep.
+                    # A successful upstream search is billable even if local
+                    # metadata interpretation subsequently fails.
+                    progress["keyword_requests"] = sum(r["status"] == 200 for r in requests)
+                    progress["usage"] = record_daily_search(root)
+                    write(workspace / "search-progress.json", progress)
                     body = response.json()
                     write(workspace / "search-responses" / f'{query["id"]}-{state["pages"] + 1:04}.json', body)
                     for work in body.get("results", []):
@@ -226,8 +232,6 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                     state["truncated"] = not state["complete"]
                     progress["queries"][query["id"]] = state
                     progress["unique_candidates"] = len(works)
-                    progress["keyword_requests"] = sum(r["status"] == 200 for r in requests)
-                    progress["usage"] = record_daily_search(root)
                     progress["complete"] = all(progress["queries"].get(q["id"], {}).get("complete", False) for q in plan["queries"])
                     write(workspace / "works.json", list(works.values()))
                     candidates = [{"id": ident, "title": w.get("display_name") or w.get("title"), "year": w.get("publication_year"),
