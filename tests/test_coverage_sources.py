@@ -604,3 +604,51 @@ def test_html_optional_endings_canonical_passages_reproduce_measurements_and_off
         "Results", "Group | Yield", "A | 1.23 mg", "B | 4.56 mg", "Source caveat."]
     assert all(row["reference_id"] == "W1" and row["text"] == text[row["start"]:row["end"]] for row in passages)
     assert "\n\n".join(row["text"] for row in passages) == text
+
+
+@pytest.mark.parametrize("heading", ["h2", "h3", "h4", "h5", "h6"])
+def test_html_optional_paragraph_endings_preserve_full_article_methods_results_and_inline_values(heading):
+    paragraphs = ["Synthetic background on recording context.",
+        "Measured 1.<em>23</em> mg after recording subject and purpose.",
+        "Reported 4.<span>56</span> mg with p&lt;<strong>0.05</strong>."]
+    def article(ending):
+        return ('<article><p>' + paragraphs[0] + ending + '<' + heading + '>Methods</' + heading + '>'
+            '<p>' + paragraphs[1] + ending + '<' + heading + '>Results</' + heading + '>'
+            '<p>' + paragraphs[2] + ending + '</article>')
+    expected = ("Synthetic background on recording context.\n\nMethods"
+        "\n\nMeasured 1.23 mg after recording subject and purpose.\n\nResults"
+        "\n\nReported 4.56 mg with p<0.05.")
+    assert sources.article_text(article("")) == sources.article_text(article("</p>")) == expected
+
+
+@pytest.mark.parametrize("container", ["div", "section"])
+def test_html_block_starter_closes_omitted_paragraph_before_article_sections(container):
+    raw = ('<article><p>Background.<' + container + '><h2>Methods</h2>'
+        '<p>Measured 1.<em>23</em> mg.<p>Measured 4.<span>56</span> mg.</p></' + container + '></article>')
+    explicit = ('<article><p>Background.</p><' + container + '><h2>Methods</h2>'
+        '<p>Measured 1.<em>23</em> mg.</p><p>Measured 4.<span>56</span> mg.</p></' + container + '></article>')
+    assert sources.article_text(raw) == sources.article_text(explicit) == (
+        "Background.\n\nMethods\n\nMeasured 1.23 mg.\n\nMeasured 4.56 mg.")
+
+
+def test_html_implicit_paragraph_close_preserves_optional_and_nested_table_boundaries():
+    raw = ('<article><p>Background.<h2>Results</h2><p>Table follows.'
+        '<table><tr><th>Group<th>Records<tr><th>A<td><p>Inner records.'
+        '<table><tr><th>Time<th>Yield<tr><td>Early<td>1.<em>23</em> mg</table>'
+        '<tr><th>B<td>4.56 mg</table><p>Source caveat.</article>')
+    assert sources.article_text(raw) == (
+        "Background.\n\nResults\n\nTable follows.\n\nGroup | Records"
+        "\n\nA | Inner records.\n[\nTime | Yield\nEarly | 1.23 mg\n]"
+        "\n\nB | 4.56 mg\n\nSource caveat.")
+
+
+def test_html_optional_paragraph_endings_keep_exact_canonical_section_and_result_offsets():
+    from canary.coverage_runtime import canonical_passages
+    raw = ('<article><p>Background.<h2>Methods</h2><p>Measured 1.<em>23</em> mg.'
+        '<h2>Results</h2><p>Reported 4.<span>56</span> mg with p&lt;<strong>0.05</strong>.</article>')
+    text = sources.article_text(raw)
+    passages = canonical_passages(text, "W1")
+    assert [row["text"] for row in passages] == [
+        "Background.", "Methods", "Measured 1.23 mg.", "Results", "Reported 4.56 mg with p<0.05."]
+    assert all(row["reference_id"] == "W1" and row["text"] == text[row["start"]:row["end"]] for row in passages)
+    assert "\n\n".join(row["text"] for row in passages) == text

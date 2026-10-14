@@ -32,6 +32,9 @@ _PUBLIC_METADATA_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="co
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
 SKIP = {"script", "style", "nav", "header", "footer", "aside", "form", "button", "noscript"}
 BLOCKS = {"p", "li", "pre", "blockquote", "figcaption", "table", "math", "h1", "h2", "h3", "h4", "h5", "h6"}
+PARAGRAPH_BLOCK_STARTS = {"address", "article", "aside", "blockquote", "details", "div", "dl", "fieldset",
+    "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr",
+    "main", "menu", "nav", "ol", "p", "pre", "search", "section", "table", "ul"}
 BODY_MARKERS = {"articlebody", "articlecontent", "articletext", "arttext", "articlesections",
                 "htmlbody", "fulltext", "fullarticle", "mainarticle"}
 SCIENCE = re.compile(r"\b(introduction|background|method(?:s|ology)?|materials|results|discussion|conclusions?|"
@@ -58,6 +61,15 @@ class _ArticleParser(HTMLParser):
         self.feed(raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw)
 
     def handle_starttag(self, tag, attrs):
+        if tag in PARAGRAPH_BLOCK_STARTS:
+            for index in range(len(self.stack) - 1, 0, -1):
+                current = self.stack[index].tag
+                if current == "p":
+                    del self.stack[index:]
+                    break
+                if current in {"button", "table", "td", "th", "caption", "template", "html",
+                               "applet", "object", "marquee", "svg", "math"}:
+                    break  # Do not close an outer paragraph across nested content.
         # HTML permits omitted cell/row/group endings. Limit implicit closure
         # to the nearest table so an inner table cannot close an outer cell.
         if tag in {"td", "th", "tr", "thead", "tbody", "tfoot"}:

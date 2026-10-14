@@ -633,3 +633,32 @@ assert.ok(html.indexOf('A | 1.23')<html.indexOf('B | 4.56'));
 assert.doesNotMatch(html,/A1\.23B4\.56|A \| 1\.23B/);
 assert.equal(JSON.stringify(graph),before);
 """)
+
+
+def test_implicit_paragraph_endings_preserve_science_sections_in_actual_source_view(tmp_path):
+    from canary.coverage_sources import article_text
+    from canary.coverage_runtime import canonical_passages
+    raw = ('<article><p>Initial observation.<h2>Methods</h2><p>Measured 12 samples at 1.23 mg.'
+           '<h2>Results</h2><p>Yield was 4.56 mg in group A.</article>')
+    text = article_text(raw)
+    passages = canonical_passages(text, "W1")
+    expected = ["Initial observation.", "Methods", "Measured 12 samples at 1.23 mg.", "Results", "Yield was 4.56 mg in group A."]
+    assert [p["text"] for p in passages] == expected
+    assert all(text[p["start"]:p["end"]] == p["text"] for p in passages)
+    data = {"answer": {"references": [{"id": "W1", "paper": {"title": "Synthetic saved paper"}}],
+                       "passages": [dict(p, source_id="W1", kind="fulltext", anchored=True) for p in passages]},
+            "text": text}
+    run_dashboard(tmp_path, data, r"""
+const before=JSON.stringify(graph);S.selected='paragraph-sections';S.sourceContexts={};
+const selected=graph.answer.passages.at(-1),state={sourceId:'W1',paragraphId:selected.id,scope:'section'};
+S.sourceContexts[contextKey('W1',selected.id,'section')]={text_available:true,offset_verified:true,
+ paragraphs:graph.answer.passages.map(p=>({...p,selected:p.id===selected.id}))};
+const html=sourceInspector(graph.answer,state);
+assert.match(html,/<p class="context-paragraph ">Methods<\/p>/);assert.match(html,/<p class="context-paragraph ">Results<\/p>/);
+assert.match(html,/<p class="context-paragraph ">Measured 12 samples at 1\.23 mg\.<\/p>/);
+assert.match(html,/<mark>Yield was 4\.56 mg in group A\.<\/mark>/);
+assert.ok(html.indexOf('Methods</p>')<html.indexOf('Measured 12 samples'));
+assert.ok(html.indexOf('Results</p>')<html.indexOf('Yield was 4.56 mg'));
+assert.match(paragraphInspector(graph.answer,selected.id),/Yield was 4\.56 mg in group A\./);
+assert.equal(JSON.stringify(graph),before);
+""")
