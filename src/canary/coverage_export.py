@@ -177,7 +177,9 @@ def _save_markdown(path: Path, graph: dict):
                 issue.get("evidence_id") in claim.get("evidence_ids", [])))
             if not linked or issue.get("claim_occurrence", claim.get("claim_occurrence")) != claim.get("claim_occurrence"):
                 continue
-            if issue.get("kind") == "missing_evidence":
+            if issue.get("kind") == "lacks_evidence":
+                lines.extend(["Provenance failure: this claim has no recorded evidence IDs.", ""])
+            elif issue.get("kind") == "missing_evidence":
                 lines.extend(["Provenance failure: missing evidence " + str(issue.get("evidence_id")), ""])
             elif issue.get("kind") == "duplicate_evidence_id":
                 lines.extend(["Provenance failure: duplicate evidence ID " + str(issue.get("evidence_id")) + "; the ID-only link cannot identify one recorded packet.", ""])
@@ -201,9 +203,12 @@ def _save_markdown(path: Path, graph: dict):
         rows = _rows(graph.get(key))
         if rows:
             lines.extend(["## " + label, ""])
-            for row in rows:
+            for record_index, row in enumerate(rows, 1):
                 lines.extend([str(row.get("description", row.get("observation", row.get("question", "")))),
                               str(row.get("why_it_matters", row.get("justification", ""))), ""])
+                for issue in _rows(graph.get("binding_issues")):
+                    if issue.get("kind") == "missing_linked_claim" and issue.get("section") == key and issue.get("record_index") == record_index:
+                        lines.extend([f"Provenance failure: missing claim {issue.get('claim_id')} in {key} record {row.get('id', record_index)}.", ""])
     if graph.get("caveats"):
         lines.extend(["## Caveats", "", *[str(x) for x in graph["caveats"]], ""])
     lines.extend(["## References", ""])
@@ -372,6 +377,13 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
             for identifier in _unique(summary.get("claim_ids", [])):
                 if identifier not in claim_counts:
                     graph["binding_issues"].append({"kind": "missing_summary_claim", "summary_index": summary_index, "claim_id": identifier})
+    for section in ("gaps", "contradictions", "residue"):
+        for record_index, record in enumerate(_rows(graph.get(section)), 1):
+            for identifier in _unique(record.get("claim_ids", [])):
+                if identifier not in claim_counts:
+                    graph["binding_issues"].append({"kind": "missing_linked_claim", "section": section,
+                                                    "record_id": record.get("id"), "record_index": record_index,
+                                                    "claim_id": identifier})
     duplicate_claim_ids = {identifier for identifier, count in claim_counts.items() if count > 1}
     for identifier, count in claim_counts.items():
         if count > 1:
@@ -383,6 +395,11 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         identifier = claim.get("id")
         occurrences[identifier] += 1
         occurrence = occurrences[identifier]
+        if not _unique(claim.get("evidence_ids", [])):
+            issue = {"kind": "lacks_evidence", "claim_id": identifier}
+            if identifier in duplicate_claim_ids:
+                issue["claim_occurrence"] = occurrence
+            graph["binding_issues"].append(issue)
         for key in _unique(claim.get("evidence_ids", [])):
             if key not in evidence_map:
                 issue = {"kind": "missing_evidence", "claim_id": identifier, "evidence_id": key}

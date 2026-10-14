@@ -68,7 +68,8 @@ S.selected='collision';S.research.collision={answer:graph};global.document={getE
 
 def test_duplicate_study_results_retain_distinct_measurements_and_sources(tmp_path):
     investigation = {"claims": [{"id": "C1", "text": "Recorded ambiguous comparison.", "study_result_ids": ["SR1"]},
-                                  {"id": "C2", "text": "Unique comparison.", "study_result_ids": ["SR2"]}],
+                                  {"id": "C2", "text": "Unique comparison.", "study_result_ids": ["SR2"], "evidence_ids": ["E2"]}],
+                     "evidence": [{"id": "E2", "passage_ids": ["p2"]}],
                      "study_results": [{"id": "SR1", "reference_ids": ["R1"], "result_type": "measured",
                                         "fields": {"value": {"text": "11 percent", "passage_ids": ["p1"]}}},
                                        {"id": "SR1", "reference_ids": ["R2"], "result_type": "measured",
@@ -268,5 +269,71 @@ S.selected='summary';S.research.summary={answer:graph};global.document={getEleme
 (async()=>{
  await inspectAnswer('claim','C_missing');assert.equal(S.inspector.claimId,'C_missing');assert.equal(S.inspector.kind,'claim');
  await inspectAnswer('claim','C1');assert.equal(S.inspector.claimId,'C1');assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+@pytest.mark.parametrize("section", ["gaps", "contradictions", "residue"])
+def test_missing_context_claim_links_keep_recorded_text_and_open_failure(tmp_path, section):
+    broken = {"id": "X1", "description": "Recorded gap or contradiction.", "observation": "Recorded residue.",
+              "claim_ids": ["C1", "C_missing"], "evidence_ids": ["E1"]}
+    intact = {"id": "X2", "description": "Intact context.", "claim_ids": ["C1"], "evidence_ids": ["E1"]}
+    investigation = {"claims": [{"id": "C1", "text": "Existing bound claim.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}], section: [broken, intact]}
+    graph = saved_bundle(tmp_path, investigation)
+    issues = [i for i in graph["binding_issues"] if i["kind"] == "missing_linked_claim"]
+    assert issues == [{"kind": "missing_linked_claim", "section": section, "record_id": "X1", "record_index": 1, "claim_id": "C_missing"}]
+    assert graph[section] == [broken, intact]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    assert f"Provenance failure: missing claim C_missing in {section} record X1." in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),html=researchStructureHtml(graph);
+assert.match(html,/data-qa-claim="C_missing"/);assert.match(html,/Provenance failure · missing claim link/);
+assert.equal((html.match(/Provenance failure · missing claim link/g)||[]).length,1);
+const missing=claimInspector(graph,'C_missing');assert.match(missing,/Provenance failure: claim not recorded/);
+assert.match(missing,/Linked (gaps|contradictions|residue) · X1/);assert.match(missing,/Recorded gap or contradiction/);
+assert.doesNotMatch(missing,/data-qa-evidence=/);
+S.selected='context';S.research.context={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+ await inspectAnswer('claim','C_missing');assert.equal(S.inspector.kind,'claim');assert.equal(S.inspector.claimId,'C_missing');
+ await inspectAnswer('claim','C1');assert.equal(S.inspector.claimId,'C1');
+ assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_evidence_empty_claims_warn_without_gating_or_changing_recorded_occurrences(tmp_path):
+    claims = [{"id": "C1", "text": "Unbound first occurrence.", "evidence_ids": []},
+              {"id": "C1", "text": "Bound second occurrence.", "evidence_ids": ["E1"]},
+              {"id": "C2", "text": "Unbound unique claim.", "evidence_ids": []},
+              {"id": "C3", "text": "Intact bound claim.", "evidence_ids": ["E1"]}]
+    investigation = {"claims": claims, "evidence": [{"id": "E1", "passage_ids": ["p1"]}]}
+    graph = saved_bundle(tmp_path, investigation)
+    assert [i for i in graph["binding_issues"] if i["kind"] == "lacks_evidence"] == [
+        {"kind": "lacks_evidence", "claim_id": "C1", "claim_occurrence": 1},
+        {"kind": "lacks_evidence", "claim_id": "C2"}]
+    assert [(c["id"], c["text"], c["evidence_ids"]) for c in graph["claims"]] == [(c["id"], c["text"], c["evidence_ids"]) for c in claims]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    assert json.loads((tmp_path / "run.json").read_text())["status"] == "answered"
+    report = (tmp_path / "answer.md").read_text()
+    first, remainder = report.split("## C1 · recorded occurrence 1", 1)[1].split("## C1 · recorded occurrence 2", 1)
+    second, remainder = remainder.split("## C2", 1)
+    unique, intact = remainder.split("## C3", 1)
+    assert "Provenance failure: this claim has no recorded evidence IDs." in first and "exact quotation" not in first.lower()
+    assert "no recorded evidence IDs" not in second and "First exact quotation." in second
+    assert "no recorded evidence IDs" in unique and "no recorded evidence IDs" not in intact
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),lacks=c=>qaClaimBindingIssues(graph,c).some(i=>i.kind==='lacks_evidence');
+assert.deepEqual(graph.claims.map(lacks),[true,false,true,false]);
+assert.match(findingHtml(graph,graph.claims[2]),/Provenance failure · details/);
+assert.doesNotMatch(findingHtml(graph,graph.claims[3]),/Provenance failure/);
+const inspector=claimInspector(graph,'C1'),one=inspector.split('data-claim-occurrence="1"')[1].split('</section>')[0],two=inspector.split('data-claim-occurrence="2"')[1].split('</section>')[0];
+assert.match(one,/This claim has no recorded evidence IDs\./);assert.doesNotMatch(two,/no recorded evidence IDs/);
+const stale={...graph,binding_issues:[]};assert.ok(qaClaimBindingIssues(stale,stale.claims[2]).some(i=>i.kind==='lacks_evidence'));
+S.selected='unbound';S.research.unbound={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+ await inspectAnswer('claim','C2');assert.equal(S.inspector.claimId,'C2');
+ assert.match(claimInspector(graph,'C2'),/Unbound unique claim/);assert.equal(JSON.stringify(graph),before);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """)
