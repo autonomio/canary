@@ -3075,12 +3075,20 @@
     const labels={supported:'Supported', corrected:c.correction_applied===true ? 'Corrected' : 'Correction proposed', correction_needed:'Correction needed', unresolved:'Unresolved', not_checked:'Not checked'};
     return labels[c.assessment] || String(c.assessment || 'Unknown').replaceAll('_',' ');
   }
+  function searchProgressHtml(d) {
+    const c=d.coverage || d.answer?.coverage || d.run?.coverage || {}, p=c.search_progress;
+    const deadline=Date.parse(p?.backoff?.retry_not_before || ''), paused=p?.backoff?.active===true && Number.isFinite(deadline) && deadline>Date.now();
+    if(!p || (p.complete!==false && !paused)) return '';
+    const pending=Array.isArray(p.pending_query_ids) ? p.pending_query_ids : [], retry=paused ? p.backoff.retry_not_before : null;
+    const unfinished=(Array.isArray(p.queries) ? p.queries : Object.values(p.queries || {})).filter(q=>q?.complete===false).length;
+    return `<p class="hint" role="status">Search incomplete${paused ? ' · OpenAlex rate limited' : ''}${retry ? ` · Retry not before <time datetime="${esc(retry)}">${esc(retry)}</time>` : ''}${pending.length ? ` · Pending branches: ${esc(pending.join(' · '))}` : unfinished ? ` · ${unfinished} unfinished branches` : ''}</p><details data-detail="search-progress"><summary>Query progress and deferred requests</summary><pre class="search-query">${esc(JSON.stringify(p,null,2))}</pre></details>`;
+  }
   function coverageSelectionHtml(d) {
     const c=d.coverage || d.answer?.coverage || d.run?.coverage || {}, p=d.paper_selection || {}, s=p.selection || {}, q=d.query_net || {};
     const decisions=Array.isArray(s.decisions) ? s.decisions : [], reviewed=Array.isArray(p.reviewed_papers) ? p.reviewed_papers : [];
     const decisionText=x=>[x.reason,x.rationale,x.criterion,x.coverage_contribution].filter(v=>typeof v==='string' && v).join(' · ');
     const facets=s.coverage_facets || s.facets || q.coverage_facets || q.coverage_aspects || [];
-    return `<details class="coverage" data-detail="coverage"><summary>${esc(cliSourceCounts(d))} · coverage-guided</summary><p class="hint">${esc(c.counts_scope || 'Publication count is not independent study count. Core papers directly address the comparison; supporting papers supply necessary limits or context.')}</p><p>${esc(c.discovered_candidates ?? d.run?.discovered ?? '—')} candidates · ${esc(c.assessed_candidates ?? '—')} assessed · ${esc(c.retrieved_sources ?? c.available_papers ?? '—')} retrieved sources · ${esc(c.preview_suspected_sources ?? '—')} suspected previews; remaining copies require full-paper verification · ${esc(c.cited_sources ?? '—')} evidence sources</p>${c.stopping_reason ? `<p>${esc(c.stopping_reason)}</p>` : ''}${c.scarcity_statement ? `<p><span class="hint">Reported scarcity; not independently verified.</span> ${esc(typeof c.scarcity_statement==='string' ? c.scarcity_statement : JSON.stringify(c.scarcity_statement))}</p>` : ''}<details data-detail="selection-criteria"><summary>Selection criteria and coverage</summary><pre class="search-query">${esc(JSON.stringify({inclusion:q.inclusion_criteria || s.inclusion_criteria || q.eligibility,exclusion:q.exclusion_criteria || s.exclusion_criteria || q.eligibility?.exclusion,facets,coverage:s.coverage_summary || s.coverage_report || s.coverage},null,2))}</pre></details>${decisions.length ? `<details data-detail="selection-ledger"><summary>Candidate decisions (${decisions.length})</summary>${decisions.map(x=>`<p>${esc(x.work_id || x.id)} · ${esc(x.decision || x.disposition || x.eligibility || 'Unknown')}<br><span class="hint">${esc(decisionText(x))}</span>${x.supporting_abstract_text ? `<details><summary>Exact abstract selection support</summary><blockquote>${esc(x.supporting_abstract_text)}</blockquote></details>` : ''}</p>`).join('')}</details>` : ''}${reviewed.length ? `<details data-detail="review-ledger"><summary>Full-paper review records (${reviewed.length})</summary>${reviewed.map(x=>`<p>${esc(x.work_id)} · ${esc(x.eligibility || 'Unknown')}<br>${esc(x.substantive_review_note || x.reason || 'Review contribution not recorded.')}<br><span class="hint">${esc((x.investigated_sections || []).join(' · '))}${x.related_study_ids?.length ? ` · Related reports: ${esc(x.related_study_ids.join(' · '))}` : ''}</span></p>`).join('')}</details>` : ''}</details>`;
+    return `<details class="coverage" data-detail="coverage"><summary>${esc(cliSourceCounts(d))} · coverage-guided</summary><p class="hint">${esc(c.counts_scope || 'Publication count is not independent study count. Core papers directly address the comparison; supporting papers supply necessary limits or context.')}</p><p>${esc(c.discovered_candidates ?? d.run?.discovered ?? '—')} candidates · ${esc(c.assessed_candidates ?? '—')} assessed · ${esc(c.retrieved_sources ?? c.available_papers ?? '—')} retrieved sources · ${esc(c.preview_suspected_sources ?? '—')} suspected previews; remaining copies require full-paper verification · ${esc(c.cited_sources ?? '—')} evidence sources</p>${searchProgressHtml(d)}${c.stopping_reason ? `<p>${esc(c.stopping_reason)}</p>` : ''}${c.scarcity_statement ? `<p><span class="hint">Reported scarcity; not independently verified.</span> ${esc(typeof c.scarcity_statement==='string' ? c.scarcity_statement : JSON.stringify(c.scarcity_statement))}</p>` : ''}<details data-detail="selection-criteria"><summary>Selection criteria and coverage</summary><pre class="search-query">${esc(JSON.stringify({inclusion:q.inclusion_criteria || s.inclusion_criteria || q.eligibility,exclusion:q.exclusion_criteria || s.exclusion_criteria || q.eligibility?.exclusion,facets,coverage:s.coverage_summary || s.coverage_report || s.coverage},null,2))}</pre></details>${decisions.length ? `<details data-detail="selection-ledger"><summary>Candidate decisions (${decisions.length})</summary>${decisions.map(x=>`<p>${esc(x.work_id || x.id)} · ${esc(x.decision || x.disposition || x.eligibility || 'Unknown')}<br><span class="hint">${esc(decisionText(x))}</span>${x.supporting_abstract_text ? `<details><summary>Exact abstract selection support</summary><blockquote>${esc(x.supporting_abstract_text)}</blockquote></details>` : ''}</p>`).join('')}</details>` : ''}${reviewed.length ? `<details data-detail="review-ledger"><summary>Full-paper review records (${reviewed.length})</summary>${reviewed.map(x=>`<p>${esc(x.work_id)} · ${esc(x.eligibility || 'Unknown')}<br>${esc(x.substantive_review_note || x.reason || 'Review contribution not recorded.')}<br><span class="hint">${esc((x.investigated_sections || []).join(' · '))}${x.related_study_ids?.length ? ` · Related reports: ${esc(x.related_study_ids.join(' · '))}` : ''}</span></p>`).join('')}</details>` : ''}</details>`;
   }
   function coverageAuditHtml(d) {
     if(d.run?.selection_method!=='coverage-guided') return '';
@@ -3188,11 +3196,12 @@
     return `<div class="citation"><h3>${esc(p.title || ref.id)}</h3><p>${esc((p.authors || []).join("; "))}${p.year ? ` · ${esc(p.year)}` : ""}${p.venue ? ` · ${esc(p.venue)}` : ""}</p><div class="source-actions">${doi ? link(`https://doi.org/${doi}`, `DOI ${doi} ↗`) : ""}${p.url && safeUrl(p.url)!==safeUrl(`https://doi.org/${doi}`) ? link(p.url, "Bibliographic record ↗") : ""}${ref.text_url && safeUrl(ref.text_url)!==safeUrl(p.url) ? link(ref.text_url,"Public source copy ↗") : ""}${p.extra?.local_file ? `<a href="${sourceFileUrl(ref.id)}" target="_blank" rel="noopener">Saved paper ↗</a>` : ""}${qaButton("data-qa-paper", ref.id, "Read complete paper →")}</div>${sourceCopiesHtml(ref)}</div>`;
   }
   function qaSourceCheck(g,claimId) {
-    if(!g?.claims?.some(c=>c.id===claimId)) return null;
+    if((g?.claims || []).filter(c=>c.id===claimId).length!==1) return null;
     return (Array.isArray(g.source_checks) ? g.source_checks : [])
       .find(c=>c?.claim_id===claimId && ['supported','corrected','correction_needed','unresolved','not_checked'].includes(c.assessment)) || null;
   }
   function sourceCheckHtml(g,c) {
+    if((g?.claims || []).filter(x=>x.id===c.id).length>1) return '<p class="hint">Source check · Not checked: ambiguous claim ID. An ID-only audit cannot identify this occurrence.</p>';
     const check=qaSourceCheck(g,c.id);
     if(!check) return '<p class="hint">No source check recorded.</p>';
     const ids=[...new Set(Array.isArray(check.paragraph_ids) ? check.paragraph_ids : [])];
@@ -3220,28 +3229,37 @@
         : 'Model judgment against saved source passages; not independent scientific validation.') + (model ? ` Model: ${model}.` : '');
     return `<details data-detail="source-check-${esc(c.id)}"><summary>Source check · ${esc(auditAssessmentLabel(check))}</summary><p class="hint">${esc(notice)}</p>${check.source_meaning!==c.text ? `<h3>What the source says</h3><p>${esc(check.source_meaning || 'Source meaning not recorded.')}</p>` : ''}<h3>Why this assessment?</h3><p>${esc(check.reason || 'Reason not recorded.')}</p>${changed ? `<h3>Original draft wording</h3><p>${esc(check.original_text)}</p>` : ''}${check.correction ? `<h3>Proposed correction</h3><p>${esc(check.correction)}</p>` : ""}${check.correction || check.source_meaning ? `<p class="hint">${check.correction_applied===true ? "Correction recorded as applied." : "Researcher wording retained; any correction above is a proposal."}</p>` : ""}<div class="source-actions">${sources || '<span class="hint">No source passage saved.</span>'}</div></details>`;
   }
+  function qaClaimOccurrence(g,c) {
+    const records=(g?.claims || []).filter(x=>x.id===c.id);
+    return records.length>1 ? c.claim_occurrence || records.indexOf(c)+1 : null;
+  }
   function qaClaimBindingIssues(g,c) {
-    const ids=new Set(Array.isArray(c.evidence_ids) ? c.evidence_ids : []);
+    const ids=new Set(Array.isArray(c.evidence_ids) ? c.evidence_ids : []), occurrence=qaClaimOccurrence(g,c), records=(g.claims || []).filter(x=>x.id===c.id);
     for(const e of g.evidence || []) if(ids.has(e.id) && e.origin_evidence_id) ids.add(e.origin_evidence_id);
-    const issues=(Array.isArray(g.binding_issues) ? g.binding_issues : []).filter(i=>i.claim_id===c.id || (!i.claim_id && ids.has(i.evidence_id)));
+    const issues=(Array.isArray(g.binding_issues) ? g.binding_issues : []).filter(i=>(i.claim_id===c.id || (!i.claim_id && ids.has(i.evidence_id))) && (i.claim_occurrence==null || i.claim_occurrence===occurrence));
+    if(records.length>1 && !issues.some(i=>i.kind==='duplicate_claim_id')) issues.push({kind:'duplicate_claim_id',claim_id:c.id,record_count:records.length});
     for(const id of c.evidence_ids || []) if(!(g.evidence || []).some(e=>e.id===id || e.origin_evidence_id===id) && !issues.some(i=>i.kind==='missing_evidence' && i.evidence_id===id))
       issues.push({kind:'missing_evidence',claim_id:c.id,evidence_id:id});
     return issues;
   }
   function qaBindingReason(issue) {
-    return issue.reason || issue.description || (issue.kind==='missing_evidence' ? 'No saved evidence record matches this ID.' : String(issue.kind || 'Source binding issue').replaceAll('_',' '));
+    return issue.reason || issue.description || (issue.kind==='missing_evidence' ? 'No saved evidence record matches this ID.' : issue.kind==='duplicate_claim_id' ? `${issue.record_count} recorded claims share this ID; ID-only links are ambiguous.` : String(issue.kind || 'Source binding issue').replaceAll('_',' '));
   }
   function qaProvenanceNotice(g,c) {
     return qaClaimBindingIssues(g,c).length ? `<span role="alert">${qaButton('data-qa-claim',c.id,'Provenance failure · details')}</span>` : '';
   }
   function qaProvenanceDetails(g,c) {
     const issues=qaClaimBindingIssues(g,c);
-    return issues.length ? `<details open data-detail="provenance-${esc(c.id)}"><summary>Provenance failure (${issues.length})</summary><p class="hint">Audit support does not repair missing source links.</p>${issues.map(i=>`<p>${i.evidence_id ? qaButton('data-qa-evidence',i.evidence_id,i.evidence_id) : esc(i.kind)} · ${esc(qaBindingReason(i))}</p>`).join('')}</details>` : '';
+    return issues.length ? `<details open data-detail="provenance-${esc(c.id)}${qaClaimOccurrence(g,c) ? `-${qaClaimOccurrence(g,c)}` : ''}"><summary>Provenance failure (${issues.length})</summary><p class="hint">Audit support does not repair missing source links.</p>${issues.map(i=>`<p>${i.evidence_id ? qaButton('data-qa-evidence',i.evidence_id,i.evidence_id) : esc(i.kind)} · ${esc(qaBindingReason(i))}</p>`).join('')}</details>` : '';
   }
   function claimInspector(g, id) {
-    const c = g?.claims?.find(c => c.id === id);
-    if (!c) return '<p class="muted">Claim not recorded.</p>';
-    return `<h2 tabindex="-1">${esc(c.id)} · Claim</h2>${uncertaintyGauge(c)}<p class="finding-text">${esc(c.text)}</p>${qaProvenanceDetails(g,c)}${sourceCheckHtml(g,c)}<h3>Why this uncertainty?</h3><p>${esc(c.uncertainty_rationale || "Rationale not recorded.")}</p>${claimStudyResults(g,c).length ? `<h3>Study results</h3><div class="finding-links">${claimStudyResults(g,c).map(r=>studyResultButton(r.id,c.id)).join('')}</div>` : ''}<h3>Evidence packets</h3>${qaEvidencePackets(g,c.evidence_ids).map(packet => {
+    const records=(g?.claims || []).filter(c=>c.id===id);
+    if(!records.length) return '<p class="muted">Claim not recorded.</p>';
+    if(records.length===1) return claimRecordHtml(g,records[0],`<h2 tabindex="-1">${esc(id)} · Claim</h2>`);
+    return `<h2 tabindex="-1">${esc(id)} · Ambiguous claim ID</h2><p role="alert">${records.length} recorded claims share this ID. ID-only links and audit judgments cannot identify one occurrence.</p>${records.map((c,i)=>`<section data-claim-occurrence="${esc(c.claim_occurrence || i+1)}">${claimRecordHtml(g,c,`<h3>Recorded claim ${esc(c.claim_occurrence || i+1)}</h3>`)}</section>`).join('')}`;
+  }
+  function claimRecordHtml(g,c,heading) {
+    return `${heading}${uncertaintyGauge(c)}<p class="finding-text">${esc(c.text)}</p>${qaProvenanceDetails(g,c)}${sourceCheckHtml(g,c)}<h3>Why this uncertainty?</h3><p>${esc(c.uncertainty_rationale || "Rationale not recorded.")}</p>${claimStudyResults(g,c).length ? `<h3>Study results</h3><div class="finding-links">${claimStudyResults(g,c).map(r=>studyResultButton(r.id,c.id)).join('')}</div>` : ''}<h3>Evidence packets</h3>${qaEvidencePackets(g,c.evidence_ids).map(packet => {
       const x = qaLinks(g,packet.id);
       return `<div class="inspector-quote">${qaEvidencePacketButton(packet)}<p class="hint">${esc(x.reference?.paper?.title || "Evidence")} · ${esc(x.reference?.paper?.year || "")} · ${x.passage?.kind === "abstract" ? "Abstract passage" : "Full paper passage"}</p></div>`;
     }).join("")}`;
@@ -3259,7 +3277,7 @@
   }
   function findingHtml(g,c) {
     const refs = new Set((c.evidence_ids || []).map(id=>qaLinks(g,id).reference?.id).filter(Boolean));
-    return `<article class="finding" id="claim-${esc(c.id)}"><div class="finding-meta">${qaButton("data-qa-claim",c.id,c.id)}${uncertaintyGauge(c)}${qaProvenanceNotice(g,c)}</div><p class="finding-text">${esc(c.text)}</p><div class="finding-links">${qaButton("data-qa-claim",c.id,"Why this uncertainty?")}${qaSourceCheck(g,c.id) ? qaButton("data-qa-claim",c.id,"Source check") : ""}${claimStudyResults(g,c).map(r=>studyResultButton(r.id,c.id)).join('')}${qaEvidencePackets(g,c.evidence_ids).map(qaEvidencePacketButton).join("")}<span class="hint">${refs.size} ${refs.size === 1 ? "source" : "sources"}</span></div></article>`;
+    return `<article class="finding" id="claim-${esc(c.id)}${qaClaimOccurrence(g,c) ? `-${qaClaimOccurrence(g,c)}` : ''}"><div class="finding-meta">${qaButton("data-qa-claim",c.id,c.id)}${uncertaintyGauge(c)}${qaProvenanceNotice(g,c)}</div><p class="finding-text">${esc(c.text)}</p><div class="finding-links">${qaButton("data-qa-claim",c.id,"Why this uncertainty?")}${qaSourceCheck(g,c.id) ? qaButton("data-qa-claim",c.id,"Source check") : ""}${claimStudyResults(g,c).map(r=>studyResultButton(r.id,c.id)).join('')}${qaEvidencePackets(g,c.evidence_ids).map(qaEvidencePacketButton).join("")}<span class="hint">${refs.size} ${refs.size === 1 ? "source" : "sources"}</span></div></article>`;
   }
   function cliResearch(d) {
     return d?.run?.execution_mode==='coverage-guided full-paper research' || d?.run?.execution_mode==='saved full-paper Codex CLI research'  || (Number.isInteger(d?.run?.available_unique_sources) && d.run.keyword_requests===0 && typeof d.run.replay_of==='string');
@@ -3315,7 +3333,7 @@
     const q=d.query_net || {}, r=d.run || {};
     const describe=v=>Array.isArray(v) ? v.map(describe).join(' · ') : v && typeof v==='object' ? Object.entries(v).map(([k,value])=>`${k.replaceAll('_',' ')}: ${describe(value)}`).join(' · ') : v==null ? 'Unknown' : String(v);
     const targets=Array.isArray(q.evidence_targets) ? q.evidence_targets.map(describe) : q.evidence_targets && typeof q.evidence_targets==='object' ? Object.entries(q.evidence_targets).map(([k,v])=>`${k.replaceAll('_',' ')}: ${describe(v)}`) : [];
-    return `<h2>Search net</h2><p>${esc(q.intent || q.explanation || "")}</p><p class="hint">${esc(r.search_scope || "OpenAlex search across titles, abstracts and indexed full text.")} · ${esc(r.keyword_requests ?? 0)} keyword search ${Number(r.keyword_requests) === 1 ? "page" : "pages"} in this run.</p><div class="question-usage">${usageHtml(r.usage_after)}</div><section class="answer-section"><h3>Exact searches</h3>${(q.queries || []).map(x=>`<pre class="search-query">${esc(typeof x==="string" ? x : x.search || x.query)}</pre>`).join("")}${q.explanation ? `<p>${esc(q.explanation)}</p>` : ""}</section><details><summary>Concepts and required anchors</summary>${q.required_concepts?.length ? `<p>Required: ${esc(q.required_concepts.join(" · "))}</p>` : ""}${(q.concepts || []).map(c=>`<p>${esc(c.name)} · ${esc((c.alternatives || c.keywords || c.synonyms || []).join(" · "))}${c.explanation ? `<br>${esc(c.explanation)}` : ""}</p>`).join("")}${(q.branches||[]).map(b=>`<p>${esc(b.name)} · ${esc((b.concepts||[]).join(" + "))}<br>${esc(b.explanation)}</p>`).join("")}</details><details><summary>What the full papers must establish</summary>${targets.map(t=>`<p>${esc(t)}</p>`).join("")}</details>${acquisitionHtml(d)}`;
+    return `<h2>Search net</h2>${searchProgressHtml(d)}<p>${esc(q.intent || q.explanation || "")}</p><p class="hint">${esc(r.search_scope || "OpenAlex search across titles, abstracts and indexed full text.")} · ${esc(r.keyword_requests ?? 0)} keyword search ${Number(r.keyword_requests) === 1 ? "page" : "pages"} in this run.</p><div class="question-usage">${usageHtml(r.usage_after)}</div><section class="answer-section"><h3>Exact searches</h3>${(q.queries || []).map(x=>`<pre class="search-query">${esc(typeof x==="string" ? x : x.search || x.query)}</pre>`).join("")}${q.explanation ? `<p>${esc(q.explanation)}</p>` : ""}</section><details><summary>Concepts and required anchors</summary>${q.required_concepts?.length ? `<p>Required: ${esc(q.required_concepts.join(" · "))}</p>` : ""}${(q.concepts || []).map(c=>`<p>${esc(c.name)} · ${esc((c.alternatives || c.keywords || c.synonyms || []).join(" · "))}${c.explanation ? `<br>${esc(c.explanation)}` : ""}</p>`).join("")}${(q.branches||[]).map(b=>`<p>${esc(b.name)} · ${esc((b.concepts||[]).join(" + "))}<br>${esc(b.explanation)}</p>`).join("")}</details><details><summary>What the full papers must establish</summary>${targets.map(t=>`<p>${esc(t)}</p>`).join("")}</details>${acquisitionHtml(d)}`;
   }
   function renderNativeDetail(row,d,el) {
     document.querySelector(".topbar").hidden=true;

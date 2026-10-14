@@ -10,6 +10,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import fcntl
 import hashlib
 import json
@@ -143,6 +144,62 @@ def record_daily_search(root):
             "count_scope": "Successful coverage operator search requests, each cursor page counted; gateway and other clients excluded."}
 
 
+def _openalex_retry_after(value, timestamp):
+    """Honor provider delay/date; absent or malformed headers get a short cooldown."""
+    value = (value or "").strip()
+    try:
+        if value.isascii() and value.isdigit():
+            deadline = timestamp + int(value)
+            datetime.fromtimestamp(deadline, timezone.utc)
+            return deadline, "retry_after"
+        deadline = parsedate_to_datetime(value)
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=timezone.utc)
+        return max(timestamp, deadline.timestamp()), "retry_after"
+    except (ValueError, TypeError, OverflowError):
+        return timestamp + 60, "default_60_seconds"
+
+
+def _openalex_backoff(root, *, deadline=None, retry_after=None, source=None):
+    """Short shared DB transactions; healthy concurrent searches remain parallel."""
+    path = root / "out" / "coverage-openalex-usage.sqlite"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path, timeout=10) as db:
+        db.execute("CREATE TABLE IF NOT EXISTS searches(at TEXT NOT NULL)")
+        db.execute("CREATE TABLE IF NOT EXISTS provider_backoff(provider TEXT PRIMARY KEY, retry_not_before REAL NOT NULL, retry_after TEXT, retry_after_source TEXT NOT NULL)")
+        if deadline is not None:
+            db.execute("INSERT INTO provider_backoff VALUES(?,?,?,?) ON CONFLICT(provider) DO UPDATE SET retry_not_before=excluded.retry_not_before, retry_after=excluded.retry_after, retry_after_source=excluded.retry_after_source WHERE excluded.retry_not_before > provider_backoff.retry_not_before",
+                       ("openalex", deadline, retry_after, source))
+        row = db.execute("SELECT retry_not_before,retry_after,retry_after_source FROM provider_backoff WHERE provider=?", ("openalex",)).fetchone()
+    if row is None:
+        return None
+    return {"provider": "openalex", "retry_not_before": datetime.fromtimestamp(row[0], timezone.utc).isoformat(),
+            "retry_not_before_epoch": row[0], "retry_after": row[1], "retry_after_source": row[2],
+            "active": row[0] > time.time(), "scope": "coverage_operator_shared"}
+
+
+def _commit_discovery(workspace, works, progress, plan):
+    """Commit usable candidates even when the provider pauses remaining branches."""
+    progress["unique_candidates"] = len(works)
+    progress["pending_query_ids"] = [q["id"] for q in plan["queries"] if not progress["queries"][q["id"]].get("complete", False)]
+    progress["complete"] = not progress["pending_query_ids"]
+    if progress.get("backoff"):
+        progress["backoff"]["active"] = progress["backoff"]["retry_not_before_epoch"] > time.time()
+    progress["status"] = "complete" if progress["complete"] else "backoff" if progress.get("backoff", {}).get("active") else "incomplete"
+    if progress["complete"]:
+        progress.pop("incomplete_reason", None)
+    write(workspace / "works.json", list(works.values()))
+    candidates = [{"id": ident, "title": w.get("display_name") or w.get("title"), "year": w.get("publication_year"),
+        "doi": w.get("doi"), "abstract": abstract_text(w.get("abstract_inverted_index")),
+        "oa_indicated": (w.get("open_access") or {}).get("is_oa"), "query_ids": w["query_ids"], "rank": w["fresh_search_rank"]}
+        for ident, w in works.items()]
+    temporary = workspace / "candidates.jsonl.tmp"
+    temporary.write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in candidates))
+    temporary.replace(workspace / "candidates.jsonl")
+    (workspace / "titles.tsv").write_text("".join(f'{c["id"]}\t{c["year"]}\t{c["title"]}\n' for c in candidates))
+    write(workspace / "search-progress.json", progress)
+
+
 def discover(workspace, plan_path, *, root=None, pages=5, client=None):
     """Fresh indexed search, saving each page and exposing declared truncation."""
     workspace = Path(workspace).resolve()
@@ -164,26 +221,39 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
             work.setdefault("query_ids", [])
         requests = read(workspace / "openalex-requests.json", [])
         progress = read(workspace / "search-progress.json", {"queries": {}})
+        for query in plan["queries"]:
+            state = progress["queries"].get(query["id"])
+            if state and state["search"] != query["search"]:
+                raise ValueError("Change a query ID when changing its search string")
+            progress["queries"].setdefault(query["id"], {"search": query["search"], "pages": 0, "cursor": "*", "complete": False})
         headers = {"User-Agent": "Canary/coverage-native", "Cache-Control": "no-cache", "Pragma": "no-cache"}
         key = operator_key(root)
         if key:
             headers["Authorization"] = "Bearer " + key
         own = client is None
         client = client or httpx.Client(timeout=35, trust_env=False, follow_redirects=False)
+        stopped_for_backoff = False
         try:
             for query in plan["queries"]:
-                state = progress["queries"].get(query["id"])
-                if state and state["search"] != query["search"]:
-                    raise ValueError("Change a query ID when changing its search string")
-                if state and state.get("complete"):
+                state = progress["queries"][query["id"]]
+                if state.get("complete"):
                     continue  # Only receipts in this research workspace may be resumed.
-                state = state or {"search": query["search"], "pages": 0, "cursor": "*", "complete": False}
                 seen = set()
                 for _ in range(pages):
                     cursor = state["cursor"]
                     if not cursor or cursor in seen:
                         break
                     seen.add(cursor)
+                    backoff = _openalex_backoff(root)
+                    if backoff is not None:
+                        progress["backoff"] = backoff
+                    if backoff and backoff["active"]:
+                        stopped_for_backoff = True
+                        progress["incomplete_reason"] = "openalex_rate_limited"
+                        event(workspace, "search_backoff", query_id=query["id"], retry_not_before=backoff["retry_not_before"], scope=backoff["scope"])
+                        break
+                    if progress.get("incomplete_reason") == "openalex_rate_limited":
+                        progress.pop("incomplete_reason", None)
                     started = time.monotonic()
                     try:
                         response = client.get("https://api.openalex.org/works",
@@ -198,6 +268,12 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                         write(workspace / "search-progress.json", progress)
                         event(workspace, "search_failed", query_id=query["id"], error=receipt["error"])
                         break
+                    if response.status_code == 429:
+                        retry_after = response.headers.get("Retry-After")
+                        deadline, delay_source = _openalex_retry_after(retry_after, time.time())
+                        progress["backoff"] = _openalex_backoff(root, deadline=deadline, retry_after=retry_after, source=delay_source)
+                        progress["incomplete_reason"] = "openalex_rate_limited"
+                        stopped_for_backoff = True
                     receipt = {"query_id": query["id"], "search": query["search"], "page": state["pages"] + 1,
                         "requested_at": now(), "status": response.status_code, "url": str(response.request.url),
                         "seconds": round(time.monotonic() - started, 3), "local_cache_used": False,
@@ -208,7 +284,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                         progress["queries"][query["id"]] = state; progress["complete"] = False
                         write(workspace / "search-progress.json", progress)
                         event(workspace, "search_failed", query_id=query["id"], status=response.status_code)
-                        break  # Keep other branches and already committed candidates usable; no hidden retry/sleep.
+                        break  # A 429 stops the whole net; unrelated failures leave other branches usable.
                     # A successful upstream search is billable even if local
                     # metadata interpretation subsequently fails.
                     progress["keyword_requests"] = sum(r["status"] == 200 for r in requests)
@@ -227,28 +303,22 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                             works[identifier] = {**work, "query_ids": [query["id"]], "fresh_search_rank": len(works) + 1}
                     state.update(pages=state["pages"] + 1, cursor=body.get("meta", {}).get("next_cursor"),
                                  matched=body.get("meta", {}).get("count"))
+                    state.pop("failure_status", None)
+                    state.pop("failure", None)
                     state["complete"] = not body.get("results") or not state["cursor"] or (
                         isinstance(state["matched"], int) and state["pages"] * 200 >= state["matched"])
                     state["truncated"] = not state["complete"]
                     progress["queries"][query["id"]] = state
-                    progress["unique_candidates"] = len(works)
-                    progress["complete"] = all(progress["queries"].get(q["id"], {}).get("complete", False) for q in plan["queries"])
-                    write(workspace / "works.json", list(works.values()))
-                    candidates = [{"id": ident, "title": w.get("display_name") or w.get("title"), "year": w.get("publication_year"),
-                        "doi": w.get("doi"), "abstract": abstract_text(w.get("abstract_inverted_index")),
-                        "oa_indicated": (w.get("open_access") or {}).get("is_oa"), "query_ids": w["query_ids"], "rank": w["fresh_search_rank"]}
-                        for ident, w in works.items()]
-                    temporary = workspace / "candidates.jsonl.tmp"
-                    temporary.write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in candidates))
-                    temporary.replace(workspace / "candidates.jsonl")
-                    (workspace / "titles.tsv").write_text("".join(f'{c["id"]}\t{c["year"]}\t{c["title"]}\n' for c in candidates))
-                    write(workspace / "search-progress.json", progress)
+                    _commit_discovery(workspace, works, progress, plan)
                     event(workspace, "search_page", query_id=query["id"], page=state["pages"], candidates=len(works), complete=state["complete"])
                     if state["complete"]:
                         break
+                if stopped_for_backoff:
+                    break
         finally:
             if own:
                 client.close()
+        _commit_discovery(workspace, works, progress, plan)
     return progress
 
 

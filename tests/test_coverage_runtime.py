@@ -2,6 +2,10 @@
 import json
 import sqlite3
 import threading
+from datetime import datetime, timezone
+from email.utils import format_datetime
+
+import pytest
 
 import httpx
 
@@ -66,6 +70,147 @@ def test_fresh_search_cap_resume_and_rich_plan_preservation(tmp_path, monkeypatc
     logs = (tmp_path / "research" / "openalex-requests.json").read_text()
     assert "synthetic-source-key" not in logs
     assert len(runtime.read(tmp_path / "research" / "works.json")) == 2
+
+
+
+def test_openalex_429_stops_whole_net_and_resumes_committed_cursor(tmp_path, monkeypatch):
+    clock = [1_800_000_000.0]
+    monkeypatch.setattr(runtime.time, "time", lambda: clock[0])
+    monkeypatch.setenv("OPENALEX_API_KEY", "synthetic-source-key")
+    plan = rich_plan()
+    plan["queries"].append({"id": "q2", "search": "research annotation and rediscovery"})
+    plan_path = tmp_path / "input-plan.json"
+    workspace = tmp_path / "research"
+    runtime.write(plan_path, plan)
+    calls = []
+    def handler(request):
+        calls.append((request.url.params["search"], request.url.params["cursor"]))
+        if len(calls) == 1:
+            return httpx.Response(200, json={"results": [work("W1")], "meta": {"count": 400, "next_cursor": "page2"}})
+        if len(calls) == 2:
+            return httpx.Response(429, headers={"Retry-After": "60"})
+        if request.url.params["search"] == plan["queries"][0]["search"]:
+            assert request.url.params["cursor"] == "page2"
+            return httpx.Response(200, json={"results": [work("W2")], "meta": {"count": 400, "next_cursor": None}})
+        return httpx.Response(200, json={"results": [work("W3")], "meta": {"count": 1, "next_cursor": None}})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        limited = runtime.discover(workspace, plan_path, root=tmp_path, pages=3, client=client)
+        assert len(calls) == 2  # No request from q2 after the q1 429.
+        assert limited["complete"] is False and limited["status"] == "backoff"
+        assert limited["pending_query_ids"] == ["q1", "q2"]
+        assert limited["queries"]["q1"]["pages"] == 1
+        assert limited["queries"]["q1"]["cursor"] == "page2"
+        assert limited["queries"]["q2"]["pages"] == 0
+        assert limited["backoff"]["retry_not_before_epoch"] == clock[0] + 60
+        assert limited["keyword_requests"] == limited["usage"]["keyword_searches_today"] == 1
+        assert [w["id"].rsplit("/", 1)[-1] for w in runtime.read(workspace / "works.json")] == ["W1"]
+        candidate = json.loads((workspace / "candidates.jsonl").read_text())
+        assert candidate["id"] == "W1" and candidate["abstract"] == "synthetic abstract"
+        assert (workspace / "titles.tsv").read_text().startswith("W1\t")
+        clock[0] += 59
+        paused = runtime.discover(workspace, plan_path, root=tmp_path, pages=3, client=client)
+        assert len(calls) == 2 and paused["complete"] is False
+        assert paused["queries"]["q1"]["cursor"] == "page2"
+        assert len(runtime.read(workspace / "openalex-requests.json")) == 2
+        clock[0] += 1
+        resumed = runtime.discover(workspace, plan_path, root=tmp_path, pages=3, client=client)
+    assert len(calls) == 4 and resumed["complete"] is True
+    assert resumed["pending_query_ids"] == [] and resumed["backoff"]["active"] is False
+    assert resumed["queries"]["q1"]["pages"] == 2
+    assert "failure_status" not in resumed["queries"]["q1"]
+    assert resumed["keyword_requests"] == resumed["usage"]["keyword_searches_today"] == 3
+    assert len(runtime.read(workspace / "works.json")) == 3
+    assert [r["status"] for r in runtime.read(workspace / "openalex-requests.json")] == [200, 429, 200, 200]
+    assert "synthetic-source-key" not in (workspace / "search-progress.json").read_text()
+    assert "synthetic-source-key" not in (workspace / "openalex-requests.json").read_text()
+
+
+def test_openalex_http_date_backoff_is_shared_with_new_workspace(tmp_path, monkeypatch):
+    clock = [1_800_000_000.0]
+    monkeypatch.setattr(runtime.time, "time", lambda: clock[0])
+    retry_after = format_datetime(datetime.fromtimestamp(clock[0] + 120, timezone.utc), usegmt=True)
+    plan_path = tmp_path / "input-plan.json"
+    runtime.write(plan_path, rich_plan())
+    calls = []
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(429, headers={"Retry-After": retry_after})
+        return httpx.Response(200, json={"results": [work("W1")], "meta": {"count": 1, "next_cursor": None}})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        first = runtime.discover(tmp_path / "first", plan_path, root=tmp_path, client=client)
+        second = runtime.discover(tmp_path / "second", plan_path, root=tmp_path, client=client)
+        assert len(calls) == 1
+        assert first["backoff"] == second["backoff"]
+        assert second["backoff"]["scope"] == "coverage_operator_shared"
+        assert second["backoff"]["retry_not_before_epoch"] == clock[0] + 120
+        assert second["backoff"]["retry_after"] == retry_after
+        assert second["complete"] is False and second["pending_query_ids"] == ["q1"]
+        assert runtime.read(tmp_path / "second" / "works.json") == []
+        assert (tmp_path / "second" / "candidates.jsonl").read_text() == ""
+        with sqlite3.connect(tmp_path / "out" / "coverage-openalex-usage.sqlite") as db:
+            assert db.execute("SELECT COUNT(*) FROM searches").fetchone()[0] == 0
+        clock[0] += 120
+        resumed = runtime.discover(tmp_path / "second", plan_path, root=tmp_path, client=client)
+    assert len(calls) == 2 and resumed["complete"] is True
+    assert resumed["usage"]["keyword_searches_today"] == 1
+
+
+def test_openalex_shared_backoff_keeps_latest_deadline(tmp_path, monkeypatch):
+    clock = [1_800_000_000.0]
+    monkeypatch.setattr(runtime.time, "time", lambda: clock[0])
+    longer = runtime._openalex_backoff(tmp_path, deadline=clock[0] + 120, retry_after="120", source="retry_after")
+    # An earlier in-flight response arriving later must not shorten the boundary.
+    later = runtime._openalex_backoff(tmp_path, deadline=clock[0] + 30, retry_after="30", source="retry_after")
+    assert later == longer and later["retry_not_before_epoch"] == clock[0] + 120
+
+
+@pytest.mark.parametrize("retry_after", [None, "not a date", "-1", "1.5", "999999999999999999999999999999999999999"])
+def test_openalex_429_without_valid_retry_header_still_stops_whole_net(tmp_path, monkeypatch, retry_after):
+    clock = [1_800_000_000.0]
+    monkeypatch.setattr(runtime.time, "time", lambda: clock[0])
+    plan = rich_plan()
+    plan["queries"].append({"id": "q2", "search": "research annotation and rediscovery"})
+    plan_path = tmp_path / "input-plan.json"
+    runtime.write(plan_path, plan)
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(429, headers={"Retry-After": retry_after} if retry_after is not None else {})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = runtime.discover(tmp_path / "research", plan_path, root=tmp_path, client=client)
+        runtime.discover(tmp_path / "research", plan_path, root=tmp_path, client=client)
+    assert len(calls) == 1 and result["complete"] is False
+    assert result["pending_query_ids"] == ["q1", "q2"]
+    assert result["backoff"]["retry_not_before_epoch"] == clock[0] + 60
+    assert result["backoff"]["retry_after_source"] == "default_60_seconds"
+
+
+def test_healthy_openalex_discovery_does_not_serialize_other_workspaces(tmp_path):
+    plan_path = tmp_path / "input-plan.json"
+    runtime.write(plan_path, rich_plan())
+    simultaneous = threading.Barrier(2)
+    errors = []
+    results = []
+    def handler(request):
+        simultaneous.wait(timeout=3)
+        return httpx.Response(200, json={"results": [work("W1")], "meta": {"count": 1, "next_cursor": None}})
+    def discover(name):
+        try:
+            with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+                results.append(runtime.discover(tmp_path / name, plan_path, root=tmp_path, client=client))
+        except Exception as error:
+            errors.append(error)
+    threads = [threading.Thread(target=discover, args=(name,)) for name in ("first", "second")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+    assert not any(thread.is_alive() for thread in threads)
+    assert errors == [] and len(results) == 2
+    assert all(result["complete"] for result in results)
+    with sqlite3.connect(tmp_path / "out" / "coverage-openalex-usage.sqlite") as db:
+        assert db.execute("SELECT COUNT(*) FROM searches").fetchone()[0] == 2
 
 
 def test_selected_batch_contains_failures_and_commits_catalog_incrementally(tmp_path):

@@ -343,3 +343,62 @@ def test_native_summary_content_remains_a_downloadable_report(tmp_path, summary)
     assert "Reported synthetic summary." in (tmp_path / "answer.md").read_text()
     assert runs._has_answer(tmp_path, result["run"], "answered") is True
     assert dashboard.research_summary({"bundle": str(tmp_path)})["has_synthesis"] is True
+
+
+def test_duplicate_claim_ids_preserve_each_occurrence_without_assigning_id_only_audit(tmp_path):
+    first, second = "First exact synthetic source result.", "Second different synthetic source result."
+    text = first + "\n" + second
+    for name in ("papers", "texts", "passages"):
+        (tmp_path / name).mkdir()
+    (tmp_path / "papers/R1.pdf").write_bytes(b"Synthetic complete saved body")
+    (tmp_path / "texts/R1.txt").write_text(text)
+    spans = [{"id": "p1", "reference_id": "R1", "text": first, "start": 0, "end": len(first)},
+             {"id": "p2", "reference_id": "R1", "text": second, "start": len(first) + 1, "end": len(text)}]
+    (tmp_path / "passages/R1.jsonl").write_text("".join(json.dumps(p) + "\n" for p in spans))
+    ref = {"id": "R1", "title": "Synthetic source", "file": "papers/R1.pdf", "text_file": "texts/R1.txt"}
+    (tmp_path / "references.json").write_text(json.dumps([ref]))
+    claims = [{"id": "C1", "text": "First recorded claim.", "evidence_ids": ["E1"]},
+              {"id": "C1", "text": "Second distinct recorded claim.", "evidence_ids": ["E2"]},
+              {"id": "C2", "text": "Unique recorded claim.", "evidence_ids": ["E1"]}]
+    investigation = {"claims": claims, "evidence": [{"id": "E1", "passage_ids": ["p1"], "relation": "supports"},
+                                                     {"id": "E2", "passage_ids": ["p2"], "relation": "qualifies"}]}
+    audit = {"audit_complete": True, "claim_checks": [{"claim_id": "C1", "assessment": "supported", "reason": "Ambiguous ID-only audit."},
+                                                     {"claim_id": "C2", "assessment": "supported", "reason": "Unique source check."}]}
+    (tmp_path / "investigation.json").write_text(json.dumps(investigation))
+    (tmp_path / "audit.json").write_text(json.dumps(audit))
+    (tmp_path / "run.json").write_text(json.dumps({"question": "Synthetic?", "status": "complete"}))
+    result = coverage_export.export_bundle(tmp_path)
+    graph = result["answer"]
+    assert [(c["id"], c["text"], c["evidence_ids"]) for c in graph["claims"]] == [(c["id"], c["text"], c["evidence_ids"]) for c in claims]
+    assert [c.get("claim_occurrence") for c in graph["claims"]] == [1, 2, None]
+    assert graph["binding_issues"][0]["kind"] == "duplicate_claim_id"
+    assert graph["binding_issues"][0]["claim_id"] == "C1" and graph["binding_issues"][0]["record_count"] == 2
+    duplicate_checks = [c for c in graph["source_checks"] if c["claim_id"] == "C1"]
+    assert [c["claim_occurrence"] for c in duplicate_checks] == [1, 2]
+    assert all(c["assessment"] == "not_checked" and c["paragraph_ids"] == [] for c in duplicate_checks)
+    assert next(c for c in graph["source_checks"] if c["claim_id"] == "C2")["assessment"] == "supported"
+    assert graph["audit"]["status"] == "partial" and graph["audit"]["checked_claims"] == 1
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    assert json.loads((tmp_path / "audit.json").read_text()) == audit
+    report = (tmp_path / "answer.md").read_text()
+    one, two = report.split("## C1 · recorded occurrence 1", 1)[1].split("## C1 · recorded occurrence 2", 1)
+    assert first in one and second not in one
+    assert second in two and "Second distinct recorded claim." in two
+    assert "Audit: supported" not in one
+    assert "Provenance failure: duplicate claim ID C1; ID-only audit checks are not assigned." in one
+
+
+def test_nested_search_progress_is_exported_unchanged_with_committed_candidates(tmp_path):
+    source = tmp_path / "scientist";source.mkdir()
+    progress = {"complete": False, "unique_candidates": 1, "pending_query_ids": ["q2"],
+                "backoff": {"provider": "openalex", "active": True, "retry_not_before": "2026-10-14T20:00:00Z",
+                            "retry_after": "120", "scope": "coverage_operator_shared"}}
+    (source / "search-progress.json").write_text(json.dumps(progress))
+    (source / "candidates.jsonl").write_text(json.dumps({"id": "W1", "title": "Committed synthetic candidate"}) + "\n")
+    (tmp_path / "run.json").write_text(json.dumps({"question": "Synthetic?", "status": "researching"}))
+    result = coverage_export.export_bundle(tmp_path, source_dir=source, research_dir=source)
+    assert result["coverage"]["search_progress"] == progress
+    assert result["coverage"]["discovered_candidates"] == 1
+    assert result["run"]["status"] == "in_progress"
+    assert dashboard.research_bundle(tmp_path)["coverage"]["search_progress"] == progress
+    assert json.loads((source / "search-progress.json").read_text()) == progress

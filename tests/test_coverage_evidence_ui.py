@@ -457,3 +457,103 @@ S.research.legacy={synthesis_md:'## Findings\n\nMeaningful legacy research prose
 assert.equal(hasReport(legacy),true);assert.equal(hasFindings(legacy),true);
 assert.equal(summaryOf(legacy).has_synthesis,true);
 """)
+
+
+def test_duplicate_claim_ids_open_every_record_without_applying_id_only_audit(tmp_path):
+    graph = {"claims": [{"id": "C1", "claim_occurrence": 1, "text": "First distinct recorded claim.",
+                         "uncertainty_score": 1, "evidence_ids": ["E1.1", "E1.2"]},
+                        {"id": "C1", "claim_occurrence": 2, "text": "Second distinct recorded claim.",
+                         "uncertainty_score": 3, "evidence_ids": ["E2", "E_missing"]},
+                        {"id": "C2", "text": "Unique recorded claim.", "evidence_ids": ["E2"]}],
+             "evidence": [{"id": "E1.1", "origin_evidence_id": "E1", "paragraph_id": "p1", "quote": "First quote."},
+                          {"id": "E1.2", "origin_evidence_id": "E1", "paragraph_id": "p2", "quote": "Second quote."},
+                          {"id": "E2", "paragraph_id": "p3", "quote": "Different source quote."}],
+             "passages": [{"id": pid, "source_id": "R1", "kind": "fulltext"} for pid in ("p1", "p2", "p3")],
+             "references": [{"id": "R1", "paper": {"title": "Saved source"}}],
+             "binding_issues": [{"kind": "duplicate_claim_id", "claim_id": "C1", "record_count": 2},
+                                {"kind": "missing_evidence", "claim_id": "C1", "claim_occurrence": 2,
+                                 "evidence_id": "E_missing"}],
+             "source_checks": [{"claim_id": "C1", "assessment": "supported"},
+                               {"claim_id": "C2", "assessment": "supported"}]}
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),html=claimInspector(graph,'C1');
+assert.match(html,/C1 · Ambiguous claim ID/);
+const first=html.match(/<section data-claim-occurrence="1">([\s\S]*?)<\/section>/)[1];
+const second=html.match(/<section data-claim-occurrence="2">([\s\S]*?)<\/section>/)[1];
+assert.match(first,/First distinct recorded claim/);assert.doesNotMatch(first,/Second distinct recorded claim/);
+assert.match(first,/Low uncertainty · 1\/3/);assert.match(first,/E1 · 2 passages/);
+assert.doesNotMatch(first,/E_missing|data-qa-evidence="E2"/);
+assert.match(second,/Second distinct recorded claim/);assert.doesNotMatch(second,/First distinct recorded claim/);
+assert.match(second,/High uncertainty · 3\/3/);assert.match(second,/data-qa-evidence="E2"/);
+assert.match(second,/E_missing/);
+assert.equal(qaSourceCheck(graph,'C1'),null);
+assert.equal(qaSourceCheck(graph,'C2').assessment,'supported');
+assert.match(html,/Source check · Not checked: ambiguous claim ID/);
+assert.doesNotMatch(html,/Source check · Supported/);
+for(const claim of graph.claims.slice(0,2)) assert.match(findingHtml(graph,claim),/Provenance failure · details/);
+assert.doesNotMatch(findingHtml(graph,graph.claims[2]),/Provenance failure/);
+const stale={...graph,binding_issues:[],claims:graph.claims.map(({claim_occurrence,...claim})=>claim)};
+assert.equal(qaSourceCheck(stale,'C1'),null);
+assert.match(claimInspector(stale,'C1'),/First distinct recorded claim[\s\S]*Second distinct recorded claim/);
+S.selected='duplicates';S.research.duplicates={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+  await inspectAnswer('claim','C1');assert.equal(S.inspector.claimId,'C1');
+  assert.match(claimInspector(graph,S.inspector.claimId),/Ambiguous claim ID/);
+  await inspectAnswer('evidence','E2');assert.equal(S.inspector.claimId,'C1');
+  await inspectAnswer('claim',S.inspector.claimId);
+  assert.match(claimInspector(graph,S.inspector.claimId),/First distinct recorded claim[\s\S]*Second distinct recorded claim/);
+  assert.equal(JSON.stringify(graph),before,'No duplicate claim, uncertainty, evidence or raw audit may be rewritten');
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_incomplete_search_distinguishes_active_backoff_and_preserves_committed_sources(tmp_path):
+    data = {"run": {"selection_method": "coverage-guided"},
+            "coverage": {"discovered_candidates": 4, "search_progress": {
+                "complete": False, "pending_query_ids": ["q2"],
+                "queries": {"q1": {"complete": True}, "q2": {"complete": False, "deferred": True}},
+                "backoff": {"provider": "openalex", "active": True,
+                            "retry_not_before": "2026-10-14T14:05:00Z", "retry_after": "120",
+                            "scope": "coverage_operator_shared"}}},
+            "query_net": {"queries": [{"id": "q1", "search": "capture retrieval"},
+                                      {"id": "q2", "search": "context effort"}]},
+            "paper_selection": {"selection": {"decisions": [{"work_id": "W1", "decision": "include",
+                                                             "reason": "Committed candidate decision."}]}},
+            "answer": {"claims": [], "references": [{"id": "W1", "paper": {"title": "Committed accessible source"}}]}}
+    run_dashboard(tmp_path, data, r"""
+const before=JSON.stringify(graph),realNow=Date.now;
+Date.now=()=>Date.parse("2026-10-14T14:03:00Z");
+for(const html of [coverageSelectionHtml(graph),queryNetHtml(graph)]) {
+  assert.match(html,/Search incomplete/);assert.match(html,/OpenAlex rate limited/);
+  assert.match(html,/Retry not before <time datetime="2026-10-14T14:05:00Z">2026-10-14T14:05:00Z/);
+  assert.match(html,/Pending branches: q2/);assert.match(html,/Committed candidate decision/);
+  assert.doesNotMatch(html,/Search complete|disabled/);
+}
+const papers=modernPapersHtml(graph);
+assert.match(papers,/Committed accessible source/);assert.match(papers,/data-qa-paper="W1"/);
+assert.doesNotMatch(papers,/disabled/);
+const pageLimited={...graph,coverage:{...graph.coverage,search_progress:{
+  complete:false,pending_query_ids:['q1','q2'],queries:{q1:{complete:false},q2:{complete:false}}
+}}};
+for(const html of [coverageSelectionHtml(pageLimited),queryNetHtml(pageLimited)]) {
+  assert.match(html,/Search incomplete/);assert.match(html,/Pending branches: q1 · q2/);
+  assert.doesNotMatch(html,/rate limited|Retry not before|Search complete/);
+}
+const legacyProgress={...graph,coverage:{...graph.coverage,search_progress:{complete:false,
+  queries:{q1:{complete:false},q2:{complete:false},q3:{complete:true}}
+}}};
+for(const html of [coverageSelectionHtml(legacyProgress),queryNetHtml(legacyProgress)]) {
+  assert.match(html,/Search incomplete/);assert.match(html,/2 unfinished branches/);
+  assert.doesNotMatch(html,/rate limited|Retry not before|Search complete/);
+}
+const complete={...graph,coverage:{...graph.coverage,search_progress:{complete:true,pending_query_ids:[]}}};
+assert.doesNotMatch(coverageSelectionHtml(complete),/Search incomplete|rate limited|Retry not before/);
+assert.doesNotMatch(queryNetHtml(complete),/Search incomplete|rate limited|Retry not before/);
+Date.now=()=>Date.parse("2026-10-14T14:06:00Z");
+for(const html of [coverageSelectionHtml(graph),queryNetHtml(graph)]) {
+  assert.match(html,/Search incomplete/);assert.match(html,/Pending branches: q2/);
+  assert.doesNotMatch(html,/OpenAlex rate limited|Retry not before/,'An expired recorded pause is not a current provider delay');
+}
+Date.now=realNow;
+assert.equal(JSON.stringify(graph),before,'Rendering cannot change committed search progress or source records');
+""")

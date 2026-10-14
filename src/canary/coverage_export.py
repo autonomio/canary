@@ -153,12 +153,17 @@ def _save_markdown(path: Path, graph: dict):
     evidence = {r.get("id"): r for r in _rows(graph.get("evidence"))}
     passages = {r.get("id"): r for r in _rows(graph.get("passages"))}
     for claim in _rows(graph.get("claims")):
-        lines.extend(["## " + str(claim["id"]), "", str(claim.get("text", "")), "",
+        label = str(claim["id"]) + (f" · recorded occurrence {claim['claim_occurrence']}" if "claim_occurrence" in claim else "")
+        lines.extend(["## " + label, "", str(claim.get("text", "")), "",
                       f'Uncertainty: {claim.get("uncertainty_class", "unknown")} ({claim.get("uncertainty_score", "unknown")}/3; ordinal).',
                       str(claim.get("uncertainty_rationale", "")), "Audit: " + str(checks.get(claim["id"], {}).get("assessment", "not_checked")), ""])
         for issue in _rows(graph.get("binding_issues")):
-            if issue.get("claim_id") == claim["id"] and issue.get("kind") == "missing_evidence":
+            if issue.get("claim_id") != claim["id"] or issue.get("claim_occurrence", claim.get("claim_occurrence")) != claim.get("claim_occurrence"):
+                continue
+            if issue.get("kind") == "missing_evidence":
                 lines.extend(["Provenance failure: missing evidence " + str(issue.get("evidence_id")), ""])
+            elif issue.get("kind") == "duplicate_claim_id":
+                lines.extend(["Provenance failure: duplicate claim ID " + str(claim["id"]) + "; ID-only audit checks are not assigned.", ""])
         for eid in claim.get("evidence_ids", []):
             item = evidence.get(eid)
             if not isinstance(item, dict):
@@ -298,14 +303,32 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                                       "relation": evidence.get("relation", "supports")})
             evidence_map[evidence["id"]].append(eid)
             used_passages.add(pid)
-    for claim in _rows(investigation.get("claims")):
+    raw_claims = _rows(investigation.get("claims"))
+    claim_counts = Counter(c.get("id") for c in raw_claims)
+    duplicate_claim_ids = {identifier for identifier, count in claim_counts.items() if count > 1}
+    for identifier, count in claim_counts.items():
+        if count > 1:
+            graph["binding_issues"].append({"kind": "duplicate_claim_id", "claim_id": identifier,
+                                            "record_count": count,
+                                            "reason": "The recorded ID identifies distinct claims; ID-only links and audit checks are ambiguous."})
+    occurrences = Counter()
+    for claim in raw_claims:
+        identifier = claim.get("id")
+        occurrences[identifier] += 1
+        occurrence = occurrences[identifier]
         for key in _unique(claim.get("evidence_ids", [])):
             if key not in evidence_map:
-                graph["binding_issues"].append({"kind": "missing_evidence", "claim_id": claim.get("id"), "evidence_id": key})
+                issue = {"kind": "missing_evidence", "claim_id": identifier, "evidence_id": key}
+                if identifier in duplicate_claim_ids:
+                    issue["claim_occurrence"] = occurrence
+                graph["binding_issues"].append(issue)
         u = claim.get("uncertainty", {})
-        graph["claims"].append(dict(claim, uncertainty_class=u.get("class"), uncertainty_score=u.get("score"),
-                                     uncertainty_rationale=u.get("rationale", ""),
-                                     evidence_ids=[eid for key in claim.get("evidence_ids", []) for eid in (evidence_map.get(key) or [key])]))
+        record = dict(claim, uncertainty_class=u.get("class"), uncertainty_score=u.get("score"),
+                      uncertainty_rationale=u.get("rationale", ""),
+                      evidence_ids=[eid for key in claim.get("evidence_ids", []) for eid in (evidence_map.get(key) or [key])])
+        if identifier in duplicate_claim_ids:
+            record["claim_occurrence"] = occurrence
+        graph["claims"].append(record)
     field_map = {"system": "setup", "intervention": "intervention", "comparator": "comparator",
                  "conditions": "conditions", "endpoint": "outcome", "value": "value", "units": "units",
                  "sample_size": "sample_size", "reported_uncertainty": "uncertainty"}
@@ -326,16 +349,21 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     audit_case = _audit_record(audit)
     checks = {c.get("claim_id"): c for c in _rows(audit_case.get("claim_checks"))}
     for claim in graph["claims"]:
-        check = checks.get(claim["id"], {})
+        ambiguous = claim["id"] in duplicate_claim_ids
+        check = {} if ambiguous else checks.get(claim["id"], {})
         assessment = check.get("assessment", "not_checked")
         # "Corrected" can describe a proposed correction, not a published rewrite.
         normalized = {"correction_needed": "correction_needed", "partly_supported": "unresolved"}.get(assessment, assessment)
         ids = _unique(check.get("passage_ids", check.get("paragraph_ids", [])))
         used_passages.update(ids)
-        graph["source_checks"].append(dict(check, claim_id=claim["id"], assessment=normalized,
-                                             raw_assessment=assessment, paragraph_ids=ids,
-                                             reason=check.get("reason", "Audit pending." if not audit else "Not checked in the recorded audit scope."),
-                                             correction_applied=False))
+        bound_check = dict(check, claim_id=claim["id"], assessment=normalized,
+                           raw_assessment=assessment, paragraph_ids=ids,
+                           reason=("Duplicate claim ID; the ID-only audit record cannot be assigned to this occurrence."
+                                   if ambiguous else check.get("reason", "Audit pending." if not audit else "Not checked in the recorded audit scope.")),
+                           correction_applied=False)
+        if ambiguous:
+            bound_check["claim_occurrence"] = claim["claim_occurrence"]
+        graph["source_checks"].append(bound_check)
     used_sources = set(admitted)
     source_texts = {}
     for pid in sorted(used_passages):
@@ -410,6 +438,9 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                 "scarcity_statement": accounting.get("scarcity_statement"),
                 "scarcity_independently_certified": accounting.get("scarcity_independently_certified", False),
                 "counts_scope": "Reviewed papers require selected admission, core/supporting eligibility, read passages and a substantive review note. Related reports may share participants or studies; paper count is not independent study count."}
+    search_progress = _load(source / "search-progress.json", _load(bundle / "search-progress.json", None))
+    if isinstance(search_progress, dict):
+        coverage["search_progress"] = search_progress
     graph["coverage"] = coverage
     profile = _load(bundle / "profile.json", {})
     profile = profile if isinstance(profile, dict) else {}
@@ -435,7 +466,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
               else "answered" if lifecycle in ("complete", "completed") and has_findings
               else "complete" if lifecycle == "answered" and not has_findings else lifecycle)
     requests = _load(source / "openalex-requests.json", _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None)))
-    graph["audit"] = {"status": "pending" if not audit else "complete" if audit_case.get("audit_complete") else "partial",
+    graph["audit"] = {"status": "pending" if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids else "partial",
                        "model": "gpt-6-astra", "reasoning_effort": "ultra",
                        "checked_claims": sum(check.get("assessment") != "not_checked" for check in graph["source_checks"]),
                        "total_claims": len(graph["claims"]), "scope_note": audit.get("scope_note", audit_case.get("scope_note", "")),
