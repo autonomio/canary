@@ -109,6 +109,11 @@ def review(spec: RunSpec, assess: bool = False) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="canary", description="Canary research toolkit.")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    ask = sub.add_parser("ask", help="coverage-guided full-paper research with independent audit")
+    ask.add_argument("question", help="research question in plain words")
+    ask.add_argument("--out", default="./out/question", help="new empty research workspace")
+    ask.add_argument("--minimum-papers", type=int, default=50)
+    ask.add_argument("--audit-seconds", type=int, default=600)
     r = sub.add_parser("review", help="run a cited literature review")
     r.add_argument("question", help="research question in plain words")
     r.add_argument("--max-papers", type=int, default=10)
@@ -213,6 +218,20 @@ def main(argv: list[str] | None = None) -> int:
     ad.add_argument("--name", default="")
     ad.add_argument("--brief", default="")
     args = ap.parse_args(argv)
+    if args.cmd == "ask":
+        from .coverage_runtime import run as coverage_run
+        from .coverage_export import export_bundle as coverage_export
+        try:
+            coverage_run(args.question, args.out, minimum_papers=args.minimum_papers,
+                         audit_seconds=args.audit_seconds)
+        except Exception as error:
+            print(f"Research failed: {error}", file=sys.stderr)
+            return 1
+        finally:
+            if (Path(args.out) / "run.json").is_file():
+                coverage_export(args.out)
+        print(str(Path(args.out).resolve() / "answer.json"))
+        return 0
     if args.cmd == "inspect":
         print(json.dumps(report.read_bundle(args.bundle), indent=2, default=str))
         return 0

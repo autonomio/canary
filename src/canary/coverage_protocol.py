@@ -1,0 +1,145 @@
+"""Typed source-first coverage research contracts, independent of saved experiments."""
+from __future__ import annotations
+
+RESEARCH_MODEL = "gpt-6.1-sol"
+RESEARCH_EFFORT = "xhigh"
+AUDIT_MODEL = "gpt-6-astra"
+AUDIT_EFFORT = "ultra"
+
+
+def obj(properties):
+    return {"type": "object", "properties": properties, "required": list(properties),
+            "additionalProperties": False}
+
+
+def arr(items):
+    return {"type": "array", "items": items}
+
+
+def enum(*values):
+    return {"type": "string", "enum": list(values)}
+
+
+S = {"type": "string"}
+SS = arr(S)
+
+
+def question_plan_schema():
+    """Search language is typed separately from full-paper verification criteria."""
+    return obj({
+        "question": S,
+        "concepts": arr(obj({"name": S, "synonyms": SS, "search_role": S})),
+        "outcomes": SS,
+        "comparators": SS,
+        "conditions": SS,
+        "coverage_aspects": arr(obj({"id": S, "description": S, "priority_reason": S})),
+        "eligibility": obj({"core": S, "supporting": S, "exclusion": S,
+                            "full_paper_checks": SS}),
+        "queries": arr(obj({"id": S, "search": S, "coverage_aspect_ids": SS,
+                            "purpose": S, "collapse_reason": S})),
+        "scope_note": S,
+    })
+
+
+def investigation_schema():
+    field = obj({"text": S, "passage_ids": SS})
+    uncertainty = obj({"class": enum("low", "moderate", "high"),
+                       "score": {"type": "integer", "enum": [1, 2, 3]}, "rationale": S})
+    return obj({
+        "executive_summary": arr(obj({"text": S, "claim_ids": SS})),
+        "claims": arr(obj({"id": S, "text": S,
+            "kind": enum("reported_finding", "author_interpretation", "derived_comparison", "secondary_report"),
+            "uncertainty": uncertainty, "evidence_ids": SS, "study_result_ids": SS})),
+        "evidence": arr(obj({"id": S, "passage_ids": SS, "interpretation": S,
+                             "relation": enum("supports", "qualifies", "contradicts")})),
+        "study_results": arr(obj({"id": S, "reference_ids": SS,
+            "result_type": enum("measured", "fitted", "simulated", "association", "qualitative", "secondary_report"),
+            "fields": obj({name: {"anyOf": [field, {"type": "null"}]} for name in (
+                "system", "intervention", "comparator", "conditions", "endpoint", "value", "units",
+                "sample_size", "reported_uncertainty")}), "version_or_cohort_note": S})),
+        "contradictions": arr(obj({"id": S,
+            "kind": enum("within_source", "between_sources", "between_measurement_and_model"),
+            "description": S, "claim_ids": SS, "evidence_ids": SS, "comparability": S,
+            "resolution": enum("unresolved", "explained_by_scope", "source_discrepancy"), "why_it_matters": S})),
+        "gaps": arr(obj({"id": S, "kind": enum("unanswered_scope", "missing_data", "unmatched_conditions",
+            "access_limit", "measurement_limit", "conflicting_evidence"), "description": S, "basis": S,
+            "claim_ids": SS, "evidence_ids": SS, "needed_to_resolve": S})),
+        "residue": arr(obj({"id": S, "observation": S, "why_it_matters": S, "evidence_ids": SS,
+            "alternative_explanations": SS, "follow_up_test": S, "scope_limit": S})),
+        "next_questions": arr(obj({"id": S, "question": S, "justification": S,
+                                   "gap_ids": SS, "residue_ids": SS})),
+        "caveats": SS, "scope_note": S,
+    })
+
+
+def audit_schema():
+    return obj({
+        "claim_checks": arr(obj({"claim_id": S, "assessment": enum("supported", "correction_needed", "unresolved", "not_checked"),
+            "reason": S, "passage_ids": SS, "reference_ids": SS, "context_checked": SS})),
+        "findings": arr(obj({"id": S, "severity": enum("material", "minor", "uncertain"),
+            "description": S, "claim_ids": SS, "reference_ids": SS, "passage_ids": SS})),
+        "scores": obj({area: obj({"score": {"type": "integer", "minimum": 0, "maximum": 5}, "reason": S})
+            for area in ("selection_defensibility", "question_relevance", "scientific_fidelity", "evidence_coverage", "information_value")}),
+        "source_reviewed_ids": SS, "selection_assessment": S, "strengths": SS,
+        "limitations": SS, "audit_complete": {"type": "boolean"}, "scope_note": S,
+    })
+
+
+SCIENTIFIC_RULES = """Use one stateful session; no subagents, other models, nested CLI sessions or delegation.
+Work backwards from fixed source passages to attributed claims. Verify methods/results and surrounding source context.
+Keep experiments, cohorts, versions, denominators, comparators and units distinct. Use code for arithmetic and navigation.
+Distinguish measured, fitted, simulated, associated and qualitative results. Nonsignificance is not equivalence.
+Unreported conditions remain unknown. Preserve adverse/null evidence and source contradictions without manufacturing resolution.
+Claim uncertainty low=1/moderate=2/high=3 is an ordinal model judgment, not a probability or reported source uncertainty.
+Never treat abstracts, metadata, a paywall preview or an opened but unexamined document as a substantively reviewed full paper.
+Report publication counts separately from independent study families and core comparisons separately from supporting context.
+No universal absence/recall assertion from this selected corpus. Keep output question-driven and compact, usually several dozen claims maximum.
+Do not manually copy quotations into the final evidence; cite canonical passage IDs so code binds reproducible verbatim.
+Preserve raw findings; the subsequent independent audit is separate, with checked and unchecked scope explicit.
+"""
+
+
+def research_prompt(question, command, minimum_papers=50):
+    return f"""Read the repository AGENTS.md first, then this workspace AGENTS.md. This is real research.
+Question: {question}
+{SCIENTIFIC_RULES}
+1. Write question-plan.json conforming to question-plan-schema.json. Use 'concepts', never 'entities'.
+Translate the question into concepts/synonyms, outcomes, comparators, conditions, coverage aspects and explicit inclusion/exclusion criteria.
+Queries must use OpenAlex full-text-inclusive search=; abstract/title-only filters are prohibited. Collapse genuinely shared root queries while preserving question relevance.
+Understand: discovery searches indexed full text plus abstracts/titles; relevance triage then reads candidate abstracts, not full papers.
+2. Run {command} discover --workspace . --plan question-plan.json. Read search-progress.json and candidates.jsonl.
+Choose batches by coverage-guided marginal information gain: direct comparisons, contrasting/adverse/null findings, condition/outcome differences, methods, then needed context.
+Record selection.json as {{method:'coverage', approach, assessed_candidate_ids, decisions:[{{work_id,decision:'include|exclude|defer',evidence_role:'core|supporting|unknown',reason,criterion_matches,unknowns,supporting_abstract_text,priority_rank,coverage_contribution}}], selected_for_review_ids, stopping_reason, selection_limitations}}.
+Exact abstract support or null; missing abstracts are uncertainty, not automatic exclusion. All omitted candidates remain unassessed.
+3. Run {command} acquire --workspace . --ids W... W... for only your selected batch. Launch acquisition in the background if useful;
+read committed sources using {command} catalog --workspace . and {command} source --workspace . WORK_ID --match REGEX --context 2 --limit 8.
+Do useful screening, reading or synthesis while downloads proceed; never wait idly for an unavailable paper.
+Originals are papers/, full extracted texts texts/, immutable source spans passages/, per-paper receipts download-receipts/.
+Every retrieved source still requires identity, completeness and question relevance verification; source status is not scientific certification.
+4. Substantively investigate at least {minimum_papers} question-relevant accessible full publications, unless actual scarcity is documented.
+Count unique publications, not versions. Do not pad with generic context. Persist reviewed-papers.json after each completed source review:
+[{{work_id,eligibility:'core|supporting|preview|irrelevant|uncertain',reason,investigated_sections,passage_ids_read,incorporated_in_output,related_study_ids,substantive_review_note}}].
+Notes must reflect actual question-linked reading of methods/results or equivalent context, not templated status notes.
+Update progress.jsonl with UTC milestones and admitted core/supporting counts. Keep coverage-map.json by plan aspect with direct/supporting source IDs and unresolved needs.
+If fewer than {minimum_papers} remain, use targeted supplemental queries in the same plan and repeat discover/acquire; record actual assessed exhaustion and access limits in scarcity.json.
+A timeout or inaccessible copy alone does not prove topic scarcity. The target is not {minimum_papers} independent trials: role/family accounting is essential.
+5. Save investigation.json conforming to investigation-schema.json, and return that same JSON as the final response.
+Claims -> evidence -> canonical passages -> references; executive prose links claims. Study-result fields each cite actual supporting passages or are null.
+Include typed contradictions, gaps, residue (what remains awkward, neglected or unexplained), justified next questions, caveats and honest reviewed scope.
+No earlier experiment assets, paper lists, answers or audits. No outputs from other sessions. Complete the actual work in this session.
+"""
+
+
+def audit_prompt(question, command, budget_seconds=600):
+    return f"""Read repository AGENTS.md first, then workspace AGENTS.md. Independently audit this real research question:
+{question}
+{SCIENTIFIC_RULES}
+Inspect audit-input.json, question-plan.json, selection.json, reviewed-papers.json and the current fresh source corpus.
+Never inspect researcher reasoning transcripts, CLI events/stderr/prompts, previous research workspaces or previous audits.
+Use {command} source --workspace . WORK_ID --match REGEX --context 3 --limit 10 for source rereading; originals are available for table/figure checks.
+Audit the actual claim/result scope, exact source meaning, arithmetic, experiment attribution, selection/coverage and paper-role/family counts.
+Do not reward paper quantity or confidence; identify irrelevant padding, preview inclusion, important adverse alternatives and unsupported claims.
+Budget {budget_seconds} seconds. Track your own elapsed time. Persist audit.json as you go; if unfinished, explicitly label every remaining claim not_checked.
+Scores 0-5 are judgments within inspected scope, not calibrated probabilities or population recall. 3 means useful but consequential limitations; 5 requires strong inspected support.
+Never rewrite the research answer or invoke another agent/model. Return audit-schema.json JSON; audit_complete=true only if all declared audit scope is actually checked.
+"""
