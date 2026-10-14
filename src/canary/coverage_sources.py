@@ -139,7 +139,7 @@ def _plain(node):
 
 def _compact_table(table):
     """Retain source table markup/cells when logical blank padding would amplify it."""
-    tags = {"table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td"}
+    tags = {"table", "caption", "head", "title", "label", "thead", "tbody", "tfoot", "tr", "th", "td", "row", "cell"}
     def content(node):
         if _skip(node):
             return ""
@@ -149,10 +149,10 @@ def _compact_table(table):
             boundaries = BLOCKS | {"div", "section", "br", "hr"}
             return " " + text + " " if node.tag in boundaries else text
         attrs = "".join(' ' + name + '="' + escape(value or "", quote=True) + '"'
-                        for name, value in node.attrs.items() if name in {"colspan", "rowspan", "scope", "headers", "id"})
+                        for name, value in node.attrs.items() if name in {"colspan", "rowspan", "cols", "rows", "scope", "headers", "id", "role"})
         if node.tag in {"table", "thead", "tbody", "tfoot"}:
             return "<" + node.tag + attrs + ">\n" + text.strip() + "\n</" + node.tag + ">\n"
-        suffix = "\n" if node.tag in {"tr", "caption"} else ""
+        suffix = "\n" if node.tag in {"tr", "row", "caption", "head", "title", "label"} else ""
         return "<" + node.tag + attrs + ">" + text.strip() + "</" + node.tag + ">" + suffix
     return "\n".join(line.strip() for line in content(table).splitlines() if line.strip())
 
@@ -176,9 +176,9 @@ def _table_blocks(table, table_budget=None):
     def collect(node, group):
         if _skip(node) or (node is not table and node.tag == "table"):
             return
-        if node.tag == "caption":
+        if node.tag in {"caption", "head", "title", "label"}:
             captions.append(_plain(node))
-        elif node.tag == "tr":
+        elif node.tag in {"tr", "row"}:
             rows.append((node, group))
         else:
             if node.tag in {"thead", "tbody", "tfoot"}:
@@ -192,7 +192,8 @@ def _table_blocks(table, table_budget=None):
         groups_remaining[group] = groups_remaining.get(group, 0) + 1
     def span(cell, name):
         try:
-            value = int(cell.attrs.get(name, "1"))
+            alias = {"rowspan": "rows", "colspan": "cols"}.get(name, name) if cell.tag == "cell" else name
+            value = int(cell.attrs.get(name, cell.attrs.get(alias, "1")))
             return value if value >= 0 else 1
         except (TypeError, ValueError):
             return 1
@@ -200,7 +201,7 @@ def _table_blocks(table, table_budget=None):
     # until a conservative bound covers grid retention and final rectangular output.
     row_cells, group_total, group_max, spanning_groups = [], {}, {}, set()
     for row, group in rows:
-        cells = [cell for cell in row.children if isinstance(cell, _Node) and cell.tag in {"td", "th"} and not _skip(cell)]
+        cells = [cell for cell in row.children if isinstance(cell, _Node) and cell.tag in {"td", "th", "cell"} and not _skip(cell)]
         row_cells.append((cells, group))
         width = sum(min(1000, max(1, span(cell, "colspan"))) for cell in cells)
         group_total[group] = group_total.get(group, 0) + width
@@ -801,16 +802,22 @@ def _xml_text(raw: bytes) -> str:
             raise AccessFailure("XML has no readable article body")
         blocks = {"p", "title", "head", "sec", "div", "table", "tr", "fig", "ref",
                   "ref-list", "biblstruct", "list", "list-item", "disp-formula", "formula"}
+        table_budget = [MAX_HTML_TABLE_EXPANSION]
+        def table_node(element):
+            node = _Node(tag(element), {name.rsplit("}", 1)[-1]: value for name, value in element.attrib.items()})
+            if element.text:
+                node.children.append(element.text)
+            for child in element:
+                node.children.append(table_node(child))
+                if child.tail:
+                    node.children.append(child.tail)
+            return node
         def section_text(section):
             pieces = []
             def walk(element):
-                if tag(element) in ("tr", "row"):
-                    cells = [child for child in element if tag(child) in ("td", "th", "cell")]
-                    if cells:
-                        pieces.append("\n\n")
-                        pieces.append(" | ".join(" ".join(section_text(cell).split()) for cell in cells))
-                        pieces.append("\n\n")
-                        return
+                if tag(element) == "table":
+                    pieces.append(tuple(text for _, text in _table_blocks(table_node(element), table_budget)))
+                    return
                 if tag(element) in blocks:
                     pieces.append("\n\n")
                 if element.text:
@@ -822,7 +829,20 @@ def _xml_text(raw: bytes) -> str:
                 if tag(element) in blocks:
                     pieces.append("\n\n")
             walk(section)
-            return "\n\n".join(" ".join(p.split()) for p in "".join(pieces).split("\n\n") if p.strip())
+            # Keep prose normalization, but never collapse table row/column or
+            # nested-table boundaries after the shared layout has produced them.
+            result, prose = [], []
+            def flush():
+                result.extend(" ".join(p.split()) for p in "".join(prose).split("\n\n") if p.strip())
+                prose.clear()
+            for piece in pieces:
+                if isinstance(piece, tuple):
+                    flush()
+                    result.extend(piece)
+                else:
+                    prose.append(piece)
+            flush()
+            return "\n\n".join(result)
         included = {id(element) for element in body.iter()}
         sections = [element for element in article.iter() if tag(element) == "abstract" and id(element) not in included]
         sections += [body]

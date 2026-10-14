@@ -652,3 +652,91 @@ def test_html_optional_paragraph_endings_keep_exact_canonical_section_and_result
         "Background.", "Methods", "Measured 1.23 mg.", "Results", "Reported 4.56 mg with p<0.05."]
     assert all(row["reference_id"] == "W1" and row["text"] == text[row["start"]:row["end"]] for row in passages)
     assert "\n\n".join(row["text"] for row in passages) == text
+
+
+@pytest.mark.parametrize("document", ["jats", "namespaced-jats", "tei"])
+def test_xml_spanned_tables_match_html_literal_rows_and_inline_measurements(document):
+    table = ('<table><caption>Measured yields.</caption><tr><th>Group</th><th>Yield (mg)</th></tr>'
+        '<tr><td rowspan="2">A</td><td>1.<em>23</em></td></tr><tr><td>4.<span>56</span></td></tr>'
+        '<tr><td colspan="2">Reported summary.</td></tr></table>')
+    expected = "Results\n\nMeasured yields.\n\nGroup | Yield (mg)\n\nA | 1.23\n\n | 4.56\n\nReported summary. | "
+    html = sources.article_text("<article><h2>Results</h2>" + table + "</article>")
+    if document == "tei":
+        table = table.replace("tr>", "row>").replace("td", "cell").replace("th", "cell")
+        table = table.replace("rowspan=", "rows=").replace("colspan=", "cols=")
+        table = table.replace("<caption>", "<head>").replace("</caption>", "</head>")
+        raw = '<TEI xmlns="http://www.tei-c.org/ns/1.0"><text><body><head>Results</head>' + table + '</body></text></TEI>'
+    else:
+        namespace = ' xmlns="urn:synthetic-jats"' if document == "namespaced-jats" else ""
+        raw = '<article' + namespace + '><body><sec><title>Results</title>' + table + '</sec></body></article>'
+    assert sources._xml_text(raw.encode()) == html == expected
+
+
+def test_xml_table_spans_respect_row_groups_and_explicit_empty_cells():
+    table = ('<table><thead><tr><th rowspan="2">Group</th><th colspan="2">Yield (mg)</th></tr>'
+        '<tr><th>Early</th><th>Late</th></tr></thead><tbody><tr><td rowspan="0">A</td>'
+        '<td>1.<italic>23</italic></td><td>4.56</td></tr><tr><td>7.89</td><td/></tr></tbody>'
+        '<tbody><tr><td>B</td><td/><td>10.11</td></tr></tbody></table>')
+    raw = '<article><body><sec><title>Results</title>' + table + '</sec></body></article>'
+    assert sources._xml_text(raw.encode()) == sources.article_text('<article><h2>Results</h2>' + table + '</article>') == (
+        "Results\n\nGroup | Yield (mg) | \n\n | Early | Late\n\nA | 1.23 | 4.56\n\n | 7.89 | \n\nB |  | 10.11")
+
+
+def test_xml_nested_tables_keep_labels_captions_literal_text_tails_and_row_boundaries():
+    raw = ('<article><body><p>Source lead.</p><table><label>Table 1.</label><caption><title>Reported yields.</title></caption>'
+        '<tr><th>Group</th><th>Records</th></tr><tr><th>A</th><td>Before 1.<italic>23</italic> mg '
+        '<table><head>Nested results.</head><tr><th>Early</th><td>4.<italic>56</italic> mg</td></tr>'
+        '<tr><th>Late</th><td>7.89 mg</td></tr></table> After records.</td></tr></table>'
+        '<p>Source caveat.</p></body></article>')
+    assert sources._xml_text(raw.encode()) == (
+        "Source lead.\n\nTable 1.\n\nReported yields.\n\nGroup | Records\n\nA | Before 1.23 mg"
+        "\n[\nNested results.\nEarly | 4.56 mg\nLate | 7.89 mg\n]\nAfter records.\n\nSource caveat.")
+
+
+def test_xml_tables_share_budget_across_abstract_body_and_back(monkeypatch):
+    monkeypatch.setattr(sources, "MAX_HTML_TABLE_EXPANSION", 24)
+    raw = ('<article><front><abstract><table><tr><th>A</th><td>1.23 mg</td></tr></table></abstract></front>'
+        '<body><table><tr><th>B</th><td>4.56 mg</td></tr></table></body>'
+        '<back><table><tr><th>C</th><td>7.89 mg</td></tr></table></back></article>')
+    assert sources._xml_text(raw.encode()) == (
+        "A | 1.23 mg\n\nB | 4.56 mg\n\n<table>\n<tr><th>C</th><td>7.89 mg</td></tr>\n</table>")
+
+
+def test_xml_thousand_accumulating_spans_use_bounded_original_cell_markup(monkeypatch):
+    def no_dense_expansion(*args):
+        result = range(*args)
+        assert len(result) < 1000, "XML spans bypassed the shared preflight bound"
+        return result
+    monkeypatch.setattr(sources, "range", no_dense_expansion, raising=False)
+    values = ["R" + str(index).zfill(4) + " 1." + str(index).zfill(4) + " mg" for index in range(1000)]
+    raw = '<article><body><table><tbody>' + ''.join(
+        '<tr><td rowspan="0" colspan="1000">' + value + '</td></tr>' for value in values) + '</tbody></table></body></article>'
+    table = ElementTree.fromstring(sources._xml_text(raw.encode()))
+    cells = table.findall('./tbody/tr/td')
+    assert len(cells) == 1000 and [cell.text for cell in cells] == values
+    assert all(cell.attrib == {"rowspan": "0", "colspan": "1000"} for cell in cells)
+
+
+def test_tei_compact_fallback_preserves_original_rows_cols_and_role_attributes(monkeypatch):
+    monkeypatch.setattr(sources, "MAX_HTML_TABLE_EXPANSION", 1)
+    raw = ('<TEI xmlns="http://www.tei-c.org/ns/1.0"><text><body><table>'
+        '<row><cell rows="2" cols="2" role="label">A</cell><cell>1.<hi>23</hi> mg</cell></row>'
+        '<row><cell>4.56 mg</cell></row></table></body></text></TEI>')
+    table = ElementTree.fromstring(sources._xml_text(raw.encode()))
+    cells = table.findall('./row/cell')
+    assert [cell.text for cell in cells] == ['A', '1.23 mg', '4.56 mg']
+    assert cells[0].attrib == {"rows": "2", "cols": "2", "role": "label"}
+    assert "rowspan" not in cells[0].attrib and "colspan" not in cells[0].attrib
+
+
+def test_xml_spanned_row_passages_reproduce_exact_canonical_label_value_slices():
+    from canary.coverage_runtime import canonical_passages
+    raw = ('<article><body><table><tr><th>Group</th><th>Yield</th></tr>'
+        '<tr><td rowspan="2">A</td><td>1.<italic>23</italic> mg</td></tr>'
+        '<tr><td>4.56 mg</td></tr></table><p>Source caveat.</p></body></article>')
+    text = sources._xml_text(raw.encode())
+    passages = canonical_passages(text, "W1")
+    assert [row["text"] for row in passages] == ["Group | Yield", "A | 1.23 mg", "| 4.56 mg", "Source caveat."]
+    assert all(row["reference_id"] == "W1" and row["text"] == text[row["start"]:row["end"]] for row in passages)
+    result = next(row for row in passages if '4.56 mg' in row['text'])
+    assert [cell.strip() for cell in result['text'].split('|')] == ['', '4.56 mg']

@@ -662,3 +662,36 @@ assert.ok(html.indexOf('Results</p>')<html.indexOf('Yield was 4.56 mg'));
 assert.match(paragraphInspector(graph.answer,selected.id),/Yield was 4\.56 mg in group A\./);
 assert.equal(JSON.stringify(graph),before);
 """)
+
+
+def test_xml_spanned_table_columns_reach_canonical_passages_and_actual_source_view(tmp_path):
+    from canary.coverage_sources import _xml_text
+    from canary.coverage_runtime import canonical_passages
+    raw = (b'<article xmlns="urn:synthetic-jats"><body><sec><title>Results</title><table-wrap>'
+           b'<caption><p>Measured mass.</p></caption><table><tr><th>Group</th><th>Mass</th></tr>'
+           b'<tr><td rowspan="2">A</td><td>12</td></tr><tr><td>19</td></tr>'
+           b'<tr><td colspan="2">Shared summary.</td></tr></table></table-wrap>'
+           b'<p>Source caveat.</p></sec></body></article>')
+    text = _xml_text(raw)
+    passages = canonical_passages(text, "W1")
+    rows = [p for p in passages if "|" in p["text"]]
+    assert [[cell.strip() for cell in p["text"].split("|")] for p in rows] == [
+        ["Group", "Mass"], ["A", "12"], ["", "19"], ["Shared summary.", ""]]
+    assert all(text[p["start"]:p["end"]] == p["text"] for p in passages)
+    data = {"answer": {"references": [{"id": "W1", "paper": {"title": "Synthetic saved JATS table"}}],
+                       "passages": [dict(p, source_id="W1", kind="fulltext", anchored=True) for p in passages]},
+            "selected_id": rows[2]["id"]}
+    run_dashboard(tmp_path, data, r"""
+const before=JSON.stringify(graph);S.selected='xml-span-layout';S.sourceContexts={};
+const selected=graph.answer.passages.find(p=>p.id===graph.selected_id),state={sourceId:'W1',paragraphId:selected.id,scope:'section'};
+S.sourceContexts[contextKey('W1',selected.id,'section')]={text_available:true,offset_verified:true,
+ paragraphs:graph.answer.passages.map(p=>({...p,selected:p.id===selected.id}))};
+const html=sourceInspector(graph.answer,state),rowText=graph.answer.passages.filter(p=>p.text.includes('|')).map(p=>p.text);
+assert.deepEqual(rowText.map(text=>text.split('|').map(s=>s.trim())),[['Group','Mass'],['A','12'],['','19'],['Shared summary.','']]);
+for(const text of rowText) assert.ok(html.includes(esc(text)),'Each saved logical row must remain readable');
+assert.ok(html.includes('<mark>'+esc(selected.text)+'</mark>'));
+assert.match(html,/Measured mass\./);assert.match(html,/Source caveat\./);
+assert.doesNotMatch(html,/>19<\/p>/);assert.ok(html.indexOf(esc(rowText[1]))<html.indexOf(esc(rowText[2])));
+assert.ok(paragraphInspector(graph.answer,selected.id).includes(esc(selected.text)));
+assert.equal(JSON.stringify(graph),before);
+""")
