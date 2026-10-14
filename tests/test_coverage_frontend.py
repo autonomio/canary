@@ -178,6 +178,9 @@ def test_export_count_matches_binding_for_same_body_and_missing_sections(tmp_pat
         reviews.append({"work_id": wid, "eligibility": "core", "passage_ids_read": [pid], "substantive_review_note": "Synthetic review",
                         "investigated_sections": ["results"] if number < 3 else []})
     runtime.write(tmp_path / "references.json", refs)
+    for reference in refs:
+        runtime.write(tmp_path / "download-receipts" / (reference["id"] + ".json"),
+                      {"work_id": reference["id"], "status": "source_retrieved", "reference": reference})
     runtime.write(tmp_path / "reviewed-papers.json", reviews)
     runtime.write(tmp_path / "selection.json", {"selected_for_review_ids": ["W1", "W2", "W3"]})
     runtime.write(tmp_path / "run.json", {"question": "Synthetic?", "minimum_papers": 50})
