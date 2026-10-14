@@ -108,7 +108,7 @@ def test_binding_rejects_padding_foreign_spans_and_keeps_raw_research(tmp_path):
     def fetch(source, transport):
         return (b"%PDF " + source["id"].encode(), "application/pdf", "https://example.org/paper.pdf"), False
     runtime.acquire(tmp_path, ["W1", "W2"], fetch=fetch, extract=extraction, transport=Transport())
-    w1 = runtime.source(tmp_path, "W1")[1]["id"]
+    w1 = runtime.source(tmp_path, "W1")[0]["id"]
     raw = {"executive_summary": [{"text": "Source reports a result", "claim_ids": ["C1"]}],
         "claims": [{"id": "C1", "text": "Attributed source result", "kind": "reported_finding",
             "uncertainty": {"class": "moderate", "score": 2, "rationale": "Indirect source"}, "evidence_ids": ["E1"], "study_result_ids": []}],
