@@ -654,8 +654,8 @@ const selected=graph.answer.passages.at(-1),state={sourceId:'W1',paragraphId:sel
 S.sourceContexts[contextKey('W1',selected.id,'section')]={text_available:true,offset_verified:true,
  paragraphs:graph.answer.passages.map(p=>({...p,selected:p.id===selected.id}))};
 const html=sourceInspector(graph.answer,state);
-assert.match(html,/<p class="context-paragraph ">Methods<\/p>/);assert.match(html,/<p class="context-paragraph ">Results<\/p>/);
-assert.match(html,/<p class="context-paragraph ">Measured 12 samples at 1\.23 mg\.<\/p>/);
+assert.match(html,/<p class="context-paragraph "\s*>Methods<\/p>/);assert.match(html,/<p class="context-paragraph "\s*>Results<\/p>/);
+assert.match(html,/<p class="context-paragraph "\s*>Measured 12 samples at 1\.23 mg\.<\/p>/);
 assert.match(html,/<mark>Yield was 4\.56 mg in group A\.<\/mark>/);
 assert.ok(html.indexOf('Methods</p>')<html.indexOf('Measured 12 samples'));
 assert.ok(html.indexOf('Results</p>')<html.indexOf('Yield was 4.56 mg'));
