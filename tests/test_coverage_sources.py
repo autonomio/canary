@@ -142,3 +142,47 @@ def test_xml_preserves_table_cell_and_row_boundaries(raw):
     text = sources._xml_text(raw)
     assert text == "Group | Outcome\n\nA | 12\n\nB | 19"
     assert "A12" not in text and "B19" not in text
+
+
+@pytest.mark.parametrize("kind", ["pdf", "xml"])
+def test_readable_preview_cannot_win_race_over_complete_copy(monkeypatch, kind):
+    preview_text = "This is a preview of subscription content. " + "Synthetic section excerpt. " * 30
+    preview_xml = b"<article><body><sec><title>Results</title><p>" + preview_text.encode() + b"</p></sec></body></article>"
+    raw_preview = b"%PDF synthetic preview" if kind == "pdf" else preview_xml
+    complete_xml = b"<article><body><sec><title>Results</title><p>" + b"Complete synthetic result. " * 30 + b"</p></sec></body></article>"
+    preview_extracted, loser_started, release_loser = Event(), Event(), Event()
+    extract_xml = sources._xml_text
+
+    def xml_text(raw):
+        text = extract_xml(raw)
+        if raw == preview_xml:
+            preview_extracted.set()
+        return text
+
+    def pdf_text(raw):
+        assert raw == raw_preview
+        preview_extracted.set()
+        return preview_text, 1, ()
+
+    monkeypatch.setattr(sources, "_xml_text", xml_text)
+    monkeypatch.setattr(sources, "_pdf_text", pdf_text)
+
+    def handler(request):
+        if request.url.path.startswith("/preview."):
+            return httpx.Response(200, content=raw_preview)
+        if request.url.path == "/complete.xml":
+            assert preview_extracted.wait(timeout=5)
+            assert loser_started.wait(timeout=5)
+            return httpx.Response(200, content=complete_xml)
+        loser_started.set()
+        assert release_loser.wait(timeout=5)
+        return httpx.Response(404)
+
+    work = {"locations": [{"is_oa": True, "pdf_url": "https://example.org/" + name}
+                          for name in ("preview." + kind, "complete.xml", "slow.pdf")]}
+    try:
+        result, timed_out = sources.public_work_download(work, httpx.MockTransport(handler), public_resolver)
+        assert result == (complete_xml, "application/xml", "https://example.org/complete.xml")
+        assert not timed_out and preview_extracted.is_set() and not release_loser.is_set()
+    finally:
+        release_loser.set()

@@ -119,3 +119,116 @@ const legacy=runLogHtml([{...row,preview_suspected_sources:null}]);
 assert.match(legacy,/35 acquired copies/);
 assert.doesNotMatch(legacy,/suspected previews/);
 """)
+
+
+def test_object_and_array_evidence_targets_render_actual_plan_descriptors(tmp_path):
+    plan = {"concepts": [{"name": "capture cues", "synonyms": ["context annotation"]}],
+            "queries": [{"id": "q1", "search": '"context capture" AND retrieval'}],
+            "evidence_targets": {"target_full_publications": 50,
+                                 "effort": {"condition": "Measured incremental capture time",
+                                            "explanation": "Same observation window as benefit",
+                                            "units": ["minutes", "records"]}}}
+    run_dashboard(tmp_path, plan, r"""
+const before=JSON.stringify(graph);
+const data={query_net:graph,run:{selection_method:'coverage-guided',keyword_requests:1}};
+const html=queryNetHtml(data);
+assert.match(html,/target full publications: 50/);
+assert.match(html,/effort: condition: Measured incremental capture time/);
+assert.match(html,/Same observation window as benefit/);
+assert.match(html,/minutes · records/);
+assert.match(html,/context annotation/);
+assert.match(html,/&quot;context capture&quot; AND retrieval/);
+assert.doesNotMatch(html,/\[object Object\]|undefined/);
+const array=queryNetHtml({...data,query_net:{...graph,evidence_targets:[
+  'Exact comparator', {condition:'Reported added minutes',explanation:'Do not infer missing denominators'}
+]}});
+assert.match(array,/Exact comparator/);
+assert.match(array,/Reported added minutes/);
+assert.match(array,/Do not infer missing denominators/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+def test_references_without_claims_keep_papers_and_source_navigation_available(tmp_path):
+    graph = {"claims": [], "executive_summary": [],
+             "references": [{"id": "R1", "paper": {"title": "Committed synthetic source"}}]}
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph);
+const data={run:{selection_method:'coverage-guided',execution_mode:'coverage-guided full-paper research'},answer:graph};
+const row={key:'synthetic',kind:'question',status:'researching'};
+assert.equal(qaGraph(data),graph);
+assert.equal(qaGraph({answer:{claims:[],references:[]}}),null);
+const papers=modernPapersHtml(data);
+assert.match(papers,/Committed synthetic source/);
+assert.match(papers,/data-qa-source="R1"/);
+assert.match(papers,/data-qa-paper="R1"/);
+const pending=answerHtml(row,data);
+assert.match(pending,/Reading selected sources/);
+assert.doesNotMatch(pending,/aria-label="Executive summary"|<h2>Claims<\/h2>/);
+assert.match(answerHtml({...row,status:'partial'},data),/No grounded answer is available yet/);
+S.selected='synthetic';S.research.synthetic=data;
+assert.equal(hasReport(row),false);
+assert.equal(hasFindings(row),false);
+S.sourceContexts={};
+for(const scope of ['section','paper']) {
+  S.sourceContexts[contextKey('R1',null,scope)]={context_label:'Saved synthetic text',paragraphs:[
+    {id:'p1',text:'Saved source is immediately accessible.'}
+  ]};
+}
+global.document={getElementById:()=>null};
+(async()=>{
+  await inspectAnswer('source','R1');
+  assert.equal(S.inspector.sourceId,'R1');
+  assert.match(sourceInspector(graph,S.inspector),/Saved source is immediately accessible/);
+  await inspectAnswer('paper','R1');
+  assert.equal(S.inspector.scope,'paper');
+  assert.match(sourceInspector(graph,S.inspector),/Complete paper/);
+  assert.match(sourceInspector(graph,S.inspector),/Committed synthetic source/);
+  assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_resource_usage_preserves_unknown_rows_and_unknown_aggregates(tmp_path):
+    run_dashboard(tmp_path, {}, r"""
+const rows=[{key:'known',status:'done',model_calls:5,tokens:120},
+  {key:'unknown',status:'partial',model_calls:null,tokens:null}];
+const html=usageRowsHtml(rows);
+const total=html.match(/<tr><td>Total<\/td>([\s\S]*?)<\/tr>/)[1];
+assert.equal((total.match(/aria-label="Unknown"/g)||[]).length,2);
+assert.doesNotMatch(total,/>5<|>120<|>0</);
+assert.match(html,/<td>5<\/td><td>120<\/td>/);
+assert.equal((html.match(/aria-label="Unknown"/g)||[]).length,4);
+const known=usageRowsHtml([{key:'one',status:'done',model_calls:0,tokens:0},
+  {key:'two',status:'done',model_calls:5,tokens:120}]);
+assert.match(known,/<td>Total<\/td><td><\/td><td>5<\/td><td>120<\/td>/);
+assert.match(known,/<td>0<\/td><td>0<\/td>/);
+const partial=usageRowsHtml([{key:'partial',status:'done',model_calls:3,tokens:null}]);
+assert.match(partial,/<td>Total<\/td><td><\/td><td>3<\/td><td><span aria-label="Unknown">—<\/span><\/td>/);
+const absent=usageRowsHtml([{key:'absent',status:'done'}]);
+assert.equal((absent.match(/aria-label="Unknown"/g)||[]).length,4);
+""")
+
+
+def test_evidence_relation_labels_preserve_contradiction_without_claiming_support(tmp_path):
+    graph = {"claims": [{"id": "C1", "text": "Synthetic attributed claim.", "evidence_ids": ["E1"]}],
+             "evidence": [{"id": "E1", "paragraph_id": "p1", "relation": "contradicts",
+                           "quote": "The source reports the opposite result."}],
+             "passages": [{"id": "p1", "source_id": "R1", "kind": "fulltext", "start": 12, "end": 56}],
+             "references": [{"id": "R1", "paper": {"title": "Contradictory synthetic source"}}]}
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),html=evidenceInspector(graph,'E1');
+assert.match(html,/Recorded relation: contradicts/);
+assert.match(html,/<h3>Linked claims<\/h3>/);
+assert.doesNotMatch(html,/Supports these claims/);
+assert.match(html,/<blockquote>The source reports the opposite result\.<\/blockquote>/);
+assert.match(html,/data-qa-context="E1"/);
+assert.match(html,/data-qa-claim="C1"/);
+for(const relation of ['supports','qualifies','contradicts','unknown']) {
+  const fixture={...graph,evidence:[{...graph.evidence[0],relation}]};
+  assert.ok(evidenceInspector(fixture,'E1').includes('Recorded relation: '+relation));
+}
+const absent={...graph,evidence:[{...graph.evidence[0],relation:null}]};
+assert.match(evidenceInspector(absent,'E1'),/Recorded relation: unknown/);
+assert.equal(JSON.stringify(graph),before);
+""")

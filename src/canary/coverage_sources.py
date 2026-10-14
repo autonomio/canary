@@ -34,6 +34,7 @@ BODY_MARKERS = {"articlebody", "articlecontent", "articletext", "arttext", "arti
                 "htmlbody", "fulltext", "fullarticle", "mainarticle"}
 SCIENCE = re.compile(r"\b(introduction|background|method(?:s|ology)?|materials|results|discussion|conclusions?|"
                      r"experimental|theory|analysis|case study|literature review|findings)\b", re.I)
+PREVIEW_MARKER = re.compile(r"article[- ]preview|section snippets|access through your organization|purchase this article|preview\s+of\s+subscription\s+content", re.I)
 ACCESS_PROMPT = re.compile(r"\b(access denied|verify you are human|checking your browser|"
                            r"sign in to (?:read|access)|subscribe to (?:read|access)|"
                            r"purchase (?:this|the) article|preview of subscription content|enable javascript to continue)\b", re.I)
@@ -514,6 +515,8 @@ def public_work_download(work, transport, resolver):
                     text = article_text(raw, work)
                 else:
                     return None, False
+                if PREVIEW_MARKER.search(text):
+                    return None, False  # Keep racing complete alternatives before committing a source.
                 if len(text.strip()) < 500:
                     return None, False  # Same minimum text requirement as acquire().
                 return result, False
