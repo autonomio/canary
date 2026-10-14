@@ -2157,7 +2157,7 @@
           el.hidden = true;
         }, 6000);
       }
-      function preserveRender(el, html) {
+      function preserveRender(el, html, retainedScrolls = []) {
         const opened = [
           ...el.querySelectorAll("details[open][data-detail]"),
         ].map((d) => d.dataset.detail);
@@ -2166,7 +2166,7 @@
         const scrolls = [...el.querySelectorAll("[data-scroll]")].map((d) => [
           d.dataset.scroll,
           d.scrollTop, d.scrollLeft,
-        ]);
+        ]).concat(retainedScrolls);
         el.innerHTML = html;
         for (const d of el.querySelectorAll("details[data-detail]"))
           if (opened.includes(d.dataset.detail)) d.open = true;
@@ -2180,6 +2180,7 @@
           );
           target?.focus({ preventScroll: true });
         }
+        return scrolls;
       }
       function renderLibrary() {
         document.getElementById("stat-total").textContent = fmt(S.runs.length);
@@ -3282,8 +3283,8 @@
     if(S.tab==="claims") S.tab="overview";
     if(!tabs.some(x=>x[0]===S.tab)) S.tab="overview";
     const body=S.tab==="issue" ? issueHtml(row) : S.tab==="sources" ? modernPapersHtml(d) : S.tab==="trail" ? queryNetHtml(d) : answerHtml(row,d);
-    preserveRender(el,`<div class="answer-workspace"><div class="heading-row"><button class="back" data-action="back">← All questions</button><div class="source-actions"><button class="text-action" data-action="new">New question</button><button class="text-action" data-action="retry-research">Ask again</button>${g?.claims?.length ? '<button class="text-action" data-action="export-report">Save answer ↗</button>' : ""}</div></div><div class="detail-heading"><h1 id="research-heading" tabindex="-1" data-focus="research-heading">${esc(g?.question || d.run?.question || questionOf(row))}</h1><div class="detail-meta">${badge(row)}<span>${g?.claims?.length ?? 0} claims · ${g?.evidence?.length ?? 0} passages · ${cliResearch(d) ? esc(cliSourceCounts(d)) : hasMergedSourceCopies(d) ? `${g?.references?.length ?? 0} unique source${g?.references?.length===1 ? '' : 's'}` : `${d.run?.accepted ?? g?.references?.length ?? 0} full papers`}</span><span>${dateText(row.ended_at || row.started_at,true)}</span>${active(row) ? "<span>Updates automatically</span>" : ""}</div></div><nav class="research-tabs" aria-label="Question sections">${tabs.map(([id,label])=>`<button class="${S.tab===id ? "on" : ""}" data-research-tab="${id}" aria-current="${S.tab===id ? "page" : "false"}" data-focus="tab-${id}">${label}</button>`).join("")}</nav>${S.errors[row.key] ? `<p role="alert">${esc(S.errors[row.key])}</p>` : ""}<div class="answer-grid"><div class="answer-main">${body}</div><aside class="evidence-inspector" id="evidence-inspector" aria-label="Claim and source inspector" hidden></aside></div>${technicalHtml(row,d)}</div>`);
-    if(S.inspector) paintInspector();
+    const scrolls=preserveRender(el,`<div class="answer-workspace"><div class="heading-row"><button class="back" data-action="back">← All questions</button><div class="source-actions"><button class="text-action" data-action="new">New question</button><button class="text-action" data-action="retry-research">Ask again</button>${g?.claims?.length ? '<button class="text-action" data-action="export-report">Save answer ↗</button>' : ""}</div></div><div class="detail-heading"><h1 id="research-heading" tabindex="-1" data-focus="research-heading">${esc(g?.question || d.run?.question || questionOf(row))}</h1><div class="detail-meta">${badge(row)}<span>${g?.claims?.length ?? 0} claims · ${g?.evidence?.length ?? 0} passages · ${cliResearch(d) ? esc(cliSourceCounts(d)) : hasMergedSourceCopies(d) ? `${g?.references?.length ?? 0} unique source${g?.references?.length===1 ? '' : 's'}` : `${d.run?.accepted ?? g?.references?.length ?? 0} full papers`}</span><span>${dateText(row.ended_at || row.started_at,true)}</span>${active(row) ? "<span>Updates automatically</span>" : ""}</div></div><nav class="research-tabs" aria-label="Question sections">${tabs.map(([id,label])=>`<button class="${S.tab===id ? "on" : ""}" data-research-tab="${id}" aria-current="${S.tab===id ? "page" : "false"}" data-focus="tab-${id}">${label}</button>`).join("")}</nav>${S.errors[row.key] ? `<p role="alert">${esc(S.errors[row.key])}</p>` : ""}<div class="answer-grid"><div class="answer-main">${body}</div><aside class="evidence-inspector" id="evidence-inspector" aria-label="Claim and source inspector" hidden></aside></div>${technicalHtml(row,d)}</div>`);
+    if(S.inspector) paintInspector(false,scrolls);
     if(S.logs[row.key]) paintLogs();
   }
   function contextKey(sid,pid,scope) { return JSON.stringify([S.selected,sid,pid || "",scope]); }
@@ -3300,7 +3301,7 @@
     }
     return `<h2 tabindex="-1">${state.scope==="paper" ? "Complete paper" : "Source context"}</h2>${qaCitation(ref)}${text}`;
   }
-  function paintInspector(focus=false) {
+  function paintInspector(focus=false,retainedScrolls=[]) {
     const pane=document.getElementById("evidence-inspector"), state=S.inspector, g=qaGraph(S.research[S.selected]);
     if(!pane || !state || !g) return;
     const content=state.kind==="claim" ? claimInspector(g,state.claimId) : state.kind==="study" ? studyResultInspector(g,state.studyResultId) : state.kind==="passage" ? paragraphInspector(g,state.paragraphId,state.fieldName) : state.kind==="evidence" ? evidenceInspector(g,state.evidenceId) : sourceInspector(g,state);
@@ -3308,7 +3309,8 @@
     syncInspectorLayout();
     pane.closest(".answer-grid").classList.add("has-inspector");
     pane.closest(".answer-grid").classList.toggle("reading-paper",state.kind==="paper");
-    pane.innerHTML=`<div class="inspector-header"><nav class="inspector-breadcrumbs" aria-label="Evidence path">${state.claimId ? qaButton("data-qa-claim",state.claimId,state.claimId) : ""}${state.studyResultId ? qaButton('data-qa-study',state.studyResultId,`→ ${state.studyResultId}`) : ''}${state.paragraphId ? qaButton('data-qa-passage',state.paragraphId,'→ Passage') : ''}${state.evidenceId ? qaButton("data-qa-evidence",state.evidenceId,`→ ${state.evidenceId}`) : ""}${state.sourceId ? qaButton("data-qa-source",state.sourceId,"→ Source") : ""}${state.sourceId ? qaButton("data-qa-paper",state.sourceId,"→ Full paper") : ""}</nav><button type="button" class="close-btn" data-qa-close="true" aria-label="Close evidence inspector">×</button></div><div class="inspector-body">${content}</div>`;
+    const scrollKey=JSON.stringify([S.selected,state.kind,state.sourceId,state.scope,state.paragraphId,state.evidenceId,state.claimId,state.studyResultId,state.fieldName]);
+    preserveRender(pane,`<div class="inspector-header"><nav class="inspector-breadcrumbs" aria-label="Evidence path">${state.claimId ? qaButton("data-qa-claim",state.claimId,state.claimId) : ""}${state.studyResultId ? qaButton('data-qa-study',state.studyResultId,`→ ${state.studyResultId}`) : ''}${state.paragraphId ? qaButton('data-qa-passage',state.paragraphId,'→ Passage') : ''}${state.evidenceId ? qaButton("data-qa-evidence",state.evidenceId,`→ ${state.evidenceId}`) : ""}${state.sourceId ? qaButton("data-qa-source",state.sourceId,"→ Source") : ""}${state.sourceId ? qaButton("data-qa-paper",state.sourceId,"→ Full paper") : ""}</nav><button type="button" class="close-btn" data-qa-close="true" aria-label="Close evidence inspector">×</button></div><div class="inspector-body" data-scroll="${esc(scrollKey)}">${content}</div>`,retainedScrolls);
     if(focus) {
       pane.querySelector("h2")?.focus({preventScroll:true});
 

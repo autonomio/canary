@@ -257,3 +257,117 @@ assert.ok(text.includes(statement));
 assert.match(text,/Reported scarcity; not independently verified\./);
 assert.equal(JSON.stringify(graph),before,'The recorded scarcity statement must remain unchanged');
 """)
+
+
+def test_source_scroll_survives_inspector_and_progress_refresh_without_context_leaks(tmp_path):
+    graph = {"question": "Synthetic question", "claims": [], "executive_summary": [],
+             "references": [{"id": "R1", "paper": {"title": "First saved paper"}},
+                            {"id": "R2", "paper": {"title": "Second saved paper"}}],
+             "passages": [{"id": "p1", "source_id": "R1", "kind": "fulltext",
+                           "text": "Fixed recorded passage."}]}
+    run_dashboard(tmp_path, graph, r"""
+// A small DOM fixture: replacing innerHTML creates new elements with zero
+// scroll positions. Rendering and scroll restoration remain the shipped code.
+const decode=s=>s.replace(/&(amp|lt|gt|quot|#39);/g,(_,name)=>({amp:'&',lt:'<',gt:'>',quot:'"','#39':"'"})[name]);
+class Element {
+  constructor(tag,attrs={}) {
+    this.tag=tag;this.attrs=attrs;this.children=[];this.parent=null;this.scrollTop=0;this.scrollLeft=0;
+    this.hidden=Object.hasOwn(attrs,'hidden');
+    this.classList={
+      add:(...names)=>{this.attrs.class=[...new Set([...(this.attrs.class||'').split(/\s+/),...names])].join(' ');},
+      toggle:(name,force)=>{const set=new Set((this.attrs.class||'').split(/\s+/));
+        if(force===undefined ? !set.has(name) : force) set.add(name);else set.delete(name);
+        this.attrs.class=[...set].join(' ');}
+    };
+  }
+  get dataset() {return Object.fromEntries(Object.entries(this.attrs).filter(([k])=>k.startsWith('data-'))
+    .map(([k,v])=>[k.slice(5).replace(/-([a-z])/g,(_,c)=>c.toUpperCase()),v]));}
+  get open() {return Object.hasOwn(this.attrs,'open');}
+  set open(value) {if(value)this.attrs.open='';else delete this.attrs.open;}
+  get textContent() {return this.children.map(x=>x instanceof Element ? x.textContent : x).join('');}
+  set innerHTML(html) {
+    for(const child of this.children)if(child instanceof Element)child.parent=null;
+    this.children=[];const stack=[this],voids=new Set(['br','hr','img','input','meta','link']);
+    for(const token of html.match(/<[^>]+>|[^<]+/g)||[]) {
+      if(token.startsWith('</')) {
+        const tag=token.match(/^<\/([^\s>]+)/)?.[1];
+        const at=stack.findLastIndex(e=>e.tag===tag);if(at>0)stack.length=at;
+      } else if(token.startsWith('<')) {
+        const match=token.match(/^<([a-z][a-z0-9-]*)([\s\S]*?)\/?\s*>$/i);if(!match)continue;
+        const attrs={};for(const a of match[2].matchAll(/([\w-]+)(?:="([^"]*)")?/g))attrs[a[1]]=decode(a[2]||'');
+        const node=new Element(match[1],attrs);node.parent=stack.at(-1);node.parent.children.push(node);
+        if(!voids.has(node.tag))stack.push(node);
+      } else stack.at(-1).children.push(decode(token));
+    }
+  }
+  matches(selector) {
+    if(selector.includes('>')) {const [parent,child]=selector.split('>');return this.matches(child)&&!!this.parent?.matches(parent);}
+    const tag=selector.match(/^[a-z][a-z0-9-]*/i)?.[0];if(tag&&tag!==this.tag)return false;
+    for(const m of selector.matchAll(/\.([\w-]+)/g))if(!(this.attrs.class||'').split(/\s+/).includes(m[1]))return false;
+    for(const m of selector.matchAll(/#([\w-]+)/g))if(this.attrs.id!==m[1])return false;
+    for(const m of selector.matchAll(/\[([\w-]+)\]/g))if(!Object.hasOwn(this.attrs,m[1]))return false;
+    return true;
+  }
+  querySelectorAll(selector) {
+    const result=[],selectors=selector.split(',');
+    const visit=node=>{for(const child of node.children)if(child instanceof Element) {
+      if(selectors.some(s=>child.matches(s.trim())))result.push(child);visit(child);
+    }};visit(this);return result;
+  }
+  querySelector(selector) {return this.querySelectorAll(selector)[0]||null;}
+  closest(selector) {for(let node=this;node;node=node.parent)if(node.matches(selector))return node;return null;}
+  contains(other) {for(let node=other;node;node=node.parent)if(node===this)return true;return false;}
+  focus() {document.activeElement=this;}
+  scrollIntoView() {}
+}
+const root=new Element('body');root.innerHTML='<div class="topbar"></div><div id="detail"></div>';
+global.document={body:root,activeElement:null,getElementById:id=>root.querySelector('#'+id),
+  querySelector:s=>root.querySelector(s),querySelectorAll:s=>root.querySelectorAll(s)};
+global.window={matchMedia:()=>({matches:false})};
+global.fetch=()=>{throw new Error('Unexpected source request: the exact contexts are already committed');};
+const data=()=>({kind:'question',run:{kind:'question',selection_method:'coverage-guided',
+  execution_mode:'coverage-guided full-paper research'},answer:graph,coverage:{assessed_candidates:10}});
+S.runs=[{key:'q1',kind:'question',status:'researching'},{key:'q2',kind:'question',status:'researching'}];
+S.research={q1:data(),q2:data()};S.sourceContexts={};S.tab='overview';
+for(const question of ['q1','q2']) {
+  S.selected=question;
+  for(const [sid,pid,scope,label] of [['R1',null,'paper','Complete first source'],['R2',null,'paper','Complete second source'],
+    ['R1',null,'section','First source section'],['R1','p1','section','Fixed passage context']]) {
+    S.sourceContexts[contextKey(sid,pid,scope)]={context_label:label,paragraphs:[
+      {id:'saved',text:question+' '+label+'. '+('Unchanged saved text. '.repeat(200))}
+    ]};
+  }
+}
+const paperBefore=JSON.stringify(graph),contextsBefore=JSON.stringify(S.sourceContexts);
+S.selected='q1';S.inspector={kind:'paper',sourceId:'R1',scope:'paper'};
+const body=()=>document.getElementById('evidence-inspector').querySelector('.inspector-body');
+const position=()=>[body().scrollTop,body().scrollLeft];
+const scroll=(top,left)=>{body().scrollTop=top;body().scrollLeft=left;};
+renderDetail();assert.deepEqual(position(),[0,0]);
+assert.match(body().textContent,/q1 Complete first source/);
+scroll(420,73);const oldBody=body();paintInspector();
+assert.notEqual(body(),oldBody,'The inspector must really replace its rendered DOM');
+assert.deepEqual(position(),[420,73],'Direct inspector refresh preserves both axes');
+scroll(710,91);const oldPane=document.getElementById('evidence-inspector');
+S.research.q1.coverage.assessed_candidates=11;renderDetail();
+assert.notEqual(document.getElementById('evidence-inspector'),oldPane,'Progress refresh replaces the whole detail DOM');
+assert.deepEqual(position(),[710,91],'Nested inspector restoration survives full progress replacement');
+assert.match(body().textContent,/q1 Complete first source/);
+(async()=>{
+  await inspectAnswer('paper','R2');assert.deepEqual(position(),[0,0],'A different paper starts fresh');
+  assert.match(body().textContent,/q1 Complete second source/);
+  scroll(111,12);await inspectAnswer('paper','R1');assert.deepEqual(position(),[0,0],'No previous source position leaks');
+  scroll(155,19);await inspectAnswer('source','R1');assert.deepEqual(position(),[0,0],'Section context has its own position');
+  assert.match(body().textContent,/q1 First source section/);
+  scroll(180,21);await inspectAnswer('paragraphContext','p1');
+  assert.deepEqual(position(),[0,0],'A different paragraph context starts fresh');
+  assert.match(body().textContent,/q1 Fixed passage context/);
+  scroll(280,33);S.selected='q2';renderDetail();
+  assert.deepEqual(position(),[0,0],'Identical source IDs in another question cannot inherit scroll');
+  assert.match(body().textContent,/q2 Fixed passage context/);
+  scroll(205,17);paintInspector();assert.deepEqual(position(),[205,17]);
+  S.research.q2.coverage.assessed_candidates=12;renderDetail();assert.deepEqual(position(),[205,17]);
+  assert.equal(JSON.stringify(graph),paperBefore,'All raw paper passages remain unchanged');
+  assert.equal(JSON.stringify(S.sourceContexts),contextsBefore,'All raw source contexts remain unchanged');
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
