@@ -337,3 +337,104 @@ S.selected='unbound';S.research.unbound={answer:graph};global.document={getEleme
  assert.match(claimInspector(graph,'C2'),/Unbound unique claim/);assert.equal(JSON.stringify(graph),before);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """)
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_empty_evidence_packets_retain_metadata_without_fabricated_verbatim(tmp_path, duplicate):
+    empty = {"id": "E0", "passage_ids": [], "interpretation": "Recorded unbound interpretation.", "relation": "supports"}
+    investigation = {"claims": [{"id": "C0", "text": "Claim linked to empty packet.", "evidence_ids": ["E0"]},
+                                  {"id": "C1", "text": "Bound positive control.", "evidence_ids": ["E1"]}],
+                     "evidence": [empty, *([{"id": "E0", "passage_ids": ["p1"], "relation": "qualifies"}] if duplicate else []),
+                                  {"id": "E1", "passage_ids": ["p2"], "relation": "supports"}]}
+    graph = saved_bundle(tmp_path, investigation)
+    lacks = [i for i in graph["binding_issues"] if i["kind"] == "lacks_verbatim"]
+    assert lacks == [dict(kind="lacks_verbatim", evidence_id="E0", **({"evidence_occurrence": 1} if duplicate else {}))]
+    metadata = next(e for e in graph["evidence"] if e.get("verbatim_status") == "missing")
+    assert metadata["id"] == "E0" and metadata["passage_ids"] == [] and metadata["paragraph_id"] is None
+    assert "quote" not in metadata and "source_id" not in metadata
+    assert graph["claims"][0]["evidence_ids"] == ["E0"]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text().split("## C0", 1)[1].split("## C1", 1)[0]
+    assert "has no recorded verbatim passages" in report
+    assert " / None" not in report and " / ?" not in report
+    assert "Evidence E0 · recorded occurrence 1 · supports" not in report
+    if not duplicate:
+        assert "> " not in report
+    else:
+        assert "Evidence E0 · recorded occurrence 2 · qualifies" in report and "First exact quotation." in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),empty=graph.evidence.find(e=>e.verbatim_status==='missing'),id=empty.navigation_id || empty.id;
+const html=evidenceInspector(graph,id);assert.match(html,/Provenance failure: evidence has no recorded verbatim passages/);
+assert.doesNotMatch(html,/<blockquote>|Exact passage|data-qa-context=|data-qa-source=|data-qa-paper=/);
+const button=qaEvidencePacketButton(qaEvidencePackets(graph,[id])[0]);assert.match(button,/Missing verbatim/);assert.doesNotMatch(button,/1 passage/);
+assert.match(findingHtml(graph,graph.claims[0]),/Provenance failure/);assert.doesNotMatch(findingHtml(graph,graph.claims[1]),/Provenance failure/);
+assert.doesNotMatch(claimInspector(graph,'C0'),/Full paper passage/);
+const stale={...graph,binding_issues:[]};assert.ok(qaClaimBindingIssues(stale,stale.claims[0]).some(i=>i.kind==='lacks_verbatim'));
+const bound=graph.evidence.find(e=>e.origin_evidence_id==='E1');assert.match(evidenceInspector(graph,bound.id),/Second exact quotation\./);
+if(empty.evidence_occurrence) {
+ const all=evidenceInspector(graph,'E0');assert.match(all,/data-evidence-occurrence="1"/);assert.match(all,/data-evidence-occurrence="2"/);
+ const one=all.split('data-evidence-occurrence="1"')[1].split('</section>')[0];assert.doesNotMatch(one,/<blockquote>|data-qa-context=/);
+ assert.match(all.split('data-evidence-occurrence="2"')[1],/First exact quotation\./);
+}
+S.selected='empty-packet';S.research['empty-packet']={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+ await inspectAnswer('evidence',id);assert.equal(S.inspector.sourceId,undefined);assert.equal(S.inspector.evidenceId,id);
+ assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_unbound_executive_assertions_keep_text_with_ui_and_markdown_warning(tmp_path):
+    investigation = {"executive_summary": [{"text": "Unbound recorded assertion.", "claim_ids": []},
+                                            {"text": "Bound positive summary.", "claim_ids": ["C1"]},
+                                            "Legacy assertion without recorded links."],
+                     "claims": [{"id": "C1", "text": "Bound scientific claim.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}]}
+    graph = saved_bundle(tmp_path, investigation)
+    assert [i for i in graph["binding_issues"] if i["kind"] == "lacks_claim_binding"] == [
+        {"kind": "lacks_claim_binding", "summary_index": 1}, {"kind": "lacks_claim_binding", "summary_index": 3}]
+    assert graph["executive_summary"] == investigation["executive_summary"]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    assert json.loads((tmp_path / "run.json").read_text())["status"] == "answered"
+    report = (tmp_path / "answer.md").read_text()
+    assert report.count("Provenance failure: this executive assertion has no recorded claim IDs.") == 2
+    assert "Unbound recorded assertion." in report and "Legacy assertion without recorded links." in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),html=answerHtml({kind:'question',status:'answered'},{answer:graph});
+assert.equal((html.match(/Provenance failure · summary has no recorded claim IDs/g)||[]).length,2);
+assert.match(html,/Unbound recorded assertion/);assert.match(html,/Legacy assertion without recorded links/);
+const bound=html.split('Bound positive summary.')[1].split('</p>')[0];assert.match(bound,/data-qa-claim="C1"/);assert.doesNotMatch(bound,/Provenance failure/);
+const old={...graph,binding_issues:[]};assert.match(answerHtml({kind:'question',status:'answered'},{answer:old}),/summary has no recorded claim IDs/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+def test_uncertainty_mismatch_is_occurrence_scoped_and_never_relabelled_low(tmp_path):
+    claims = [{"id": "C1", "text": "Conflicting recorded uncertainty.", "evidence_ids": ["E1"],
+               "uncertainty": {"class": "high", "score": 1, "rationale": "Original recorded rationale."}},
+              {"id": "C1", "text": "Consistent bound occurrence.", "evidence_ids": ["E1"],
+               "uncertainty": {"class": "low", "score": 1, "rationale": "Consistent original rationale."}},
+              {"id": "C2", "text": "Moderate positive control.", "evidence_ids": ["E1"],
+               "uncertainty": {"class": "moderate", "score": 2, "rationale": "Original moderate rationale."}}]
+    investigation = {"claims": claims, "evidence": [{"id": "E1", "passage_ids": ["p1"]}]}
+    graph = saved_bundle(tmp_path, investigation)
+    assert [i for i in graph["binding_issues"] if i["kind"] == "uncertainty_mismatch"] == [
+        {"kind": "uncertainty_mismatch", "claim_id": "C1", "recorded_class": "high", "recorded_score": 1, "claim_occurrence": 1}]
+    assert [(c["uncertainty_class"], c["uncertainty_score"], c["uncertainty"]) for c in graph["claims"]] == [
+        (c["uncertainty"]["class"], c["uncertainty"]["score"], c["uncertainty"]) for c in claims]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    first, remainder = (tmp_path / "answer.md").read_text().split("## C1 · recorded occurrence 1", 1)[1].split("## C1 · recorded occurrence 2", 1)
+    assert "uncertainty class high conflicts with score 1/3; both values are retained" in first
+    assert "Uncertainty: high (1/3; ordinal)." in first and "Recorded-data inconsistency" not in remainder
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),gauge=uncertaintyGauge(graph.claims[0]);
+assert.match(gauge,/Inconsistent uncertainty · class high · score 1\/3/);assert.doesNotMatch(gauge,/Low uncertainty|class="bar on"/);
+assert.equal((gauge.match(/class="bar off"/g)||[]).length,3);
+assert.match(uncertaintyGauge(graph.claims[1]),/Low uncertainty · 1\/3/);assert.match(uncertaintyGauge(graph.claims[2]),/Moderate uncertainty · 2\/3/);
+assert.deepEqual(graph.claims.map(c=>qaClaimBindingIssues(graph,c).some(i=>i.kind==='uncertainty_mismatch')),[true,false,false]);
+const stale={...graph,binding_issues:[]};assert.ok(qaClaimBindingIssues(stale,stale.claims[0]).some(i=>i.kind==='uncertainty_mismatch'));
+const raw=uncertaintyGauge({uncertainty:{class:'high',score:1,rationale:'Retained'}});assert.match(raw,/class high · score 1\/3/);assert.doesNotMatch(raw,/Low uncertainty/);
+const efficiency=sourceEfficiencyHtml({source_efficiency:{comparisons:[{id:'X1',uncertainty:{class:'high',score:1,rationale:'Recorded efficiency judgment.'}}]}});
+assert.match(efficiency,/Inconsistent uncertainty · class high · score 1\/3/);assert.doesNotMatch(efficiency,/Low uncertainty/);
+assert.equal(JSON.stringify(graph),before);
+""")

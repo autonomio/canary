@@ -161,7 +161,9 @@ def _save_markdown(path: Path, graph: dict):
         elif isinstance(summary, dict):
             lines.extend([str(summary.get("text", "")), "Claims: " + ", ".join(summary.get("claim_ids", [])), ""])
         for issue in _rows(graph.get("binding_issues")):
-            if issue.get("kind") == "missing_summary_claim" and issue.get("summary_index") == summary_index:
+            if issue.get("kind") == "lacks_claim_binding" and issue.get("summary_index") == summary_index:
+                lines.extend(["Provenance failure: this executive assertion has no recorded claim IDs.", ""])
+            elif issue.get("kind") == "missing_summary_claim" and issue.get("summary_index") == summary_index:
                 lines.extend(["Provenance failure: executive summary links missing claim " + str(issue.get("claim_id")), ""])
     checks = {r.get("claim_id"): r for r in _rows(graph.get("source_checks"))}
     evidence = _rows(graph.get("evidence"))
@@ -177,7 +179,12 @@ def _save_markdown(path: Path, graph: dict):
                 issue.get("evidence_id") in claim.get("evidence_ids", [])))
             if not linked or issue.get("claim_occurrence", claim.get("claim_occurrence")) != claim.get("claim_occurrence"):
                 continue
-            if issue.get("kind") == "lacks_evidence":
+            if issue.get("kind") == "lacks_verbatim":
+                occurrence = f" · recorded occurrence {issue['evidence_occurrence']}" if "evidence_occurrence" in issue else ""
+                lines.extend([f"Provenance failure: evidence {issue.get('evidence_id')}{occurrence} has no recorded verbatim passages.", ""])
+            elif issue.get("kind") == "uncertainty_mismatch":
+                lines.extend([f"Recorded-data inconsistency: uncertainty class {issue.get('recorded_class')} conflicts with score {issue.get('recorded_score')}/3; both values are retained.", ""])
+            elif issue.get("kind") == "lacks_evidence":
                 lines.extend(["Provenance failure: this claim has no recorded evidence IDs.", ""])
             elif issue.get("kind") == "missing_evidence":
                 lines.extend(["Provenance failure: missing evidence " + str(issue.get("evidence_id")), ""])
@@ -195,6 +202,8 @@ def _save_markdown(path: Path, graph: dict):
             items = [r for r in evidence if (r.get("origin_evidence_id") == eid if ambiguous else
                                              r.get("navigation_id", r.get("id")) == eid)]
             for item in items:
+                if item.get("verbatim_status") == "missing":
+                    continue  # The metadata-only packet has no quotation or source attribution.
                 span = passages.get(item.get("paragraph_id"), {})
                 occurrence = f" · recorded occurrence {item['evidence_occurrence']}" if "evidence_occurrence" in item else ""
                 lines.extend([f'Evidence {eid}{occurrence} · {item.get("relation", "supports")} · {span.get("source_id", "?")} / {item.get("paragraph_id", "?")}',
@@ -348,6 +357,18 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         ambiguous = identifier in duplicate_evidence_ids
         identifiers = _unique(evidence.get("passage_ids", []))
         evidence_map.setdefault(identifier, [identifier] if ambiguous else [])
+        if not identifiers:
+            issue = {"kind": "lacks_verbatim", "evidence_id": identifier}
+            item = {"id": identifier, "origin_evidence_id": identifier, "paragraph_id": None,
+                    "passage_ids": [], "verbatim_status": "missing",
+                    "interpretation": evidence.get("interpretation", ""), "relation": evidence.get("relation")}
+            if ambiguous:
+                issue["evidence_occurrence"] = occurrence
+                item.update(evidence_occurrence=occurrence, navigation_id=derived_id(f"{identifier}~occurrence{occurrence}.1"))
+            graph["binding_issues"].append(issue)
+            graph["evidence"].append(item)
+            if not ambiguous:
+                evidence_map[identifier].append(identifier)
         for n, pid in enumerate(identifiers, 1):
             span = spans.get(pid)
             if span is None:
@@ -373,6 +394,10 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     raw_claims = _rows(investigation.get("claims"))
     claim_counts = Counter(c.get("id") for c in raw_claims)
     for summary_index, summary in enumerate(graph["executive_summary"], 1):
+        text = summary if isinstance(summary, str) else summary.get("text", "") if isinstance(summary, dict) else ""
+        links = _unique(summary.get("claim_ids", [])) if isinstance(summary, dict) else []
+        if isinstance(text, str) and text.strip() and not links:
+            graph["binding_issues"].append({"kind": "lacks_claim_binding", "summary_index": summary_index})
         if isinstance(summary, dict):
             for identifier in _unique(summary.get("claim_ids", [])):
                 if identifier not in claim_counts:
@@ -413,6 +438,13 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                     issue["claim_occurrence"] = occurrence
                 graph["binding_issues"].append(issue)
         u = claim.get("uncertainty", {})
+        expected_score = {"low": 1, "moderate": 2, "high": 3}.get(u.get("class"))
+        if expected_score is not None and type(u.get("score")) is int and u.get("score") != expected_score:
+            issue = {"kind": "uncertainty_mismatch", "claim_id": identifier,
+                     "recorded_class": u.get("class"), "recorded_score": u.get("score")}
+            if identifier in duplicate_claim_ids:
+                issue["claim_occurrence"] = occurrence
+            graph["binding_issues"].append(issue)
         record = dict(claim, uncertainty_class=u.get("class"), uncertainty_score=u.get("score"),
                       uncertainty_rationale=u.get("rationale", ""),
                       evidence_ids=[eid for key in claim.get("evidence_ids", []) for eid in (evidence_map.get(key) or [key])])
