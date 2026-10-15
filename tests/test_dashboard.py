@@ -5,6 +5,7 @@ from pathlib import Path
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import time
 
@@ -417,3 +418,28 @@ def test_research_live_snapshot_failure_falls_back(server, monkeypatch):
     d = server["client"].get("/api/runs/live2/research").json()
     assert d["live"] is False
     assert d["research"]["seed"] == "?"
+
+
+def test_relative_engine_configuration_launches_from_resolved_checkout(tmp_path):
+    engine = tmp_path / "engine"
+    scripts = engine / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "coverage_run.sh").write_text(
+        '#!/bin/bash\nmkdir -p "$OUT"\nprintf "%s\\n%s\\n%s" "$PWD" "$1" "$2" > "$OUT/launch.txt"\n')
+    probe = """
+import json
+from pathlib import Path
+from canary import dashboard
+supervisor = dashboard.Supervisor(registry=Path('registry.json').resolve(), root=Path('dashboard').resolve())
+started = supervisor.start_question('A question with spaces?')
+process = supervisor.owned.get(started['key'])
+if process is not None:
+    process.wait(timeout=5)
+print(json.dumps({'engine': str(dashboard.QUESTION_ENGINE_ROOT), 'launch': (Path(started['bundle']) / 'launch.txt').read_text()}))
+"""
+    env = dict(os.environ, CANARY_QUESTION_ENGINE_ROOT="engine",
+               PYTHONPATH=str(Path(dashboard.__file__).resolve().parents[1]))
+    result = subprocess.run([sys.executable, "-c", probe], cwd=tmp_path, env=env,
+                            check=True, capture_output=True, text=True, timeout=10)
+    payload = json.loads(result.stdout)
+    assert payload == {"engine": str(engine), "launch": str(engine) + "\nask\nA question with spaces?"}

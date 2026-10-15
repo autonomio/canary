@@ -231,8 +231,9 @@ def scenario_maintenance_refusal(out: Path) -> dict:
 def scenario_maintenance_logic(out: Path) -> dict:
     files = ["tests/test_schedule.py", "tests/test_promotion.py",
              "tests/test_changeset.py", "tests/test_evalgate.py"]
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "src"))
     proc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-m", "not live", *files],
-                          cwd=ROOT, capture_output=True, text=True, timeout=600)
+                          cwd=ROOT, capture_output=True, text=True, timeout=600, env=env)
     (out / "pytest.log").write_text(proc.stdout[-8000:] + proc.stderr[-2000:],
                                     encoding="utf-8")
     tail = [ln for ln in proc.stdout.splitlines() if "passed" in ln or "failed" in ln]
@@ -420,6 +421,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Deterministic offline acceptance.")
     ap.add_argument("--out", default=None, help="output dir (default acceptance/<date>)")
     args = ap.parse_args(argv)
+    # Use this interpreter's check tools even when launched without activation.
+    os.environ["PATH"] = str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", "")
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     out = Path(args.out) if args.out else ROOT / "acceptance" / day
     out.mkdir(parents=True, exist_ok=True)

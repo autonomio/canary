@@ -1,0 +1,958 @@
+"""Recorded provenance survives ID collisions and broken typed result links."""
+import json
+
+import pytest
+
+from canary.coverage_export import export_bundle
+from test_coverage_evidence_ui import run_dashboard
+
+
+def saved_bundle(path, investigation):
+    references, spans = [], []
+    for sid, rows in (("R1", [("p1", "First exact quotation."), ("p2", "Second exact quotation.")]),
+                      ("R2", [("p3", "Different paper quotation."), ("p4", "Reserved suffix quotation.")])):
+        text = "\n".join(quote for _, quote in rows)
+        for directory in ("texts", "papers", "passages"):
+            (path / directory).mkdir(exist_ok=True)
+        (path / f"texts/{sid}.txt").write_text(text)
+        (path / f"papers/{sid}.pdf").write_bytes(b"Synthetic saved complete body " + sid.encode())
+        cursor, records = 0, []
+        for pid, quote in rows:
+            record = {"id": pid, "reference_id": sid, "text": quote, "start": cursor, "end": cursor + len(quote)}
+            records.append(record); spans.append(record); cursor += len(quote) + 1
+        (path / f"passages/{sid}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records))
+        references.append({"id": sid, "title": f"Saved paper {sid}", "doi": f"10.9999/{sid}",
+                           "file": f"papers/{sid}.pdf", "text_file": f"texts/{sid}.txt"})
+    (path / "references.json").write_text(json.dumps(references))
+    (path / "investigation.json").write_text(json.dumps(investigation))
+    (path / "run.json").write_text(json.dumps({"question": "Synthetic question?", "status": "complete"}))
+    return export_bundle(path)["answer"]
+
+
+def test_multi_passage_ids_cannot_capture_a_distinct_recorded_evidence_id(tmp_path):
+    investigation = {"claims": [{"id": "C1", "text": "Multi-passage claim.", "evidence_ids": ["E1"]},
+                                  {"id": "C2", "text": "Separate canonical packet claim.", "evidence_ids": ["E1.1"]},
+                                  {"id": "C3", "text": "Reserved suffix claim.", "evidence_ids": ["E1.1~1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1", "p2"]},
+                                  {"id": "E1.1", "passage_ids": ["p3"]},
+                                  {"id": "E1.1~1", "passage_ids": ["p4"]}]}
+    graph = saved_bundle(tmp_path, investigation)
+    evidence = {r["id"]: r for r in graph["evidence"]}
+    assert len(evidence) == len(graph["evidence"]) == 4
+    assert graph["claims"][1]["evidence_ids"] == ["E1.1"]
+    assert graph["claims"][2]["evidence_ids"] == ["E1.1~1"]
+    assert evidence["E1.1"]["paragraph_id"] == "p3"
+    assert evidence["E1.1~1"]["paragraph_id"] == "p4"
+    assert [evidence[e]["paragraph_id"] for e in graph["claims"][0]["evidence_ids"]] == ["p1", "p2"]
+    assert all(evidence[e]["origin_evidence_id"] == "E1" for e in graph["claims"][0]["evidence_ids"])
+    assert export_bundle(tmp_path)["answer"]["evidence"] == graph["evidence"], "Derived IDs must remain deterministic"
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text().split("## C2", 1)[1].split("## C3", 1)[0]
+    assert "Different paper quotation." in report and "First exact quotation." not in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),packet=qaEvidencePackets(graph,graph.claims[0].evidence_ids)[0];
+assert.equal(packet.evidence.length,2);
+assert.equal(qaEvidencePackets(graph,graph.claims[1].evidence_ids)[0].originId,'E1.1');
+assert.equal(qaLinks(graph,'E1.1').reference.id,'R2');
+assert.match(evidenceInspector(graph,'E1.1'),/Different paper quotation\./);
+assert.doesNotMatch(evidenceInspector(graph,'E1.1'),/First exact quotation\./);
+for(const e of packet.evidence) assert.equal(qaLinks(graph,e.id).reference.id,'R1');
+S.selected='collision';S.research.collision={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+  await inspectAnswer('claim','C2');await inspectAnswer('evidence','E1.1');
+  assert.equal(S.inspector.sourceId,'R2');assert.equal(S.inspector.claimId,'C2');
+  assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_duplicate_study_results_retain_distinct_measurements_and_sources(tmp_path):
+    investigation = {"claims": [{"id": "C1", "text": "Recorded ambiguous comparison.", "study_result_ids": ["SR1"]},
+                                  {"id": "C2", "text": "Unique comparison.", "study_result_ids": ["SR2"], "evidence_ids": ["E2"]}],
+                     "evidence": [{"id": "E2", "passage_ids": ["p2"]}],
+                     "study_results": [{"id": "SR1", "reference_ids": ["R1"], "result_type": "measured",
+                                        "fields": {"value": {"text": "11 percent", "passage_ids": ["p1"]}}},
+                                       {"id": "SR1", "reference_ids": ["R2"], "result_type": "measured",
+                                        "fields": {"value": {"text": "23 percent", "passage_ids": ["p3"]}}},
+                                       {"id": "SR2", "reference_ids": ["R1"], "result_type": "measured",
+                                        "fields": {"value": {"text": "Unique 7 percent", "passage_ids": ["p2"]}}}]}
+    graph = saved_bundle(tmp_path, investigation)
+    assert [r["id"] for r in graph["study_results"]] == ["SR1", "SR1", "SR2"]
+    assert [r.get("study_result_occurrence") for r in graph["study_results"]] == [1, 2, None]
+    assert [r["fields"]["value"]["value"] for r in graph["study_results"]] == ["11 percent", "23 percent", "Unique 7 percent"]
+    issue = next(i for i in graph["binding_issues"] if i["kind"] == "duplicate_study_result_id")
+    assert issue["study_result_id"] == "SR1" and issue["record_count"] == 2
+    assert graph["claims"][0]["study_result_ids"] == ["SR1"]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    assert "Provenance failure: duplicate study result ID SR1; the linked measurement is ambiguous." in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),links=qaStudyLinks(graph,'SR1');
+assert.equal(links.record,null);assert.equal(links.reference,null);assert.equal(links.records.length,2);
+assert.match(findingHtml(graph,graph.claims[0]),/Provenance failure/);
+assert.doesNotMatch(findingHtml(graph,graph.claims[1]),/Provenance failure/);
+const html=studyResultInspector(graph,'SR1');assert.match(html,/Ambiguous study result ID/);
+const first=html.split('data-study-occurrence="1"')[1].split('</section>')[0];
+const second=html.split('data-study-occurrence="2"')[1].split('</section>')[0];
+assert.match(first,/11 percent/);assert.match(first,/data-qa-passage="p1"/);assert.match(first,/10\.9999\/R1/);
+assert.doesNotMatch(first,/23 percent|data-qa-passage="p3"|10\.9999\/R2/);
+assert.match(second,/23 percent/);assert.match(second,/data-qa-passage="p3"/);assert.match(second,/10\.9999\/R2/);
+assert.doesNotMatch(second,/11 percent|data-qa-passage="p1"|10\.9999\/R1/);
+assert.equal(qaStudyLinks(graph,'SR2').record.fields.value.value,'Unique 7 percent');
+S.selected='results';S.research.results={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+  await inspectAnswer('study','SR1',{claimId:'C1'});assert.equal(S.inspector.sourceId,undefined);
+  assert.equal(S.inspector.studyResultId,'SR1');assert.equal(S.inspector.claimId,'C1');
+  await inspectAnswer('passage','p3',{studyResultId:'SR1',fieldName:'Value'});
+  assert.equal(S.inspector.sourceId,'R2');assert.equal(S.inspector.studyResultId,'SR1');
+  await inspectAnswer('study','SR2',{claimId:'C2'});assert.equal(S.inspector.sourceId,'R1');
+  assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_unknown_study_result_links_are_retained_and_occurrence_scoped(tmp_path):
+    investigation = {"claims": [{"id": "C1", "text": "Affected recorded occurrence.", "study_result_ids": ["SR_missing"]},
+                                  {"id": "C1", "text": "Clean recorded occurrence.", "study_result_ids": []},
+                                  {"id": "C2", "text": "Unaffected unique claim.", "study_result_ids": []}]}
+    graph = saved_bundle(tmp_path, investigation)
+    missing = [i for i in graph["binding_issues"] if i["kind"] == "missing_study_result"]
+    assert missing == [{"kind": "missing_study_result", "claim_id": "C1", "study_result_id": "SR_missing", "claim_occurrence": 1}]
+    assert graph["claims"][0]["study_result_ids"] == ["SR_missing"]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    first, remainder = report.split("## C1 · recorded occurrence 1", 1)[1].split("## C1 · recorded occurrence 2", 1)
+    assert "Provenance failure: missing study result SR_missing" in first
+    assert "missing study result" not in remainder
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph);
+assert.ok(qaClaimBindingIssues(graph,graph.claims[0]).some(i=>i.kind==='missing_study_result'));
+assert.ok(!qaClaimBindingIssues(graph,graph.claims[1]).some(i=>i.kind==='missing_study_result'));
+assert.match(findingHtml(graph,graph.claims[0]),/data-qa-study="SR_missing"/);
+assert.match(claimInspector(graph,'C1'),/No saved study-result record matches this ID/);
+assert.match(studyResultInspector(graph,'SR_missing'),/Provenance failure: study result not recorded/);
+assert.doesNotMatch(studyResultInspector(graph,'SR_missing'),/data-qa-passage=/);
+S.selected='missing';S.research.missing={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+  await inspectAnswer('claim','C1');await inspectAnswer('study','SR_missing',{claimId:'C1'});
+  assert.equal(S.inspector.kind,'study');assert.equal(S.inspector.studyResultId,'SR_missing');
+  assert.equal(S.inspector.sourceId,undefined);assert.equal(S.inspector.claimId,'C1');
+  assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+@pytest.mark.parametrize("first_passages", [["p1"], ["p1", "p2"]])
+def test_duplicate_evidence_keeps_all_occurrences_with_distinct_navigation(tmp_path, first_passages):
+    investigation = {"claims": [{"id": "C1", "text": "Ambiguous ID-only evidence link.", "evidence_ids": ["E_same"]},
+                                  {"id": "C2", "text": "Unique evidence link.", "evidence_ids": ["E_unique"]}],
+                     "evidence": [{"id": "E_same", "passage_ids": first_passages, "interpretation": "First recorded interpretation.", "relation": "supports"},
+                                  {"id": "E_same", "passage_ids": ["p3"], "interpretation": "Second recorded interpretation.", "relation": "contradicts"},
+                                  {"id": "E_unique", "passage_ids": ["p4"], "relation": "supports"}]}
+    graph = saved_bundle(tmp_path, investigation)
+    duplicate = [e for e in graph["evidence"] if e["origin_evidence_id"] == "E_same"]
+    assert graph["claims"][0]["evidence_ids"] == ["E_same"], "An ambiguous ID must not be assigned to one packet"
+    assert len(duplicate) == len(first_passages) + 1
+    assert [e["evidence_occurrence"] for e in duplicate] == [1] * len(first_passages) + [2]
+    assert len({e["navigation_id"] for e in duplicate}) == len(duplicate)
+    if len(first_passages) == 1:
+        assert [e["id"] for e in duplicate] == ["E_same", "E_same"], "Canonical IDs must survive"
+    assert graph["binding_issues"][0]["kind"] == "duplicate_evidence_id"
+    assert graph["binding_issues"][0]["record_count"] == 2
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text().split("## C1", 1)[1].split("## C2", 1)[0]
+    assert "Provenance failure: duplicate evidence ID E_same" in report
+    assert "recorded occurrence 1" in report and "recorded occurrence 2" in report
+    assert "First exact quotation." in report and "Different paper quotation." in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),links=qaLinks(graph,'E_same');
+assert.equal(links.ambiguous,true);assert.equal(links.evidence,null);assert.equal(links.reference,null);
+assert.match(findingHtml(graph,graph.claims[0]),/Provenance failure/);
+assert.doesNotMatch(findingHtml(graph,graph.claims[1]),/Provenance failure/);
+assert.equal(qaEvidencePackets(graph,graph.claims[0].evidence_ids)[0].id,'E_same');
+const html=evidenceInspector(graph,'E_same');assert.match(html,/Ambiguous evidence ID/);
+const first=html.split('data-evidence-occurrence="1"')[1].split('</section>')[0];
+const second=html.split('data-evidence-occurrence="2"')[1].split('</section>')[0];
+assert.match(first,/First exact quotation\./);assert.doesNotMatch(first,/Different paper quotation\./);
+assert.match(second,/Different paper quotation\./);assert.doesNotMatch(second,/First exact quotation\./);
+const occurrences=graph.evidence.filter(e=>e.origin_evidence_id==='E_same');
+for(const e of occurrences) {const x=qaLinks(graph,e.navigation_id);assert.equal(x.ambiguous,false);assert.equal(x.evidence,e);assert.equal(x.reference.id,e.evidence_occurrence===1 ? 'R1':'R2');}
+S.selected='occurrences';S.research.occurrences={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+  await inspectAnswer('evidence','E_same');assert.equal(S.inspector.sourceId,undefined);
+  for(const e of occurrences) {await inspectAnswer('evidence',e.navigation_id);assert.equal(S.inspector.sourceId,e.evidence_occurrence===1 ? 'R1':'R2');}
+  assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_unknown_typed_evidence_links_never_capture_generated_passages(tmp_path):
+    investigation = {"claims": [{"id": "C1", "text": "Actual packet claim.", "evidence_ids": ["E1"]},
+                                  {"id": "C2", "text": "Missing packet claim.", "evidence_ids": ["E1.1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1", "p2"]}],
+                     "gaps": [{"id": "G1", "description": "Recorded gap.", "evidence_ids": ["E1.2"]}],
+                     "residue": [{"id": "Z1", "observation": "Recorded residue.", "evidence_ids": ["E1.1~1"]}],
+                     "contradictions": [{"id": "D1", "description": "Recorded contradiction.", "evidence_ids": ["E1.2~1"]}]}
+    graph = saved_bundle(tmp_path, investigation)
+    missing_ids = {"E1.1", "E1.2", "E1.1~1", "E1.2~1"}
+    assert not missing_ids.intersection(e["id"] for e in graph["evidence"])
+    assert graph["claims"][1]["evidence_ids"] == ["E1.1"]
+    assert any(i["kind"] == "missing_evidence" and i["claim_id"] == "C2" for i in graph["binding_issues"])
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text().split("## C2", 1)[1].split("## Contradictions", 1)[0]
+    assert "Provenance failure: missing evidence E1.1" in report
+    assert "exact quotation" not in report.lower()
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph);
+assert.equal(qaLinks(graph,undefined).evidence,null);assert.equal(qaLinks(graph,null).evidence,null);
+const stale={...graph,evidence:[...graph.evidence,{id:'E1.1',origin_evidence_id:'E1',paragraph_id:'p1',quote:'First exact quotation.'}]};
+assert.equal(qaLinks(stale,'E1.1').evidence,null,'A recorded missing ID must not resolve to an old derived-ID collision');
+assert.doesNotMatch(evidenceInspector(stale,'E1.1'),/<blockquote>|data-qa-context=/);
+for(const id of ['E1.1','E1.2','E1.1~1','E1.2~1']) {
+ assert.equal(qaLinks(graph,id).evidence,null);assert.equal(qaLinks(graph,id).reference,null);
+ assert.match(evidenceInspector(graph,id),/Provenance failure: evidence not recorded/);
+ assert.doesNotMatch(evidenceInspector(graph,id),/<blockquote>|data-qa-context=/);
+}
+assert.match(findingHtml(graph,graph.claims[1]),/Provenance failure/);
+S.selected='missing-evidence';S.research['missing-evidence']={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+ for(const id of ['E1.1','E1.2','E1.1~1','E1.2~1']) {await inspectAnswer('evidence',id);assert.equal(S.inspector.evidenceId,id);assert.equal(S.inspector.sourceId,undefined);}
+ assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_nullable_study_fields_preserve_committed_references_and_saved_papers(tmp_path):
+    investigation = {"claims": [{"id": "C1", "text": "Recorded qualitative result.", "study_result_ids": ["SR1"]}],
+                     "study_results": [{"id": "SR1", "reference_ids": ["R2"], "result_type": "qualitative",
+                                        "fields": {"value": None, "reported_uncertainty": None}}]}
+    graph = saved_bundle(tmp_path, investigation)
+    assert graph["passages"] == []
+    assert [r["id"] for r in graph["references"]] == ["R2"]
+    assert graph["references"][0]["paper"]["extra"]["local_file"] == "papers/R2.pdf"
+    assert (tmp_path / "papers/R2.txt").is_file()
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    assert "R2 · Saved paper R2 · 10.9999/R2" in (tmp_path / "answer.md").read_text()
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),x=qaStudyLinks(graph,'SR1');assert.equal(x.reference.id,'R2');
+const html=studyResultInspector(graph,'SR1');assert.match(html,/10\.9999\/R2/);assert.match(html,/Not extracted/);assert.match(html,/data-qa-paper="R2"/);
+S.selected='nullable';S.research.nullable={answer:graph};global.document={getElementById:()=>null};
+S.sourceContexts={};S.sourceContexts[contextKey('R2',null,'paper')]={paragraphs:[],context_label:'Saved paper'};
+global.fetch=()=>{throw new Error('The saved paper context is already committed');};
+(async()=>{
+ await inspectAnswer('study','SR1');assert.equal(S.inspector.sourceId,'R2');
+ await inspectAnswer('paper','R2');assert.equal(S.inspector.sourceId,'R2');assert.equal(S.inspector.scope,'paper');
+ assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_unknown_summary_claim_retains_assertion_and_opens_failure_inspector(tmp_path):
+    investigation = {"executive_summary": [{"text": "Recorded summary with broken provenance.", "claim_ids": ["C1", "C_missing"]},
+                                            {"text": "Intact summary.", "claim_ids": ["C1"]}],
+                     "claims": [{"id": "C1", "text": "Existing recorded claim.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}]}
+    graph = saved_bundle(tmp_path, investigation)
+    assert graph["executive_summary"] == investigation["executive_summary"]
+    assert [i for i in graph["binding_issues"] if i["kind"] == "missing_summary_claim"] == [
+        {"kind": "missing_summary_claim", "summary_index": 1, "claim_id": "C_missing"}]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    assert "Provenance failure: executive summary links missing claim C_missing" in (tmp_path / "answer.md").read_text()
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),html=answerHtml({key:'summary',kind:'question',status:'answered'},{answer:graph});
+assert.match(html,/Recorded summary with broken provenance\./);assert.match(html,/data-qa-claim="C_missing"/);
+assert.equal((html.match(/Provenance failure · missing claim link/g)||[]).length,1);
+const missing=claimInspector(graph,'C_missing');assert.match(missing,/Provenance failure: claim not recorded/);
+assert.match(missing,/Recorded summary with broken provenance/);assert.doesNotMatch(missing,/data-qa-evidence=/);
+assert.match(claimInspector(graph,'C1'),/Existing recorded claim/);
+S.selected='summary';S.research.summary={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+ await inspectAnswer('claim','C_missing');assert.equal(S.inspector.claimId,'C_missing');assert.equal(S.inspector.kind,'claim');
+ await inspectAnswer('claim','C1');assert.equal(S.inspector.claimId,'C1');assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+@pytest.mark.parametrize("section", ["gaps", "contradictions", "residue"])
+def test_missing_context_claim_links_keep_recorded_text_and_open_failure(tmp_path, section):
+    broken = {"id": "X1", "description": "Recorded gap or contradiction.", "observation": "Recorded residue.",
+              "claim_ids": ["C1", "C_missing"], "evidence_ids": ["E1"]}
+    intact = {"id": "X2", "description": "Intact context.", "claim_ids": ["C1"], "evidence_ids": ["E1"]}
+    investigation = {"claims": [{"id": "C1", "text": "Existing bound claim.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}], section: [broken, intact]}
+    graph = saved_bundle(tmp_path, investigation)
+    issues = [i for i in graph["binding_issues"] if i["kind"] == "missing_linked_claim"]
+    assert issues == [{"kind": "missing_linked_claim", "section": section, "record_id": "X1", "record_index": 1, "claim_id": "C_missing"}]
+    assert graph[section] == [broken, intact]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    assert f"Provenance failure: missing claim C_missing in {section} record X1." in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),html=researchStructureHtml(graph);
+assert.match(html,/data-qa-claim="C_missing"/);assert.match(html,/Provenance failure · missing claim link/);
+assert.equal((html.match(/Provenance failure · missing claim link/g)||[]).length,1);
+const missing=claimInspector(graph,'C_missing');assert.match(missing,/Provenance failure: claim not recorded/);
+assert.match(missing,/Linked (gaps|contradictions|residue) · X1/);assert.match(missing,/Recorded gap or contradiction/);
+assert.doesNotMatch(missing,/data-qa-evidence=/);
+S.selected='context';S.research.context={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+ await inspectAnswer('claim','C_missing');assert.equal(S.inspector.kind,'claim');assert.equal(S.inspector.claimId,'C_missing');
+ await inspectAnswer('claim','C1');assert.equal(S.inspector.claimId,'C1');
+ assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_evidence_empty_claims_warn_without_gating_or_changing_recorded_occurrences(tmp_path):
+    claims = [{"id": "C1", "text": "Unbound first occurrence.", "evidence_ids": []},
+              {"id": "C1", "text": "Bound second occurrence.", "evidence_ids": ["E1"]},
+              {"id": "C2", "text": "Unbound unique claim.", "evidence_ids": []},
+              {"id": "C3", "text": "Intact bound claim.", "evidence_ids": ["E1"]}]
+    investigation = {"claims": claims, "evidence": [{"id": "E1", "passage_ids": ["p1"]}]}
+    graph = saved_bundle(tmp_path, investigation)
+    assert [i for i in graph["binding_issues"] if i["kind"] == "lacks_evidence"] == [
+        {"kind": "lacks_evidence", "claim_id": "C1", "claim_occurrence": 1},
+        {"kind": "lacks_evidence", "claim_id": "C2"}]
+    assert [(c["id"], c["text"], c["evidence_ids"]) for c in graph["claims"]] == [(c["id"], c["text"], c["evidence_ids"]) for c in claims]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    assert json.loads((tmp_path / "run.json").read_text())["status"] == "answered"
+    report = (tmp_path / "answer.md").read_text()
+    first, remainder = report.split("## C1 · recorded occurrence 1", 1)[1].split("## C1 · recorded occurrence 2", 1)
+    second, remainder = remainder.split("## C2", 1)
+    unique, intact = remainder.split("## C3", 1)
+    assert "Provenance failure: this claim has no recorded evidence IDs." in first and "exact quotation" not in first.lower()
+    assert "no recorded evidence IDs" not in second and "First exact quotation." in second
+    assert "no recorded evidence IDs" in unique and "no recorded evidence IDs" not in intact
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),lacks=c=>qaClaimBindingIssues(graph,c).some(i=>i.kind==='lacks_evidence');
+assert.deepEqual(graph.claims.map(lacks),[true,false,true,false]);
+assert.match(findingHtml(graph,graph.claims[2]),/Provenance failure · details/);
+assert.doesNotMatch(findingHtml(graph,graph.claims[3]),/Provenance failure/);
+const inspector=claimInspector(graph,'C1'),one=inspector.split('data-claim-occurrence="1"')[1].split('</section>')[0],two=inspector.split('data-claim-occurrence="2"')[1].split('</section>')[0];
+assert.match(one,/This claim has no recorded evidence IDs\./);assert.doesNotMatch(two,/no recorded evidence IDs/);
+const stale={...graph,binding_issues:[]};assert.ok(qaClaimBindingIssues(stale,stale.claims[2]).some(i=>i.kind==='lacks_evidence'));
+S.selected='unbound';S.research.unbound={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+ await inspectAnswer('claim','C2');assert.equal(S.inspector.claimId,'C2');
+ assert.match(claimInspector(graph,'C2'),/Unbound unique claim/);assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_empty_evidence_packets_retain_metadata_without_fabricated_verbatim(tmp_path, duplicate):
+    empty = {"id": "E0", "passage_ids": [], "interpretation": "Recorded unbound interpretation.", "relation": "supports"}
+    investigation = {"claims": [{"id": "C0", "text": "Claim linked to empty packet.", "evidence_ids": ["E0"]},
+                                  {"id": "C1", "text": "Bound positive control.", "evidence_ids": ["E1"]}],
+                     "evidence": [empty, *([{"id": "E0", "passage_ids": ["p1"], "relation": "qualifies"}] if duplicate else []),
+                                  {"id": "E1", "passage_ids": ["p2"], "relation": "supports"}]}
+    graph = saved_bundle(tmp_path, investigation)
+    lacks = [i for i in graph["binding_issues"] if i["kind"] == "lacks_verbatim"]
+    assert lacks == [dict(kind="lacks_verbatim", evidence_id="E0", **({"evidence_occurrence": 1} if duplicate else {}))]
+    metadata = next(e for e in graph["evidence"] if e.get("verbatim_status") == "missing")
+    assert metadata["id"] == "E0" and metadata["passage_ids"] == [] and metadata["paragraph_id"] is None
+    assert "quote" not in metadata and "source_id" not in metadata
+    assert graph["claims"][0]["evidence_ids"] == ["E0"]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text().split("## C0", 1)[1].split("## C1", 1)[0]
+    assert "has no recorded verbatim passages" in report
+    assert " / None" not in report and " / ?" not in report
+    assert "Evidence E0 · recorded occurrence 1 · supports" not in report
+    if not duplicate:
+        assert "> " not in report
+    else:
+        assert "Evidence E0 · recorded occurrence 2 · qualifies" in report and "First exact quotation." in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),empty=graph.evidence.find(e=>e.verbatim_status==='missing'),id=empty.navigation_id || empty.id;
+const html=evidenceInspector(graph,id);assert.match(html,/Provenance failure: evidence has no recorded verbatim passages/);
+assert.doesNotMatch(html,/<blockquote>|Exact passage|data-qa-context=|data-qa-source=|data-qa-paper=/);
+const button=qaEvidencePacketButton(qaEvidencePackets(graph,[id])[0]);assert.match(button,/Missing verbatim/);assert.doesNotMatch(button,/1 passage/);
+assert.match(findingHtml(graph,graph.claims[0]),/Provenance failure/);assert.doesNotMatch(findingHtml(graph,graph.claims[1]),/Provenance failure/);
+assert.doesNotMatch(claimInspector(graph,'C0'),/Full paper passage/);
+const stale={...graph,binding_issues:[]};assert.ok(qaClaimBindingIssues(stale,stale.claims[0]).some(i=>i.kind==='lacks_verbatim'));
+const bound=graph.evidence.find(e=>e.origin_evidence_id==='E1');assert.match(evidenceInspector(graph,bound.id),/Second exact quotation\./);
+if(empty.evidence_occurrence) {
+ const all=evidenceInspector(graph,'E0');assert.match(all,/data-evidence-occurrence="1"/);assert.match(all,/data-evidence-occurrence="2"/);
+ const one=all.split('data-evidence-occurrence="1"')[1].split('</section>')[0];assert.doesNotMatch(one,/<blockquote>|data-qa-context=/);
+ assert.match(all.split('data-evidence-occurrence="2"')[1],/First exact quotation\./);
+}
+S.selected='empty-packet';S.research['empty-packet']={answer:graph};global.document={getElementById:()=>null};
+(async()=>{
+ await inspectAnswer('evidence',id);assert.equal(S.inspector.sourceId,undefined);assert.equal(S.inspector.evidenceId,id);
+ assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_unbound_executive_assertions_keep_text_with_ui_and_markdown_warning(tmp_path):
+    investigation = {"executive_summary": [{"text": "Unbound recorded assertion.", "claim_ids": []},
+                                            {"text": "Bound positive summary.", "claim_ids": ["C1"]},
+                                            "Legacy assertion without recorded links."],
+                     "claims": [{"id": "C1", "text": "Bound scientific claim.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}]}
+    graph = saved_bundle(tmp_path, investigation)
+    assert [i for i in graph["binding_issues"] if i["kind"] == "lacks_claim_binding"] == [
+        {"kind": "lacks_claim_binding", "summary_index": 1}, {"kind": "lacks_claim_binding", "summary_index": 3}]
+    assert graph["executive_summary"] == investigation["executive_summary"]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    assert json.loads((tmp_path / "run.json").read_text())["status"] == "answered"
+    report = (tmp_path / "answer.md").read_text()
+    assert report.count("Provenance failure: this executive assertion has no recorded claim IDs.") == 2
+    assert "Unbound recorded assertion." in report and "Legacy assertion without recorded links." in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),html=answerHtml({kind:'question',status:'answered'},{answer:graph});
+assert.equal((html.match(/Provenance failure · summary has no recorded claim IDs/g)||[]).length,2);
+assert.match(html,/Unbound recorded assertion/);assert.match(html,/Legacy assertion without recorded links/);
+const bound=html.split('Bound positive summary.')[1].split('</p>')[0];assert.match(bound,/data-qa-claim="C1"/);assert.doesNotMatch(bound,/Provenance failure/);
+const old={...graph,binding_issues:[]};assert.match(answerHtml({kind:'question',status:'answered'},{answer:old}),/summary has no recorded claim IDs/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+def test_uncertainty_mismatch_is_occurrence_scoped_and_never_relabelled_low(tmp_path):
+    claims = [{"id": "C1", "text": "Conflicting recorded uncertainty.", "evidence_ids": ["E1"],
+               "uncertainty": {"class": "high", "score": 1, "rationale": "Original recorded rationale."}},
+              {"id": "C1", "text": "Consistent bound occurrence.", "evidence_ids": ["E1"],
+               "uncertainty": {"class": "low", "score": 1, "rationale": "Consistent original rationale."}},
+              {"id": "C2", "text": "Moderate positive control.", "evidence_ids": ["E1"],
+               "uncertainty": {"class": "moderate", "score": 2, "rationale": "Original moderate rationale."}}]
+    investigation = {"claims": claims, "evidence": [{"id": "E1", "passage_ids": ["p1"]}]}
+    graph = saved_bundle(tmp_path, investigation)
+    assert [i for i in graph["binding_issues"] if i["kind"] == "uncertainty_mismatch"] == [
+        {"kind": "uncertainty_mismatch", "claim_id": "C1", "recorded_class": "high", "recorded_score": 1, "claim_occurrence": 1}]
+    assert [(c["uncertainty_class"], c["uncertainty_score"], c["uncertainty"]) for c in graph["claims"]] == [
+        (c["uncertainty"]["class"], c["uncertainty"]["score"], c["uncertainty"]) for c in claims]
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    first, remainder = (tmp_path / "answer.md").read_text().split("## C1 · recorded occurrence 1", 1)[1].split("## C1 · recorded occurrence 2", 1)
+    assert "uncertainty class high conflicts with score 1/3; both values are retained" in first
+    assert "Uncertainty: high (1/3; ordinal)." in first and "Recorded-data inconsistency" not in remainder
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),gauge=uncertaintyGauge(graph.claims[0]);
+assert.match(gauge,/Inconsistent uncertainty · class high · score 1\/3/);assert.doesNotMatch(gauge,/Low uncertainty|class="bar on"/);
+assert.equal((gauge.match(/class="bar off"/g)||[]).length,3);
+assert.match(uncertaintyGauge(graph.claims[1]),/Low uncertainty · 1\/3/);assert.match(uncertaintyGauge(graph.claims[2]),/Moderate uncertainty · 2\/3/);
+assert.deepEqual(graph.claims.map(c=>qaClaimBindingIssues(graph,c).some(i=>i.kind==='uncertainty_mismatch')),[true,false,false]);
+const stale={...graph,binding_issues:[]};assert.ok(qaClaimBindingIssues(stale,stale.claims[0]).some(i=>i.kind==='uncertainty_mismatch'));
+const raw=uncertaintyGauge({uncertainty:{class:'high',score:1,rationale:'Retained'}});assert.match(raw,/class high · score 1\/3/);assert.doesNotMatch(raw,/Low uncertainty/);
+const efficiency=sourceEfficiencyHtml({source_efficiency:{comparisons:[{id:'X1',uncertainty:{class:'high',score:1,rationale:'Recorded efficiency judgment.'}}]}});
+assert.match(efficiency,/Inconsistent uncertainty · class high · score 1\/3/);assert.doesNotMatch(efficiency,/Low uncertainty/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+@pytest.mark.parametrize("first_role,later_role,duplicate_version", [
+    ("core", "supporting", False), ("supporting", "core", False), ("core", "supporting", True)])
+def test_review_count_matches_actual_audit_binder_and_keeps_full_ledger(tmp_path, first_role, later_role, duplicate_version):
+    import hashlib
+    from canary.coverage_runtime import bind_payload
+    investigation = {"claims": [{"id": "C1", "text": "Bound synthetic finding.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}]}
+    saved_bundle(tmp_path, investigation)
+    refs = json.loads((tmp_path / "references.json").read_text())
+    for ref in refs:
+        ref["body_sha256"] = hashlib.sha256((tmp_path / ref["file"]).read_bytes()).hexdigest()
+        ref["text_sha256"] = hashlib.sha256((tmp_path / ref["text_file"]).read_bytes()).hexdigest()
+    if duplicate_version:
+        refs[1]["doi"] = refs[0]["doi"]
+    (tmp_path / "references.json").write_text(json.dumps(refs))
+    (tmp_path / "download-receipts").mkdir()
+    for ref in refs:
+        (tmp_path / "download-receipts" / (ref["id"] + ".json")).write_text(json.dumps({"reference": ref}))
+    def review(work, role, note):
+        return {"work_id": work, "eligibility": role, "substantive_review_note": note,
+                "passage_ids_read": ["p1" if work == "R1" else "p3"], "investigated_sections": ["Results"]}
+    target = "R2" if duplicate_version else "R1"
+    reviews = [review("R1", "supporting" if duplicate_version else "excluded", "Initial retained ledger record."),
+               review(target, first_role, "First eligible target review."),
+               review(target, later_role, "Later conflicting target review.")]
+    (tmp_path / "reviewed-papers.json").write_text(json.dumps(reviews))
+    (tmp_path / "selection.json").write_text(json.dumps({"selected_for_review_ids": ["R1", "R2"]}))
+    (tmp_path / "question-plan.json").write_text(json.dumps({"question": "Synthetic question?"}))
+    run = json.loads((tmp_path / "run.json").read_text()); run["minimum_papers"] = 1
+    (tmp_path / "run.json").write_text(json.dumps(run))
+    audit_input = bind_payload(tmp_path)
+    result = export_bundle(tmp_path); graph = result["answer"]; counts = result["coverage"]
+    assert counts["reviewed_papers"] == audit_input["accounting"]["substantively_reviewed_publications"] == 1
+    assert counts["core_papers"] == audit_input["accounting"]["core_publications"]
+    assert counts["supporting_papers"] == audit_input["accounting"]["supporting_publications"]
+    assert counts["review_record_issues"] == [{"kind": "duplicate_review_record", "work_id": target,
+        "record_count": 2, "counted_record_index": None if duplicate_version else 2,
+        "eligible_record_indices": [2, 3], "retained_record_index": 2}]
+    if not duplicate_version:
+        reference = next(r for r in graph["references"] if r["id"] == target)
+        assert reference["review"] == reviews[1] and reference["role"] == first_role
+    assert json.loads((tmp_path / "reviewed-papers.json").read_text()) == reviews
+    assert json.loads((tmp_path / "paper-selection.json").read_text())["reviewed_papers"] == reviews
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    run_dashboard(tmp_path, graph, "const reviews=" + json.dumps(reviews) + ";\n" + r"""
+const before=JSON.stringify(graph),html=coverageSelectionHtml({answer:graph,coverage:graph.coverage,
+ paper_selection:{reviewed_papers:reviews},run:{selection_method:'coverage-guided'}});
+assert.match(html,/Duplicate review records · first eligible record retained/);
+assert.match(html,/First eligible target review/);assert.match(html,/Later conflicting target review/);
+const issue=graph.coverage.review_record_issues[0];
+if(issue.counted_record_index==null) {assert.match(html,/this duplicate publication is not counted again/);assert.doesNotMatch(html,/record 2 is counted|data-qa-source="R2"/);}
+else {assert.match(html,/record 2 is counted/);assert.match(html,/data-qa-source="R1"/);}
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+@pytest.mark.parametrize("passage_ids,duplicate", [(["p_missing"], False), (["p1", "p_missing"], False), (["p_missing"], True)])
+def test_unavailable_passages_warn_every_link_without_fabricating_source_text(tmp_path, passage_ids, duplicate):
+    investigation = {"claims": [{"id": "C0", "text": "Finding linked to unresolved source passage.", "evidence_ids": ["E_bad"]},
+                                  {"id": "C1", "text": "Bound positive control.", "evidence_ids": ["E_good"]}],
+                     "evidence": [{"id": "E_bad", "passage_ids": passage_ids, "relation": "supports"},
+                                  *([{"id": "E_bad", "passage_ids": ["p3"], "relation": "qualifies"}] if duplicate else []),
+                                  {"id": "E_good", "passage_ids": ["p2"], "relation": "supports"}]}
+    graph = saved_bundle(tmp_path, investigation)
+    assert [i for i in graph["binding_issues"] if i["kind"] == "missing_passage"] == [
+        dict(kind="missing_passage", evidence_id="E_bad", passage_id="p_missing", **({"evidence_occurrence": 1} if duplicate else {}))]
+    assert all(p["id"] != "p_missing" for p in graph["passages"])
+    if "p1" not in passage_ids:
+        item = next(e for e in graph["evidence"] if e.get("verbatim_status") == "unavailable")
+        assert item["passage_ids"] == passage_ids and item["paragraph_id"] is None
+        assert "quote" not in item and "source_id" not in item
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text().split("## C0", 1)[1].split("## C1", 1)[0]
+    assert "recorded passage p_missing for evidence E_bad" in report and "is unavailable" in report
+    assert " / None" not in report and " / ?" not in report
+    if "p1" in passage_ids:
+        assert "First exact quotation." in report
+    elif not duplicate:
+        assert "> " not in report
+    else:
+        assert "Different paper quotation." in report and "Evidence E_bad · recorded occurrence 1 · supports" not in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),claim=graph.claims[0];
+assert.match(findingHtml(graph,claim),/Provenance failure/);assert.doesNotMatch(findingHtml(graph,graph.claims[1]),/Provenance failure/);
+assert.match(claimInspector(graph,'C0'),/Recorded passage p_missing is unavailable/);
+const item=graph.evidence.find(e=>e.origin_evidence_id==='E_bad'),id=item.navigation_id || item.id,html=evidenceInspector(graph,id);
+assert.match(html,/p_missing/);
+if(item.verbatim_status==='unavailable') {
+ assert.match(html,/recorded verbatim passages are unavailable/);assert.doesNotMatch(html,/<blockquote>|data-qa-context=|data-qa-source=|data-qa-paper=/);
+ assert.match(qaEvidencePacketButton(qaEvidencePackets(graph,[id])[0]),/Verbatim unavailable/);
+ if(!item.evidence_occurrence) {const old={...graph,evidence:graph.evidence.filter(e=>e.verbatim_status!=='unavailable')};assert.match(evidenceInspector(old,'E_bad'),/p_missing/);assert.doesNotMatch(evidenceInspector(old,'E_bad'),/<blockquote>|data-qa-context=/);}
+} else {assert.match(html,/First exact quotation\./);assert.match(html,/data-qa-context=/);}
+if(item.evidence_occurrence) {
+ const group=evidenceInspector(graph,'E_bad'),one=group.split('data-evidence-occurrence="1"')[1].split('</section>')[0],two=group.split('data-evidence-occurrence="2"')[1].split('</section>')[0];
+ assert.match(one,/p_missing/);assert.doesNotMatch(one,/<blockquote>|data-qa-context=/);
+ assert.match(two,/Different paper quotation\./);assert.doesNotMatch(two,/p_missing/);
+}
+S.selected='unavailable';S.research.unavailable={answer:graph};global.document={getElementById:()=>null};
+(async()=>{await inspectAnswer('evidence',id);if(item.verbatim_status==='unavailable') assert.equal(S.inspector.sourceId,undefined);assert.equal(JSON.stringify(graph),before);})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+@pytest.mark.parametrize("mismatch", ["offset", "saved_text"])
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_source_span_mismatch_reaches_claim_report_and_actual_ui(tmp_path, mismatch, duplicate):
+    investigation = {"claims": [{"id": "C_bad", "text": "Recorded claim with an unverified quotation.", "evidence_ids": ["E_bad"]},
+                                  {"id": "C_good", "text": "Bound positive control.", "evidence_ids": ["E_good"]}],
+                     "evidence": [{"id": "E_bad", "passage_ids": ["p1", "p2"]},
+                                  *([{"id": "E_bad", "passage_ids": ["p3"]}] if duplicate else []),
+                                  {"id": "E_good", "passage_ids": ["p3"]}]}
+    saved_bundle(tmp_path, investigation)
+    path = tmp_path / "passages/R1.jsonl"
+    if mismatch == "offset":
+        spans = [json.loads(line) for line in path.read_text().splitlines()]
+        spans[0]["start"] += 1; spans[0]["end"] += 1
+        path.write_text("".join(json.dumps(p) + "\n" for p in spans))
+    else:
+        text_path = tmp_path / "texts/R1.txt"
+        text_path.write_text(text_path.read_text().replace("First exact quotation.", "Xirst exact quotation."))
+    raw_passages = path.read_bytes(); raw_source = (tmp_path / "texts/R1.txt").read_bytes()
+    graph = export_bundle(tmp_path)["answer"]
+    assert [i for i in graph["binding_issues"] if i["kind"] == "span_mismatch"] == [{"kind": "span_mismatch", "passage_id": "p1"}]
+    bad = next(e for e in graph["evidence"] if e.get("paragraph_id") == "p1")
+    assert bad["anchored"] is False and bad["quote"] == "First exact quotation."
+    assert all(e["anchored"] for e in graph["evidence"] if e.get("paragraph_id") in ("p2", "p3"))
+    assert path.read_bytes() == raw_passages and (tmp_path / "texts/R1.txt").read_bytes() == raw_source
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    bad_report = report.split("## C_bad", 1)[1].split("## C_good", 1)[0]
+    good_report = report.split("## C_good", 1)[1]
+    assert "recorded passage p1 did not match the saved source text at its recorded offsets" in bad_report
+    assert "the quotation below is recorded, not verified" in bad_report and "> First exact quotation." in bad_report
+    assert "> Second exact quotation." in bad_report, "Bound sibling quotations must remain available"
+    assert "did not match" not in good_report and "> Different paper quotation." in good_report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),bad=graph.claims[0],good=graph.claims[1],record=graph.evidence.find(e=>e.paragraph_id==='p1');
+assert.ok(qaClaimBindingIssues(graph,bad).some(i=>i.kind==='span_mismatch' && i.passage_id==='p1'));
+assert.ok(!qaClaimBindingIssues(graph,good).some(i=>i.kind==='span_mismatch'));
+assert.match(findingHtml(graph,bad),/Provenance failure/);assert.doesNotMatch(findingHtml(graph,good),/Provenance failure/);
+assert.match(claimInspector(graph,'C_bad'),/Recorded passage p1 did not match the saved source text/);
+assert.match(claimInspector(graph,'C_bad'),/data-qa-passage="p1"/);
+const html=evidenceInspector(graph,record.navigation_id || record.id);
+assert.match(html,/First exact quotation\./);assert.match(html,/Recorded quotation; unverified against saved source text/);
+assert.match(html,/This passage did not match the saved source text/);assert.doesNotMatch(html,/Exact passage from the saved full paper/);
+const source=paragraphInspector(graph,'p1');assert.match(source,/First exact quotation\./);
+assert.match(source,/Recorded passage; unverified against saved source text/);assert.match(source,/This passage did not match/);
+assert.doesNotMatch(source,/Exact saved paper text/);
+for(const e of graph.evidence.filter(e=>e.paragraph_id==='p2' || e.paragraph_id==='p3')) {
+ const html=evidenceInspector(graph,e.navigation_id || e.id);assert.match(html,/Exact passage from the saved full paper/);assert.doesNotMatch(html,/This passage did not match/);
+}
+const stale={...graph,binding_issues:[]};assert.ok(qaClaimBindingIssues(stale,bad).some(i=>i.kind==='span_mismatch' && i.passage_id==='p1'));
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_undeclared_study_reference_warns_and_opens_actual_saved_passage(tmp_path, duplicate):
+    import hashlib
+    from canary.coverage_runtime import bind_payload
+    investigation = {"claims": [{"id": "C_bad", "text": "Recorded misbound field.", "evidence_ids": ["E1"], "study_result_ids": ["SR_bad"]},
+                                  {"id": "C_good", "text": "Correctly bound field.", "evidence_ids": ["E1"], "study_result_ids": ["SR_good"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}],
+                     "study_results": [{"id": "SR_bad", "reference_ids": ["R1"], "result_type": "measured",
+                                        "fields": {"value": {"text": "Recorded 23 percent", "passage_ids": ["p3"]}}},
+                                       *([{"id": "SR_bad", "reference_ids": ["R1"], "result_type": "measured",
+                                           "fields": {"value": {"text": "Correct duplicate occurrence", "passage_ids": ["p1"]}}}] if duplicate else []),
+                                       {"id": "SR_good", "reference_ids": ["R1"], "result_type": "measured",
+                                        "fields": {"value": {"text": "Bound 11 percent", "passage_ids": ["p1"]}}}]}
+    saved_bundle(tmp_path, investigation)
+    refs = json.loads((tmp_path / "references.json").read_text()); (tmp_path / "download-receipts").mkdir()
+    for ref in refs:
+        ref["body_sha256"] = hashlib.sha256((tmp_path / ref["file"]).read_bytes()).hexdigest()
+        ref["text_sha256"] = hashlib.sha256((tmp_path / ref["text_file"]).read_bytes()).hexdigest()
+        (tmp_path / "download-receipts" / (ref["id"] + ".json")).write_text(json.dumps({"reference": ref}))
+    (tmp_path / "question-plan.json").write_text(json.dumps({"question": "Synthetic question?"}))
+    audit = bind_payload(tmp_path)
+    assert "Result field uses undeclared reference: SR_bad.value" in audit["mechanical_audit"]["issues"]
+    graph = export_bundle(tmp_path)["answer"]
+    assert [i for i in graph["binding_issues"] if i["kind"] == "undeclared_study_reference"] == [
+        dict(kind="undeclared_study_reference", study_result_id="SR_bad", field="value", passage_id="p3",
+             reference_id="R2", declared_reference_ids=["R1"], **({"study_result_occurrence": 1} if duplicate else {}))]
+    assert graph["study_results"][0]["source_ids"] == ["R1"]
+    assert graph["study_results"][0]["fields"]["value"] == {"value": "Recorded 23 percent", "paragraph_ids": ["p3"]}
+    assert {r["id"] for r in graph["references"]} == {"R1", "R2"}
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    assert "cites passage p3 from source R2 outside its declared references (R1)" in report.split("## C_bad", 1)[1].split("## C_good", 1)[0]
+    assert "outside its declared references" not in report.split("## C_good", 1)[1]
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),bad=graph.claims[0],good=graph.claims[1];
+assert.ok(qaClaimBindingIssues(graph,bad).some(i=>i.kind==='undeclared_study_reference'));
+assert.doesNotMatch(findingHtml(graph,good),/Provenance failure/);
+const html=studyResultInspector(graph,'SR_bad');assert.match(html,/Recorded 23 percent/);
+assert.match(html,/Field value cites saved passage p3 from source R2, outside its declared references \(R1\)/);
+assert.match(html,/data-qa-passage="p3"/);assert.match(html,/Source 1 · R2/);assert.doesNotMatch(html,/Source passage unavailable/);
+const passage=paragraphInspector(graph,'p3');assert.match(passage,/Different paper quotation\./);assert.match(passage,/DOI 10\.9999\/R2/);
+assert.doesNotMatch(passage,/DOI 10\.9999\/R1/);
+if(graph.study_results[0].study_result_occurrence) {
+ const second=html.split('data-study-occurrence="2"')[1].split('</section>')[0];
+ assert.match(second,/Correct duplicate occurrence/);assert.doesNotMatch(second,/outside its declared references/);
+}
+global.document={getElementById:()=>null};S.selected='actual-study-source';S.research[S.selected]={answer:graph};
+(async()=>{await inspectAnswer('passage','p3');assert.equal(S.inspector.sourceId,'R2');assert.equal(JSON.stringify(graph),before);})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+@pytest.mark.parametrize("kind", ["body", "text"])
+def test_hash_failures_reach_actual_evidence_and_study_sources_without_hiding_quotes(tmp_path, kind):
+    import hashlib
+    investigation = {"claims": [{"id": "C_evidence", "text": "Claim quoting changed source.", "evidence_ids": ["E_bad"]},
+                                  {"id": "C_study", "text": "Claim using a changed study source.", "evidence_ids": ["E_good"], "study_result_ids": ["SR_bad"]},
+                                  {"id": "C_good", "text": "Unaffected source.", "evidence_ids": ["E_good"], "study_result_ids": ["SR_good"]}],
+                     "evidence": [{"id": "E_bad", "passage_ids": ["p1"]}, {"id": "E_good", "passage_ids": ["p3"]}],
+                     "study_results": [{"id": "SR_bad", "reference_ids": ["R1"], "fields": {"value": {"text": "Recorded bad source value", "passage_ids": ["p1"]}}},
+                                       {"id": "SR_good", "reference_ids": ["R2"], "fields": {"value": {"text": "Recorded good source value", "passage_ids": ["p3"]}}}]}
+    saved_bundle(tmp_path, investigation)
+    refs = json.loads((tmp_path / "references.json").read_text())
+    for ref in refs:
+        ref["body_sha256"] = hashlib.sha256((tmp_path / ref["file"]).read_bytes()).hexdigest()
+        ref["text_sha256"] = hashlib.sha256((tmp_path / ref["text_file"]).read_bytes()).hexdigest()
+    (tmp_path / "references.json").write_text(json.dumps(refs))
+    path = tmp_path / ("papers/R1.pdf" if kind == "body" else "texts/R1.txt")
+    path.write_bytes(path.read_bytes() + b"\nChanged after acquisition, outside the quoted passage.")
+    modified = path.read_bytes()
+    graph = export_bundle(tmp_path)["answer"]
+    issue = {"kind": kind + "_hash_mismatch", "reference_id": "R1"}
+    assert issue in graph["binding_issues"]
+    assert next(e for e in graph["evidence"] if e["id"] == "E_bad")["anchored"] is True
+    assert path.read_bytes() == modified and json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    material = "original paper" if kind == "body" else "extracted text"
+    warning = f"saved {material} for source R1 differs from its recorded acquisition hash"
+    assert warning in report.split("## C_evidence", 1)[1].split("## C_study", 1)[0]
+    assert warning in report.split("## C_study", 1)[1].split("## C_good", 1)[0]
+    assert "acquisition hash" not in report.split("## C_good", 1)[1]
+    assert "> First exact quotation." in report and "> Different paper quotation." in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),affected=graph.claims.slice(0,2),good=graph.claims[2];
+for(const c of affected) {assert.ok(qaClaimBindingIssues(graph,c).some(i=>i.kind.endsWith('_hash_mismatch')));assert.match(findingHtml(graph,c),/Provenance failure/);assert.match(claimInspector(graph,c.id),/source R1 differs from its recorded acquisition hash/);}
+assert.doesNotMatch(findingHtml(graph,good),/Provenance failure/);
+assert.match(evidenceInspector(graph,'E_bad'),/Source integrity failure/);assert.match(evidenceInspector(graph,'E_bad'),/First exact quotation\./);
+assert.doesNotMatch(evidenceInspector(graph,'E_good'),/Source integrity failure/);
+assert.match(paragraphInspector(graph,'p1'),/Source integrity failure/);assert.doesNotMatch(paragraphInspector(graph,'p3'),/Source integrity failure/);
+assert.match(studyResultInspector(graph,'SR_bad'),/Source integrity failure/);assert.match(studyResultInspector(graph,'SR_bad'),/Recorded bad source value/);
+assert.doesNotMatch(studyResultInspector(graph,'SR_good'),/Source integrity failure/);
+S.selected='changed-source';S.sourceContexts={};S.sourceContexts[contextKey('R1',null,'paper')]={paragraphs:[{text:'First exact quotation.'}],text_available:true};
+assert.match(sourceInspector(graph,{sourceId:'R1',scope:'paper'}),/Source integrity failure/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+@pytest.mark.parametrize("ids", [[], ["p_missing"], ["p1", "p_missing"]])
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_missing_study_passages_reach_linked_claims_and_occurrence_fields(tmp_path, ids, duplicate):
+    import hashlib
+    from canary.coverage_runtime import bind_payload
+    investigation = {"claims": [{"id": "C_bad", "text": "Recorded value with incomplete source binding.", "evidence_ids": ["E_good"], "study_result_ids": ["SR_bad"]},
+                                  {"id": "C_good", "text": "Bound control with a genuinely nullable field.", "evidence_ids": ["E_good"], "study_result_ids": ["SR_good"]}],
+                     "evidence": [{"id": "E_good", "passage_ids": ["p3"]}],
+                     "study_results": [{"id": "SR_bad", "reference_ids": ["R1"],
+                                        "fields": {"value": {"text": "Recorded 11 percent", "passage_ids": ids}, "conditions": None}},
+                                       *([{"id": "SR_bad", "reference_ids": ["R1"],
+                                           "fields": {"value": {"text": "Bound duplicate occurrence", "passage_ids": ["p1"]}}}] if duplicate else []),
+                                       {"id": "SR_good", "reference_ids": ["R1"],
+                                        "fields": {"value": {"text": "Bound 12 percent", "passage_ids": ["p1"]}, "conditions": None}}]}
+    saved_bundle(tmp_path, investigation)
+    (tmp_path / "download-receipts").mkdir()
+    for ref in json.loads((tmp_path / "references.json").read_text()):
+        ref["body_sha256"] = hashlib.sha256((tmp_path / ref["file"]).read_bytes()).hexdigest()
+        ref["text_sha256"] = hashlib.sha256((tmp_path / ref["text_file"]).read_bytes()).hexdigest()
+        (tmp_path / "download-receipts" / (ref["id"] + ".json")).write_text(json.dumps({"reference": ref}))
+    (tmp_path / "question-plan.json").write_text(json.dumps({"question": "Synthetic question?"}))
+    audit = bind_payload(tmp_path)
+    issue_text = "SR_bad.value: unknown passage p_missing" if ids else "Result field lacks passage: SR_bad.value"
+    assert issue_text in audit["mechanical_audit"]["issues"]
+    graph = export_bundle(tmp_path)["answer"]
+    kind = "missing_study_passage" if ids else "lacks_study_passage"
+    assert [i for i in graph["binding_issues"] if i["kind"] in ("missing_study_passage", "lacks_study_passage")] == [
+        dict(kind=kind, study_result_id="SR_bad", field="value", **({"passage_id": "p_missing"} if ids else {}),
+             **({"study_result_occurrence": 1} if duplicate else {}))]
+    assert graph["study_results"][0]["fields"]["value"] == {"value": "Recorded 11 percent", "paragraph_ids": ids}
+    assert all(p["id"] != "p_missing" for p in graph["passages"])
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    bad_report = report.split("## C_bad", 1)[1].split("## C_good", 1)[0]
+    assert ("names unavailable passage p_missing" if ids else "has no recorded source passages") in bad_report
+    assert "Provenance failure" not in report.split("## C_good", 1)[1]
+    assert "> Different paper quotation." in report and "/ p_missing" not in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),bad=graph.claims[0],good=graph.claims[1],record=graph.study_results[0],unknown=record.fields.value.paragraph_ids.includes('p_missing');
+assert.ok(qaClaimBindingIssues(graph,bad).some(i=>i.kind==='missing_study_passage' || i.kind==='lacks_study_passage'));
+assert.match(findingHtml(graph,bad),/Provenance failure/);assert.doesNotMatch(findingHtml(graph,good),/Provenance failure/);
+const html=studyResultInspector(graph,'SR_bad');assert.match(html,/Recorded 11 percent/);
+assert.match(html,unknown ? /Field value names unavailable passage p_missing/ : /Field value has no recorded source passages/);
+assert.doesNotMatch(html,/data-qa-passage="p_missing"/);
+if(record.fields.value.paragraph_ids.includes('p1')) assert.match(html,/data-qa-passage="p1"/);
+if(record.study_result_occurrence) {const second=html.split('data-study-occurrence="2"')[1].split('</section>')[0];assert.match(second,/Bound duplicate occurrence/);assert.doesNotMatch(second,/Provenance failure/);}
+assert.doesNotMatch(studyResultInspector(graph,'SR_good'),/Provenance failure/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+def bind_saved_bundle(path):
+    """Use authoritative acquisition receipts, just as the production binder does."""
+    import hashlib
+    from canary.coverage_runtime import bind_payload
+    (path / "download-receipts").mkdir(exist_ok=True)
+    for ref in json.loads((path / "references.json").read_text()):
+        ref["body_sha256"] = hashlib.sha256((path / ref["file"]).read_bytes()).hexdigest()
+        ref["text_sha256"] = hashlib.sha256((path / ref["text_file"]).read_bytes()).hexdigest()
+        (path / "download-receipts" / (ref["id"] + ".json")).write_text(json.dumps({"reference": ref}))
+    (path / "question-plan.json").write_text(json.dumps({"question": "Synthetic question?"}))
+    return bind_payload(path)
+
+
+@pytest.mark.parametrize("section", ["gaps", "contradictions", "residue"])
+def test_missing_section_evidence_is_scoped_and_opens_recorded_failure(tmp_path, section):
+    broken = {"id": "X_same", "description": "Recorded unbound statement.", "observation": "Recorded unbound statement.",
+              "claim_ids": ["C1"], "evidence_ids": ["E1.1"]}
+    intact = dict(broken, description="Bound statement.", observation="Bound statement.", evidence_ids=["E1"])
+    investigation = {"claims": [{"id": "C1", "text": "Bound claim.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1", "p2"]}], section: [broken, intact]}
+    saved_bundle(tmp_path, investigation)
+    assert "X_same: unknown evidence E1.1" in bind_saved_bundle(tmp_path)["mechanical_audit"]["issues"]
+    graph = export_bundle(tmp_path)["answer"]
+    assert [i for i in graph["binding_issues"] if i["kind"] == "missing_linked_evidence"] == [
+        dict(kind="missing_linked_evidence", section=section, record_id="X_same", record_index=1, evidence_id="E1.1")]
+    assert graph[section] == [broken, intact]
+    assert all(e.get("navigation_id", e["id"]) != "E1.1" for e in graph["evidence"])
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    assert f"missing evidence E1.1 in {section} record X_same" in report
+    assert "Provenance failure" not in report.split("Bound statement.", 1)[1]
+    run_dashboard(tmp_path, graph, "const section=" + json.dumps(section) + ";\n" + r"""
+const before=JSON.stringify(graph),html=researchStructureHtml(graph),articles=html.split('<article>').slice(1);
+assert.match(articles[0],/missing evidence link/);assert.match(articles[0],/data-qa-evidence="E1.1"/);
+assert.doesNotMatch(articles[1],/Provenance failure/);
+assert.match(evidenceInspector(graph,'E1.1'),new RegExp(section+' record X_same links missing evidence E1\\.1'));
+assert.equal(qaLinks(graph,'E1.1').evidence,null);
+const old={...graph,binding_issues:[]};assert.match(researchStructureHtml(old),/missing evidence link/);
+S.selected='section-missing';S.research[S.selected]={answer:graph};global.document={getElementById:()=>null};
+(async()=>{await inspectAnswer('evidence','E1.1');assert.equal(S.inspector.kind,'evidence');assert.equal(S.inspector.sourceId,undefined);assert.equal(JSON.stringify(graph),before);})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_next_question_orphan_links_are_occurrence_scoped_without_fake_navigation(tmp_path):
+    bad = {"id": "N_same", "question": "Recorded follow-up?", "justification": "Recorded reason.",
+           "gap_ids": ["G_missing"], "residue_ids": ["R_missing"]}
+    good = dict(bad, question="Bound follow-up?", gap_ids=["G1"], residue_ids=["R1"])
+    investigation = {"claims": [{"id": "C1", "text": "Bound claim.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}],
+                     "gaps": [{"id": "G1", "description": "Known gap.", "claim_ids": ["C1"], "evidence_ids": ["E1"]}],
+                     "residue": [{"id": "R1", "observation": "Known residue.", "claim_ids": ["C1"], "evidence_ids": ["E1"]}],
+                     "next_questions": [bad, good]}
+    saved_bundle(tmp_path, investigation)
+    audit = bind_saved_bundle(tmp_path)["mechanical_audit"]["issues"]
+    assert "N_same: unknown gap G_missing" in audit and "N_same: unknown residue R_missing" in audit
+    graph = export_bundle(tmp_path)["answer"]
+    assert [i for i in graph["binding_issues"] if i["kind"] == "missing_linked_record"] == [
+        dict(kind="missing_linked_record", section="next_questions", record_id="N_same", record_index=1,
+             target_section=target, target_id=identifier) for target, identifier in (("gaps", "G_missing"), ("residue", "R_missing"))]
+    assert graph["next_questions"] == [bad, good]
+    report = (tmp_path / "answer.md").read_text()
+    assert "missing gaps record G_missing in next_questions record N_same" in report
+    assert "missing residue record R_missing in next_questions record N_same" in report
+    assert "Provenance failure" not in report.split("Bound follow-up?", 1)[1]
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),html=answerHtml({}, {answer:graph}),bad=html.split('data-detail="next-0"')[1].split('</details>')[0],good=html.split('data-detail="next-1"')[1].split('</details>')[0];
+assert.match(bad,/Recorded follow-up\?/);assert.match(bad,/Recorded reason/);
+assert.match(bad,/missing gaps link.*G_missing/);assert.match(bad,/missing residue link.*R_missing/);
+assert.doesNotMatch(good,/Provenance failure/);assert.doesNotMatch(bad,/data-qa-(claim|evidence|source)="[GR]_missing"/);
+assert.match(qaSectionLinkWarnings({...graph,binding_issues:[]},'next_questions',graph.next_questions[0],0),/missing gaps link/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_missing_declared_study_citation_retains_ids_and_scopes_occurrence(tmp_path, duplicate):
+    bad = {"id": "SR_bad", "reference_ids": ["R1", "R_missing"], "fields": {"value": None}}
+    investigation = {"claims": [{"id": "C_bad", "text": "Claim with missing declared citation.", "evidence_ids": ["E1"], "study_result_ids": ["SR_bad"]},
+                                  {"id": "C_good", "text": "Bound control.", "evidence_ids": ["E1"], "study_result_ids": ["SR_good"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p1"]}],
+                     "study_results": [bad, *([dict(bad, reference_ids=["R1"])] if duplicate else []),
+                                       {"id": "SR_good", "reference_ids": ["R1"], "fields": {"value": {"text": "Recorded 11 percent", "passage_ids": ["p1"]}}}]}
+    saved_bundle(tmp_path, investigation)
+    assert "SR_bad: unknown reference R_missing" in bind_saved_bundle(tmp_path)["mechanical_audit"]["issues"]
+    graph = export_bundle(tmp_path)["answer"]
+    assert [i for i in graph["binding_issues"] if i["kind"] == "missing_study_reference"] == [
+        dict(kind="missing_study_reference", study_result_id="SR_bad", reference_id="R_missing",
+             **({"study_result_occurrence": 1} if duplicate else {}))]
+    assert graph["study_results"][0]["source_ids"] == ["R1", "R_missing"]
+    assert all(r["id"] != "R_missing" for r in graph["references"])
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    assert "declares missing reference R_missing; its citation is unavailable" in report.split("## C_bad", 1)[1].split("## C_good", 1)[0]
+    assert "Provenance failure" not in report.split("## C_good", 1)[1]
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),html=studyResultInspector(graph,'SR_bad');
+assert.match(findingHtml(graph,graph.claims[0]),/Provenance failure/);assert.doesNotMatch(findingHtml(graph,graph.claims[1]),/Provenance failure/);
+assert.match(claimInspector(graph,'C_bad'),/Declared reference R_missing is not recorded/);
+assert.match(html,/declared reference R_missing is not recorded; its citation is unavailable/);
+assert.match(html,/DOI 10\.9999\/R1/);assert.doesNotMatch(html,/data-qa-(source|paper)="R_missing"/);
+assert.doesNotMatch(html,/Field value has no recorded source passages/);
+if(graph.study_results[0].study_result_occurrence) {const second=html.split('data-study-occurrence="2"')[1].split('</section>')[0];assert.doesNotMatch(second,/R_missing|Provenance failure/);}
+assert.match(studyResultInspector(graph,'SR_good'),/data-qa-passage="p1"/);
+assert.doesNotMatch(studyResultInspector(graph,'SR_good'),/Provenance failure/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+def test_missing_actual_passage_reference_reaches_evidence_and_study_claims(tmp_path):
+    investigation = {"claims": [{"id": "C_evidence", "text": "Quote retains missing source ID.", "evidence_ids": ["E_bad"]},
+                                  {"id": "C_study", "text": "Study field retains missing source ID.", "evidence_ids": ["E_good"], "study_result_ids": ["SR_bad"]},
+                                  {"id": "C_good", "text": "Bound source control.", "evidence_ids": ["E_good"]}],
+                     "evidence": [{"id": "E_bad", "passage_ids": ["p1"]}, {"id": "E_good", "passage_ids": ["p3"]}],
+                     "study_results": [{"id": "SR_bad", "reference_ids": ["R2"], "fields": {"value": {"text": "Recorded 11 percent", "passage_ids": ["p1"]}}}]}
+    saved_bundle(tmp_path, investigation)
+    refs = json.loads((tmp_path / "references.json").read_text())
+    (tmp_path / "references.json").write_text(json.dumps([r for r in refs if r["id"] != "R1"]))
+    assert "Passage lacks committed source: p1" in bind_saved_bundle(tmp_path)["mechanical_audit"]["issues"]
+    graph = export_bundle(tmp_path)["answer"]
+    assert {"kind": "missing_reference", "reference_id": "R1"} in graph["binding_issues"]
+    assert next(p for p in graph["passages"] if p["id"] == "p1")["source_id"] == "R1"
+    assert next(e for e in graph["evidence"] if e["id"] == "E_bad")["quote"] == "First exact quotation."
+    assert all(r["id"] != "R1" for r in graph["references"])
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    report = (tmp_path / "answer.md").read_text()
+    for start, end in (("## C_evidence", "## C_study"), ("## C_study", "## C_good")):
+        assert "source R1 has no recorded reference; its citation is unavailable" in report.split(start, 1)[1].split(end, 1)[0]
+    assert "Provenance failure" not in report.split("## C_good", 1)[1]
+    assert "> First exact quotation." in report
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph);
+for(const c of graph.claims.slice(0,2)) {assert.ok(qaClaimBindingIssues(graph,c).some(i=>i.kind==='missing_reference' && i.reference_id==='R1'));assert.match(findingHtml(graph,c),/Provenance failure/);assert.match(claimInspector(graph,c.id),/Source R1 has no recorded reference/);}
+assert.doesNotMatch(findingHtml(graph,graph.claims[2]),/Provenance failure/);
+for(const html of [evidenceInspector(graph,'E_bad'),paragraphInspector(graph,'p1')]) {assert.match(html,/First exact quotation\./);assert.match(html,/Source R1 has no recorded reference/);assert.match(html,/Source context unavailable/);assert.doesNotMatch(html,/data-qa-(context|paragraph-context|source|paper)=/);}
+assert.match(studyResultInspector(graph,'SR_bad'),/Source R1 has no recorded reference/);
+assert.match(studyResultInspector(graph,'SR_bad'),/data-qa-passage="p1"/);
+assert.match(evidenceInspector(graph,'E_good'),/data-qa-context=/);
+assert.equal(JSON.stringify(graph),before);
+""")
+
+
+def test_saved_study_passage_navigation_opens_verbatim_without_reference_metadata(tmp_path):
+    investigation = {"claims": [{"id": "C1", "text": "Source-bound study value with missing citation metadata.", "evidence_ids": ["E1"], "study_result_ids": ["SR1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p3"]}],
+                     "study_results": [{"id": "SR1", "reference_ids": ["R2"], "fields": {"value": {"text": "Recorded 11 percent", "passage_ids": ["p1"]}}}]}
+    saved_bundle(tmp_path, investigation)
+    refs = json.loads((tmp_path / "references.json").read_text())
+    (tmp_path / "references.json").write_text(json.dumps([r for r in refs if r["id"] != "R1"]))
+    graph = export_bundle(tmp_path)["answer"]
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),noop=()=>{},classes={add:noop,toggle:noop,remove:noop};
+const pane={hidden:true,innerHTML:'',querySelectorAll:()=>[],contains:()=>false,querySelector:()=>({focus:noop}),closest:()=>({classList:classes})};
+global.document={getElementById:id=>id==='evidence-inspector' ? pane : null,body:{classList:classes},querySelectorAll:()=>[],activeElement:null};
+global.window={matchMedia:()=>({matches:false})};global.fetch=()=>{throw new Error('Saved passage navigation must not request absent source metadata');};
+S.selected='missing-source-navigation';S.research[S.selected]={answer:graph};
+(async()=>{
+ await inspectAnswer('claim','C1');await inspectAnswer('study','SR1',{claimId:'C1'});
+ const button=pane.innerHTML.match(/<button[^>]*data-qa-passage="([^"]+)"[^>]*data-study-result="([^"]+)"[^>]*data-study-field="([^"]+)"/);
+ assert.ok(button,'The actual field Source control must exist');assert.equal(button[1],'p1');
+ await inspectAnswer('passage',button[1],{studyResultId:button[2],fieldName:button[3]});
+ assert.equal(S.inspector.kind,'passage');assert.equal(S.inspector.paragraphId,'p1');assert.equal(S.inspector.studyResultId,'SR1');assert.equal(S.inspector.claimId,'C1');
+ assert.equal(S.inspector.sourceId,undefined,'No Source/Full paper breadcrumb can target absent reference metadata');
+ assert.match(pane.innerHTML,/<blockquote[^>]*>First exact quotation\.<\/blockquote>/);assert.match(pane.innerHTML,/Source R1 has no recorded reference/);
+ assert.match(pane.innerHTML,/Source context unavailable/);assert.doesNotMatch(pane.innerHTML,/data-qa-(source|paper|paragraph-context)=/);
+ const retained=S.inspector;await inspectAnswer('passage','p_missing');assert.equal(S.inspector,retained);
+ await inspectAnswer('paragraphContext','p1');assert.equal(S.inspector,retained);
+ await inspectAnswer('passage','p3');assert.equal(S.inspector.sourceId,'R2');assert.match(pane.innerHTML,/Different paper quotation\./);
+ assert.match(pane.innerHTML,/data-qa-paragraph-context="p3"/);assert.match(pane.innerHTML,/data-qa-paper="R2"/);
+ assert.equal(JSON.stringify(graph),before,'Navigation must preserve the saved source ID, verbatim and raw findings');
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
+
+def test_audit_source_button_opens_saved_verbatim_without_citation_metadata(tmp_path):
+    investigation = {"claims": [{"id": "C1", "text": "Recorded audited claim.", "evidence_ids": ["E1"]},
+                                  {"id": "C2", "text": "Recorded audit control.", "evidence_ids": ["E1"]}],
+                     "evidence": [{"id": "E1", "passage_ids": ["p3"]}]}
+    audit = {"claim_checks": [{"claim_id": "C1", "assessment": "supported", "reason": "Recorded audit reasoning.", "passage_ids": ["p1", "p_missing"]},
+                               {"claim_id": "C2", "assessment": "supported", "reason": "Bound audit control.", "passage_ids": ["p3"]}]}
+    saved_bundle(tmp_path, investigation)
+    (tmp_path / "audit.json").write_text(json.dumps(audit))
+    refs = json.loads((tmp_path / "references.json").read_text())
+    (tmp_path / "references.json").write_text(json.dumps([r for r in refs if r["id"] != "R1"]))
+    graph = export_bundle(tmp_path)["answer"]
+    assert graph["source_checks"][0]["paragraph_ids"] == ["p1", "p_missing"]
+    assert next(p for p in graph["passages"] if p["id"] == "p1")["text"] == "First exact quotation."
+    assert json.loads((tmp_path / "audit.json").read_text()) == audit
+    assert json.loads((tmp_path / "investigation.json").read_text()) == investigation
+    run_dashboard(tmp_path, graph, r"""
+const before=JSON.stringify(graph),noop=()=>{},classes={add:noop,toggle:noop,remove:noop};
+const pane={hidden:true,innerHTML:'',querySelectorAll:()=>[],contains:()=>false,querySelector:()=>({focus:noop}),closest:()=>({classList:classes})};
+global.document={getElementById:id=>id==='evidence-inspector' ? pane : null,body:{classList:classes},querySelectorAll:()=>[],activeElement:null};
+global.window={matchMedia:()=>({matches:false})};global.fetch=()=>{throw new Error('Saved audit-passage navigation must not need a source request');};
+S.selected='audit-missing-citation';S.research[S.selected]={answer:graph};
+(async()=>{
+ await inspectAnswer('claim','C1');
+ const auditHtml=sourceCheckHtml(graph,graph.claims[0]);
+ assert.match(auditHtml,/Source 1 · R1 · Citation not recorded/);assert.match(auditHtml,/Recorded audit reasoning/);
+ assert.equal((auditHtml.match(/Source passage unavailable/g)||[]).length,1,'Only the absent passage is unavailable');
+ assert.doesNotMatch(auditHtml,/data-qa-passage="p_missing"/);
+ const button=pane.innerHTML.match(/<button[^>]*data-qa-passage="([^"]+)"[^>]*data-source-check-claim="([^"]+)"/);
+ assert.ok(button,'The actual audit Source button must be present');assert.equal(button[1],'p1');assert.equal(button[2],'C1');
+ await inspectAnswer('passage',button[1],{sourceCheckClaim:button[2]});
+ assert.equal(S.inspector.kind,'passage');assert.equal(S.inspector.paragraphId,'p1');assert.equal(S.inspector.claimId,'C1');assert.equal(S.inspector.fieldName,'Source check');
+ assert.equal(S.inspector.sourceId,undefined);assert.match(pane.innerHTML,/<blockquote[^>]*>First exact quotation\.<\/blockquote>/);
+ assert.match(pane.innerHTML,/Source R1 has no recorded reference/);assert.match(pane.innerHTML,/Source context unavailable/);
+ assert.doesNotMatch(pane.innerHTML,/data-qa-(source|paper|paragraph-context)=/);
+ const previous=S.inspector;await inspectAnswer('passage','p3',{sourceCheckClaim:'C1'});assert.equal(S.inspector,previous,'An audit control cannot navigate a passage absent from that check');
+ assert.match(sourceCheckHtml(graph,graph.claims[1]),/Source 1 · Saved paper R2/);
+ await inspectAnswer('passage','p3',{sourceCheckClaim:'C2'});assert.equal(S.inspector.sourceId,'R2');assert.equal(S.inspector.claimId,'C2');
+ assert.match(pane.innerHTML,/Different paper quotation\./);assert.match(pane.innerHTML,/data-qa-paragraph-context="p3"/);
+ assert.equal(JSON.stringify(graph),before);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
