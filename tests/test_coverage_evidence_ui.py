@@ -695,3 +695,37 @@ assert.doesNotMatch(html,/>19<\/p>/);assert.ok(html.indexOf(esc(rowText[1]))<htm
 assert.ok(paragraphInspector(graph.answer,selected.id).includes(esc(selected.text)));
 assert.equal(JSON.stringify(graph),before);
 """)
+
+
+def test_cals_source_measurements_and_named_span_metadata_remain_inspectable(tmp_path):
+    from canary.coverage_sources import _xml_text
+    from canary.coverage_runtime import canonical_passages
+    raw = (b'<article xmlns="urn:synthetic-cals"><body><sec><title>Results</title>'
+           b'<table><title>Reported measurements.</title><tgroup cols="3">'
+           b'<colspec colnum="1" colname="label"/><colspec colnum="2" colname="early"/>'
+           b'<colspec colnum="3" colname="late"/><tbody><row><entry colname="label" morerows="1">A</entry>'
+           b'<entry namest="early" nameend="late">1.<italic>23</italic> mg</entry></row>'
+           b'<row><entry colname="late">4.<italic>56</italic> mg</entry></row></tbody></tgroup></table>'
+           b'<p>Source caveat.</p></sec></body></article>')
+    text = _xml_text(raw)
+    assert "1.23 mg" in text and "4.56 mg" in text
+    assert all(attribute in text for attribute in ('colname="late"', 'namest="early"', 'nameend="late"', 'morerows="1"'))
+    passages = canonical_passages(text, "W1")
+    assert all(text[p["start"]:p["end"]] == p["text"] for p in passages)
+    table_passage = next(p for p in passages if "1.23 mg" in p["text"])
+    data = {"answer": {"references": [{"id": "W1", "paper": {"title": "Synthetic saved CALS source"}}],
+                       "passages": [dict(p, source_id="W1", kind="fulltext", anchored=True) for p in passages]},
+            "selected_id": table_passage["id"]}
+    run_dashboard(tmp_path, data, r"""
+const before=JSON.stringify(graph);S.selected='cals-retention';S.sourceContexts={};
+const selected=graph.answer.passages.find(p=>p.id===graph.selected_id),state={sourceId:'W1',paragraphId:selected.id,scope:'section'};
+S.sourceContexts[contextKey('W1',selected.id,'section')]={text_available:true,offset_verified:true,
+ paragraphs:graph.answer.passages.map(p=>({...p,selected:p.id===selected.id}))};
+const html=sourceInspector(graph.answer,state);
+assert.match(html,/1\.23 mg/);assert.match(html,/4\.56 mg/);assert.match(html,/Reported measurements\./);assert.match(html,/Source caveat\./);
+for(const attribute of ['colname="late"','namest="early"','nameend="late"','morerows="1"']) assert.ok(html.includes(esc(attribute)));
+assert.ok(html.includes('<mark>'+esc(selected.text)+'</mark>'));
+assert.doesNotMatch(html,/<entry\b|<tgroup\b/,'Source XML is displayed as literal text, not executed as page markup');
+assert.ok(paragraphInspector(graph.answer,selected.id).includes(esc(selected.text)));
+assert.equal(JSON.stringify(graph),before);
+""")

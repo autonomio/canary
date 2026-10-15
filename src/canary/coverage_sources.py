@@ -137,22 +137,22 @@ def _plain(node):
     return " ".join(content(node).split())
 
 
-def _compact_table(table):
+def _compact_table(table, preserve_source=False):
     """Retain source table markup/cells when logical blank padding would amplify it."""
-    tags = {"table", "caption", "head", "title", "label", "thead", "tbody", "tfoot", "tr", "th", "td", "row", "cell"}
+    tags = {"table", "caption", "head", "title", "label", "thead", "tbody", "tfoot", "tr", "th", "td", "row", "cell", "entry"}
     def content(node):
         if _skip(node):
             return ""
         text = "".join(escape(re.sub(r"\s+", " ", child), quote=False) if isinstance(child, str) else content(child)
                        for child in node.children)
-        if node.tag not in tags:
+        if node.tag not in tags and (not preserve_source or node.tag in {"b", "bold", "i", "italic", "em", "emphasis", "strong", "span", "hi"}):
             boundaries = BLOCKS | {"div", "section", "br", "hr"}
             return " " + text + " " if node.tag in boundaries else text
         attrs = "".join(' ' + name + '="' + escape(value or "", quote=True) + '"'
-                        for name, value in node.attrs.items() if name in {"colspan", "rowspan", "cols", "rows", "scope", "headers", "id", "role"})
-        if node.tag in {"table", "thead", "tbody", "tfoot"}:
+                        for name, value in node.attrs.items() if preserve_source or name in {"colspan", "rowspan", "cols", "rows", "scope", "headers", "id", "role"})
+        if node.tag in {"table", "thead", "tbody", "tfoot", "tgroup", "entrytbl"}:
             return "<" + node.tag + attrs + ">\n" + text.strip() + "\n</" + node.tag + ">\n"
-        suffix = "\n" if node.tag in {"tr", "row", "caption", "head", "title", "label"} else ""
+        suffix = "\n" if node.tag in {"tr", "row", "caption", "head", "title", "label", "colspec", "spanspec", "note", "footnote", "fn"} else ""
         return "<" + node.tag + attrs + ">" + text.strip() + "</" + node.tag + ">" + suffix
     return "\n".join(line.strip() for line in content(table).splitlines() if line.strip())
 
@@ -172,6 +172,19 @@ def _table_cell_text(node, table_budget=None):
 
 def _table_blocks(table, table_budget=None):
     """Keep the literal caption and logical row/cell positions, without copying spans."""
+    def source_column_model(node):
+        if _skip(node) or (node is not table and node.tag == "table"):
+            return False
+        if node.tag in {"tgroup", "colspec", "spanspec", "entrytbl", "note", "footnote", "fn", "table-wrap-foot"}:
+            return True
+        if node.tag == "entry" and node.attrs:
+            return True
+        return any(source_column_model(child) for child in node.children if isinstance(child, _Node))
+    if source_column_model(table):
+        # CALS named columns/spans are not the HTML grid. Retain their actual
+        # source structure/attributes rather than infer or discard associations.
+        yield "table", _compact_table(table, preserve_source=True)
+        return
     rows, captions = [], []
     def collect(node, group):
         if _skip(node) or (node is not table and node.tag == "table"):
@@ -201,13 +214,20 @@ def _table_blocks(table, table_budget=None):
     # until a conservative bound covers grid retention and final rectangular output.
     row_cells, group_total, group_max, spanning_groups = [], {}, {}, set()
     for row, group in rows:
-        cells = [cell for cell in row.children if isinstance(cell, _Node) and cell.tag in {"td", "th", "cell"} and not _skip(cell)]
+        cells = [cell for cell in row.children if isinstance(cell, _Node) and cell.tag in {"td", "th", "cell", "entry"} and not _skip(cell)]
+        if any((isinstance(child, str) and child.strip()) or
+               (isinstance(child, _Node) and child.tag not in {"td", "th", "cell", "entry"} and _plain(child)) for child in row.children):
+            yield "table", _compact_table(table, preserve_source=True)
+            return
         row_cells.append((cells, group))
         width = sum(min(1000, max(1, span(cell, "colspan"))) for cell in cells)
         group_total[group] = group_total.get(group, 0) + width
         group_max[group] = max(group_max.get(group, 0), width)
         if groups_remaining[group] > 1 and any(span(cell, "rowspan") != 1 for cell in cells):
             spanning_groups.add(group)
+    if not any(cells for cells, _ in row_cells) and _plain(table):
+        yield "table", _compact_table(table, preserve_source=True)
+        return
     width_bound = max((group_total[group] if group in spanning_groups else group_max[group] for group in group_total), default=0)
     expansion = 6 * len(rows) * width_bound
     if table_budget is None:

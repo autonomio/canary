@@ -740,3 +740,93 @@ def test_xml_spanned_row_passages_reproduce_exact_canonical_label_value_slices()
     assert all(row["reference_id"] == "W1" and row["text"] == text[row["start"]:row["end"]] for row in passages)
     result = next(row for row in passages if '4.56 mg' in row['text'])
     assert [cell.strip() for cell in result['text'].split('|')] == ['', '4.56 mg']
+
+
+@pytest.mark.parametrize("namespace", ["", ' xmlns="urn:synthetic-cals"'])
+def test_cals_plain_row_entry_tables_keep_literal_rows_and_inline_values(namespace):
+    raw = ('<article' + namespace + '><body><sec><title>Results</title><table><title>Measured yields.</title>'
+        '<row><entry>Group</entry><entry>Yield (mg)</entry></row>'
+        '<row><entry>A</entry><entry>1.<emphasis>23</emphasis></entry></row>'
+        '<row><entry>B</entry><entry>4.56</entry></row></table></sec></body></article>')
+    assert sources._xml_text(raw.encode()) == "Results\n\nMeasured yields.\n\nGroup | Yield (mg)\n\nA | 1.23\n\nB | 4.56"
+
+
+def _cals_named_table():
+    return ('<table id="yields"><title>Reported yields.</title><tgroup cols="2">'
+        '<colspec colnum="1" colname="group"/><colspec colnum="2" colname="mass" colwidth="1*"/>'
+        '<spanspec spanname="both" namest="group" nameend="mass"/>'
+        '<thead><row><entry colname="group">Group</entry><entry colname="mass">Yield (mg)</entry></row></thead>'
+        '<tbody><row><entry colname="group" morerows="1">A</entry>'
+        '<entry colname="mass">1.<emphasis>23</emphasis> mg</entry></row>'
+        '<row><entry colname="mass">4.<italic>56</italic> mg</entry></row>'
+        '<row><entry spanname="both">Reported summary.</entry></row></tbody></tgroup>'
+        '<note><para>Source caveat.</para></note></table>')
+
+
+@pytest.mark.parametrize("namespace", ["", ' xmlns="urn:synthetic-cals"'])
+def test_cals_named_columns_and_spans_retain_original_markup_metadata_and_notes(namespace):
+    raw = '<article' + namespace + '><body>' + _cals_named_table() + '</body></article>'
+    text = sources._xml_text(raw.encode())
+    table = ElementTree.fromstring(text)
+    assert table.attrib == {"id": "yields"}
+    assert table.find('title').text == 'Reported yields.'
+    assert table.find('tgroup').attrib == {"cols": "2"}
+    assert [node.attrib for node in table.findall('./tgroup/colspec')] == [
+        {"colnum": "1", "colname": "group"}, {"colnum": "2", "colname": "mass", "colwidth": "1*"}]
+    assert table.find('./tgroup/spanspec').attrib == {"spanname": "both", "namest": "group", "nameend": "mass"}
+    entries = table.findall('./tgroup/tbody/row/entry')
+    assert [entry.text for entry in entries] == ['A', '1.23 mg', '4.56 mg', 'Reported summary.']
+    assert entries[0].attrib == {"colname": "group", "morerows": "1"}
+    assert entries[-1].attrib == {"spanname": "both"}
+    assert table.find('./note/para').text == 'Source caveat.'
+    assert text.count('1.23 mg') == text.count('4.56 mg') == 1 and 'rowspan' not in text
+
+
+def test_unknown_xml_table_structure_retains_original_cells_attributes_and_literal_measurements():
+    raw = ('<article><body><table id="observations"><caption>Measured yields.</caption>'
+        '<observations unit="mg"><observation group="A">1.<italic>23</italic></observation>'
+        '<observation group="B">4.56</observation></observations></table></body></article>')
+    table = ElementTree.fromstring(sources._xml_text(raw.encode()))
+    assert table.attrib == {"id": "observations"}
+    assert table.find('caption').text == 'Measured yields.'
+    assert table.find('observations').attrib == {"unit": "mg"}
+    observations = table.findall('./observations/observation')
+    assert [(row.attrib, row.text) for row in observations] == [({"group": "A"}, '1.23'), ({"group": "B"}, '4.56')]
+
+
+def test_partly_unknown_xml_row_keeps_unmapped_literal_value_in_source_structure():
+    raw = '<article><body><table><row><entry>A</entry><measured unit="mg">1.23</measured></row></table></body></article>'
+    table = ElementTree.fromstring(sources._xml_text(raw.encode()))
+    assert table.find('./row/entry').text == 'A'
+    assert table.find('./row/measured').text == '1.23'
+    assert table.find('./row/measured').attrib == {"unit": "mg"}
+
+
+def test_nested_cals_named_table_stays_inside_its_enclosing_cell():
+    raw = ('<article><body><table><tr><th>Group</th><th>Records</th></tr>'
+        '<tr><th>A</th><td>Before records.' + _cals_named_table() + ' After records.</td></tr>'
+        '<tr><th>B</th><td>7.89 mg</td></tr></table></body></article>')
+    text = sources._xml_text(raw.encode())
+    assert text.startswith('Group | Records\n\nA | Before records.\n[\n<table id="yields">')
+    assert text.endswith(']\nAfter records.\n\nB | 7.89 mg')
+    assert text.count('1.23 mg') == text.count('4.56 mg') == text.count('7.89 mg') == 1
+    assert '<entry colname="group" morerows="1">A</entry>' in text
+
+
+def test_cals_plain_entries_use_compact_source_cells_when_shared_budget_is_exhausted(monkeypatch):
+    monkeypatch.setattr(sources, 'MAX_HTML_TABLE_EXPANSION', 1)
+    raw = '<article><body><table><row><entry>A</entry><entry>1.<emphasis>23</emphasis> mg</entry></row></table></body></article>'
+    table = ElementTree.fromstring(sources._xml_text(raw.encode()))
+    assert [cell.text for cell in table.findall('./row/entry')] == ['A', '1.23 mg']
+
+
+def test_cals_source_markup_passages_reproduce_exact_canonical_metadata_and_value_slices():
+    from canary.coverage_runtime import canonical_passages
+    raw = '<article><body><p>Source lead.</p>' + _cals_named_table() + '<p>Source tail.</p></body></article>'
+    text = sources._xml_text(raw.encode())
+    passages = canonical_passages(text, 'W1')
+    assert all(row['reference_id'] == 'W1' and row['text'] == text[row['start']:row['end']] for row in passages)
+    assert '\n\n'.join(row['text'] for row in passages) == text
+    selected = next(row for row in passages if '1.23 mg' in row['text'])
+    assert 'morerows="1"' in selected['text'] and 'colname="mass"' in selected['text']
+    assert '4.56 mg' in selected['text'] and 'Source caveat.' in selected['text']
