@@ -208,6 +208,8 @@ def argument_parser():
     rn = sub.add_parser("runs", help="named runs: list, inspect, serve, control")
     rnsub = rn.add_subparsers(dest="runs_cmd", required=True)
     rnsub.add_parser("list", help="table of registered runs")
+    rnsub.add_parser("footprint", help="show configured server-side research roots and scan receipt")
+    rnsub.add_parser("discover", help="index existing research under configured server roots")
     rs = rnsub.add_parser("status", help="API runtime, storage and extraction status")
     rs.add_argument("--port", type=int, default=None)
     sh = rnsub.add_parser("show", help="full record for one run")

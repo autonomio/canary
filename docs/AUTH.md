@@ -1,6 +1,6 @@
 # Codex authentication
 
-The loopback API owns one native Codex authentication process. The dashboard and CLI are clients of that API. Authentication does not establish access to a particular model or prove research readiness.
+The loopback API owns one native Codex authentication process. The CLI is a client of that API; the local dashboard has no provider-login controls. Authentication does not establish access to a particular model or prove research readiness.
 
 ## Operator workflow
 
@@ -16,7 +16,7 @@ canary auth logout
 
 For a headless host, use `canary auth login --device`. Complete the returned URL/code in a browser; device login must be enabled for the ChatGPT account/workspace. Browser login uses the native Codex callback on the service host. Ctrl-C cancels a pending CLI login. Every auth command accepts `--port`; `CANARY_RUNS_PORT` supplies its default.
 
-The dashboard's top-right menu exposes the same status, browser/device login, cancellation and sign-out. Open its returned sign-in link, complete the native flow, and the menu updates. Challenges are transient; completed/cancelled logins do not retain their URL/code.
+The dashboard opens locally without a login flow. Use the CLI for provider status, browser/device login, cancellation and sign-out. Challenges are transient; completed/cancelled logins do not retain their URL/code.
 
 ## Shared credential context
 
@@ -24,7 +24,7 @@ Set `CODEX_HOME` **on the service** to a persistent directory before startup, or
 
 Stopping the service ends its pending login but does not log out the account. After restart, status comes from Codex's persistent credentials. Pending login IDs do not survive a service restart: start a new login. Signing out affects this shared Codex context, including other local Codex clients using it; it does not cancel already running research.
 
-This is an owner-operated service bound to `127.0.0.1`, not a multi-user hosted login. Auth endpoints reject foreign Host/Origin and cross-site browser requests, require JSON mutations, and send `Cache-Control: no-store`. Keep the API private; provider authentication is separate from access to Canary. General allowed-origin clients and deployment access controls remain subsequent API migration work.
+This is an owner-operated service bound to `127.0.0.1`, not a multi-user hosted login. Auth endpoints reject foreign Host/Origin and cross-site browser requests, require JSON mutations, and send `Cache-Control: no-store`. Keep the API private; provider authentication is separate from access to Canary. Explicit private-host and allowed-origin client configuration is documented in [the API contract](API.md); authentication remains same-origin.
 
 ## HTTP contract
 

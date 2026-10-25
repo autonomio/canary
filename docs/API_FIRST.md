@@ -1,6 +1,6 @@
 # API-first delivery map
 
-Canary is a research service. Its dashboard, CLI and agent tools use the same HTTP API and receive the same research records. This is the canonical map for the agreed migration; it is not a claim that the migration is already implemented.
+Canary is a research service. Its dashboard, CLI and agent tools use the same HTTP API and receive the same research records. This is the canonical map and delivered contract. The checklist separates completed actions from deferred work.
 
 ## Boundary
 
@@ -20,11 +20,11 @@ Authentication follows the same boundary: `canary auth login` calls the service,
 
 Keep the tested stateful research/audit harness and the existing typed scientific payload. Do not substitute a single model API call, change scientific reasoning settings, add autonomy, or rewrite earlier research to implement this migration.
 
-## Current baseline
+## Initial baseline before delivery
 
 Remote `main` at `3ac7e4f` has the coverage-guided Sol/Astra engine, deterministic acquisition, immutable source passages, typed findings and a working loopback HTTP dashboard. `POST /api/runs` already accepts a question; status, research, logs and source routes already exist. Preserve usable routes and data structures rather than renaming them for appearance.
 
-Remaining bypasses include direct CLI research execution, direct scientific helper commands, local artifact reads by CLI commands and native Codex execution outside service ownership. The existing dashboard API has no published OpenAPI contract, native cancellation, or general cross-origin browser interface. Its current pause/unpause controls apply to containers. The Python wheel lacks the external launch/helper scripts and browser assets; the primary README, example environment and container recipe still describe the older workflow. See [the native runtime](COVERAGE_RUNTIME.md) and [current dashboard](DASHBOARD.md).
+The initial bypasses included direct CLI research execution, direct scientific helper commands, local artifact reads by CLI commands and native Codex execution outside service ownership. That initial dashboard API lacked a published OpenAPI contract, native cancellation and general cross-origin browser access; the initial wheel omitted launch/helper scripts and assets. The delivered capabilities are recorded below. The primary README and example environment still await their separately deferred rewrite. See [the native runtime](COVERAGE_RUNTIME.md) and [current dashboard](DASHBOARD.md).
 
 ## Action inventory
 
@@ -33,7 +33,7 @@ The paths below reuse existing routes or name proposed additions. New paths rema
 | Action | Canonical API/client responsibility | Remaining work |
 | --- | --- | --- |
 | Start/inspect service | Local service bootstrap; expose service/runtime status | Supported installation, runtime discovery and startup command; distinguish service availability, login and run readiness |
-| Authenticate | Proposed `/api/auth/*`; CLI and dashboard relay the same login session | API-owned Codex browser/device login, status and logout; persistent worker credentials; no custom OAuth implementation |
+| Authenticate | Proposed `/api/auth/*`; CLI relays the service-owned login session | API-owned Codex browser/device login, status and logout; persistent worker credentials; no custom OAuth implementation |
 | Provide inputs/import runs | API-owned input staging and run adoption | Clients upload or reference inputs through the service and receive input/run IDs; retained analysis/adoption commands must not assume a client's local file exists on the server |
 | Submit a question | Existing `POST /api/runs` with `kind: question` | Typed question/options request, run key response, explicit errors; no host paths needed by clients |
 | Observe/control a run | Existing run/status/log routes; proposed native cancellation | Honest progress, elapsed time, failure/partial/audit states; cancel the actual owned process tree and preserve committed evidence |
@@ -41,6 +41,7 @@ The paths below reuse existing routes or name proposed additions. New paths rema
 | Read evidence and sources | Existing research and source context/file routes | Typed evidence-to-verbatim-to-reference navigation; preserve exact source slices, hashes and provenance diagnostics |
 | Retrieve findings | Existing `GET /api/runs/{key}/research` | Publish the existing claims, uncertainty, study results, contradictions, gaps, residue, caveats and next-question schemas |
 | Export results | API-owned export action/download | CLI/UI/agents request the same export; avoid client-side filesystem access or a separate report generator |
+| Index local research | `GET /api/footprint`, `POST /api/footprint/refresh`; CLI and MCP use the same actions | [Configured historical roots and local dashboard](LOCAL_FOOTPRINT.md); preserve ownership, unknown activity and missing folders |
 | Inspect usage/settings | Existing `/api/log` and source usage status, plus typed runtime settings | Consistent per-run tokens/durations/search counts; preserve unknown values and audit limits; keep provider secrets private |
 | Use retained legacy commands | Same API boundary for retained review/analyze/cycle/inspect/resume/assess/revise/profile/publish/adopt actions | Inventory each command; route it through the API or expose its existing refusal/unsupported state explicitly; preserve existing behavior and do not revive refused code promotion |
 | Use another frontend or agent | Same HTTP contract and result records | Backend-to-backend calls work first; add allowed-origin browser access only where needed; clients use the deployment's explicit access boundary |
@@ -56,8 +57,8 @@ the two interface items are delivered together in this six-PR sequence.
 
 Complete each item’s API behavior, client integration and meaningful acceptance evidence together; do not defer the frontend or agent view to a later cleanup.
 
-1. [x] **Service and authentication.** API-owned native Codex browser/device login, status, progress, cancellation and logout; HTTP-only CLI and dashboard clients; one persistent credential context shared with native workers. The current access boundary is the owner-operated loopback service with same-origin authentication controls. See [the auth contract and workflow](AUTH.md); provider login and access to Canary remain separate concerns.
-2. [x] **Installable execution.** The wheel packages the native launcher, dashboard and lock fingerprint; native scientific tools use installed Python modules. A configurable data root is separate from package resources. [Installation](INSTALL.md) covers Codex, Poppler, API-only startup and the current service container with persistent auth/research volumes. CI exercises a fresh wheel outside the checkout and container replacement. Live scientific deployment proof remains step 6.
+1. [x] **Service and authentication.** API-owned native Codex browser/device login, status, progress, cancellation and logout; HTTP-only CLI authentication; the local dashboard has no provider login controls; one persistent credential context shared with native workers. The current access boundary is the owner-operated loopback service with same-origin authentication controls. See [the auth contract and workflow](AUTH.md); provider login and access to Canary remain separate concerns.
+2. [x] **Installable execution.** The wheel packages the native launcher, dashboard and lock fingerprint; native scientific tools use installed Python modules. A configurable data root is separate from package resources. [Installation](INSTALL.md) covers Codex, Poppler, API-only startup and the current service container with persistent auth/research volumes. CI exercises a fresh wheel outside the checkout and container replacement. [Live deployment proof](DEPLOYMENT_PROOF.md) records the actual runtime, token use and partial scientific audit.
 3. [x] **Research and run lifecycle.** The [compiled YAML and versioned bundle slice](RESEARCH_BUNDLE.md) provides compilation/submission/repetition, bundle ingestion and a Resolvent handoff. [Run lifecycle](RUN_LIFECYCLE.md) makes the remaining public commands API clients, routes deterministic scientific tools through the service, adds native process-tree cancellation and persisted ownership for restart reconciliation. Existing compatibility engines/refusals remain; input CSVs are uploaded and historical write workflows use copies. Scientific settings are unchanged. No new run limits were requested.
 4. [x] **Canonical contract.** [HTTP and agent interfaces](API.md) publishes `/openapi.json`, `canary api`, typed scientific schemas, examples and explicit private-host/browser-origin configuration. Contract tests navigate findings to the exact saved source using only HTTP responses.
 5. [x] **Agent tools.** `canary mcp` provides a stdio relay whose tools/schemas come from the live HTTP contract. It owns no engine, provider or artifact access. Real SDK client tests exercise compilation, submission, findings, source reconstruction and errors through the API.

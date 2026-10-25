@@ -1471,7 +1471,7 @@
     <main id="main">
       <details class="workspace-menu" id="workspace-menu">
         <summary aria-label="Menu" role="button" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></summary>
-        <nav aria-label="Workspace menu"><a href="#log">Log</a><details><summary>Service</summary><div id="service-status">Open menu to inspect runtime</div></details><div id="codex-auth" aria-live="polite">Codex · checking</div></nav>
+        <nav aria-label="Workspace menu"><a href="#log">Log</a><details><summary>Service</summary><div id="service-status">Open menu to inspect runtime</div></details><details><summary>Local footprint</summary><div id="local-footprint"></div><button class="btn small" data-action="refresh-footprint">Refresh local index</button></details></nav>
       </details>
       <div class="topbar">
         <span id="breadcrumb">Workspace / Research</span
@@ -2034,10 +2034,12 @@
         );
       }
       function statusInfo(r) {
+        if(r.bundle_missing) return ["attention","Folder missing","The registered research folder is unavailable. Its registry record is preserved."];
         const reason = r.status || "unknown";
         if (r.kind === "question" && ["started", "in_progress", "planning", "researching", "reading", "acquiring", "auditing"].includes(reason))
           return ["active", "Researching", "The research is in progress. Findings will appear as they become available."];
         const map = {
+          activity_unverified: ["neutral", "Activity unverified", "This imported run recorded active work, but no owned live worker is available to verify it. Saved evidence remains accessible."],
           cancelling: ["active", "Cancelling", "Stopping research; committed evidence is preserved."],
           answered: ["ready", "Answered", "The question has a grounded answer."],
           no_accessible_evidence: ["neutral", "No readable evidence", "No accessible full papers supported an answer."],
@@ -2172,7 +2174,6 @@
         if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
         return d;
       }
-      let authTimer = null, authBusy = false;
       async function refreshService() {
         const el = document.getElementById('service-status');
         try {
@@ -2180,55 +2181,13 @@
           el.innerHTML = `<small>Storage <code>${esc(s.data_directory)}</code><br>Codex ${esc(s.codex.version || 'unavailable')}<br>PDF extraction ${esc(s.pdf_extraction.engine)}<br>${esc(s.readiness_note)}<br><a href="/openapi.json" target="_blank" rel="noopener">API contract ↗</a> · Agent tools: <code>canary mcp</code></small>`;
         } catch (error) { el.textContent = error.message; }
       }
-      function authHtml(status) {
-        const login = status.login;
-        const label = status.state === "signed_in" ? "Signed in" : status.state === "signed_out" ? "Signed out" : "Unavailable";
-        let html = `<strong>Codex · ${label}</strong>`;
-        if (status.error) html += `<p>${esc(status.error)}</p>`;
-        if (login?.state === "pending") {
-          html += `<p><a href="${esc(login.url)}" target="_blank" rel="noopener noreferrer">Open ChatGPT sign-in ↗</a></p>`;
-          if (login.user_code) html += `<p>Device code <code>${esc(login.user_code)}</code></p>`;
-          return html + '<button class="btn small" data-auth="cancel">Cancel login</button>';
-        }
-        if (login?.error) html += `<p>${esc(login.error)}</p>`;
-        if (status.authenticated) return html + '<small>Model access is checked when research starts.</small><button class="btn small" data-auth="logout">Sign out</button>';
-        if (!status.available) return html + '<button class="btn small" data-auth="refresh">Retry status</button>';
-        return html + '<button class="btn small" data-auth="browser">Sign in with ChatGPT</button><button class="btn small" data-auth="device">Use device code</button>';
-      }
-      async function refreshAuth() {
-        clearTimeout(authTimer);
-        const el = document.getElementById("codex-auth");
+      async function refreshFootprint(rescan=false) {
+        const el=document.getElementById('local-footprint');
         try {
-          const status = await api("/api/auth/status");
-          el.innerHTML = authHtml(status);
-          if (status.login?.state === "pending") authTimer = setTimeout(refreshAuth, 1500);
-        } catch (error) {
-          el.innerHTML = `<strong>Codex · status unavailable</strong><p>${esc(error.message)}</p><button class="btn small" data-auth="refresh">Retry status</button>`;
-        }
-      }
-      async function authAction(action) {
-        if (authBusy) return;
-        authBusy = true;
-        const el = document.getElementById("codex-auth");
-        el.querySelectorAll("button").forEach(b => b.disabled = true);
-        try {
-          if (action === "browser" || action === "device") {
-            const login = await api("/api/auth/login", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({method:action})});
-            el.innerHTML = authHtml({state:"signed_out",available:true,authenticated:false,login});
-          } else if (action === "cancel") {
-            const status = await api("/api/auth/status");
-            if (status.login?.state === "pending") await api(`/api/auth/login/${encodeURIComponent(status.login.id)}/cancel`, {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
-          } else if (action === "logout") {
-            await api("/api/auth/logout", {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
-          }
-          await refreshAuth();
-        } catch (error) {
-          toast(error.message, true);
-          await refreshAuth();
-        } finally {
-          authBusy = false;
-          el.querySelectorAll("button").forEach(b => b.disabled = false);
-        }
+          const f=await api('/api/footprint'+(rescan?'/refresh':''),rescan?{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}:undefined);
+          el.innerHTML=`<small>${esc(f.registered_runs ?? "Unknown")} indexed runs · ${esc(f.missing_bundles ?? "unknown")} missing folders<br>${f.roots.map(r=>`<code>${esc(r.path)}</code>${r.exists?'':' · absent'}`).join('<br>')}<br>${esc(f.scope)}${f.last_scan?`<br>Last scan ${esc(dateText(f.last_scan.finished_at,true))} · ${esc(f.last_scan.seconds)}s · ${esc(f.last_scan.added_keys.length)} added`:''}</small>${f.registry_error?`<p role="alert">Registry unavailable: ${esc(f.registry_error)}</p>`:""}${(f.last_scan?.errors || []).map(e=>`<p role="alert">${esc(e.path)}: ${esc(e.error)}</p>`).join('')}`;
+          if(rescan) { await loadRuns(); toast(`${f.last_scan.added_keys.length} local runs added`); }
+        } catch(error) {el.textContent=error.message;}
       }
       function toast(message, error = false) {
         const el = document.getElementById("toast");
@@ -3645,9 +3604,8 @@
           }
         } catch {}
         updateComposer();
-        refreshAuth();
         document.getElementById("workspace-menu").addEventListener("toggle", e => {
-          if (e.target.open) { refreshService(); if (!authBusy) refreshAuth(); }
+          if (e.target.open) { refreshService(); refreshFootprint(); }
         });
         document.addEventListener("click", (e) => {
           const menu=document.getElementById("workspace-menu");
@@ -3655,7 +3613,7 @@
           if(e.target.closest('a[href="#log"]') && location.hash === "#log") navigate("log");
           const b = e.target.closest("button");
           if (!b || b.disabled) return;
-          if (b.dataset.auth) {authAction(b.dataset.auth);return;}
+          if (b.dataset.action === "refresh-footprint") {refreshFootprint(true);return;}
           const qaKinds={qaClaim:"claim",qaStudy:"study",qaPassage:"passage",qaParagraphContext:"paragraphContext",qaEvidence:"evidence",qaContext:"context",qaSource:"source",qaPaper:"paper"};
           if(b.dataset.qaClose) {closeInspector();return;}
           for(const [attr,kind] of Object.entries(qaKinds)) if(b.dataset[attr] !== undefined) {

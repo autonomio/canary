@@ -42,8 +42,8 @@ credential/session store, defaulting to `~/.codex`. Back up these two roots acco
 to their different contents; credentials are never included in research bundles.
 
 To keep an existing checkout's registry and paths, set `CANARY_DATA_DIR` to that
-checkout's root before starting the updated service. Nothing automatically moves,
-imports or rewrites old research. Full local-footprint discovery is tracked in #125.
+checkout's root before starting the updated service. The service indexes configured
+research roots without moving or rewriting scientific files. See [local footprint](LOCAL_FOOTPRINT.md).
 
 ## Container
 
@@ -62,8 +62,8 @@ support and a human completing the challenge. `docker compose down` retains volu
 `runs serve --host 0.0.0.0 --no-dashboard`.
 
 The older `Dockerfile` remains the legacy contained-worker image for retained
-experiments; it is not the current research-service deployment. General API migration,
-native cancellation and OpenAPI/MCP remain the next slices in [the delivery map](API_FIRST.md).
+experiments; it is not the current research-service deployment. API-owned native
+cancellation and OpenAPI/MCP are documented in [the delivery map](API_FIRST.md).
 
 ## Installation evidence
 
@@ -73,6 +73,10 @@ assets, worker tools and separation of state/resources. The service-container ch
 exercises startup, native Codex discovery, signed-out auth, extraction and persistent
 data/auth roots across replacement containers. These are operational fixtures, not
 a live scientific run or model-access certification.
+
+The dashboard is local and has no provider-login controls. Authenticate with the
+API-backed CLI. See [local research footprint](LOCAL_FOOTPRINT.md) to include old
+research directories without moving or rewriting their files.
 
 The service Compose profile allows the namespace setup required by Codex's inner
 Linux sandbox (`seccomp=unconfined`, `apparmor=unconfined` on the outer container).
