@@ -34,6 +34,7 @@ The paths below reuse existing routes or name proposed additions. New paths rema
 | --- | --- | --- |
 | Start/inspect service | Local service bootstrap; expose service/runtime status | Supported installation, runtime discovery and startup command; distinguish service availability, login and run readiness |
 | Authenticate | Proposed `/api/auth/*`; CLI and dashboard relay the same login session | API-owned Codex browser/device login, status and logout; persistent worker credentials; no custom OAuth implementation |
+| Provide inputs/import runs | API-owned input staging and run adoption | Clients upload or reference inputs through the service and receive input/run IDs; retained analysis/adoption commands must not assume a client's local file exists on the server |
 | Submit a question | Existing `POST /api/runs` with `kind: question` | Typed question/options request, run key response, explicit errors; no host paths needed by clients |
 | Observe/control a run | Existing run/status/log routes; proposed native cancellation | Honest progress, elapsed time, failure/partial/audit states; cancel the actual owned process tree and preserve committed evidence |
 | Search and obtain papers | Run-scoped API actions backed by existing discover/acquire/catalog functions | Scientific helper commands become API clients; retain concurrent acquisition, cursor history and per-paper failures |
@@ -41,7 +42,7 @@ The paths below reuse existing routes or name proposed additions. New paths rema
 | Retrieve findings | Existing `GET /api/runs/{key}/research` | Publish the existing claims, uncertainty, study results, contradictions, gaps, residue, caveats and next-question schemas |
 | Export results | API-owned export action/download | CLI/UI/agents request the same export; avoid client-side filesystem access or a separate report generator |
 | Inspect usage/settings | Existing `/api/log` and source usage status, plus typed runtime settings | Consistent per-run tokens/durations/search counts; preserve unknown values and audit limits; keep provider secrets private |
-| Use retained legacy commands | Same API boundary for retained review/analyze/cycle/inspect/resume/assess/profile/publish actions | Inventory each command; route it through the API or expose its existing refusal/unsupported state explicitly; preserve existing behavior and do not revive refused code promotion |
+| Use retained legacy commands | Same API boundary for retained review/analyze/cycle/inspect/resume/assess/revise/profile/publish/adopt actions | Inventory each command; route it through the API or expose its existing refusal/unsupported state explicitly; preserve existing behavior and do not revive refused code promotion |
 | Use another frontend or agent | Same HTTP contract and result records | Backend-to-backend calls work first; add allowed-origin browser access only where needed; clients use the deployment's explicit access boundary |
 
 ## Ordered delivery
