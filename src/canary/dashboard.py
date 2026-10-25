@@ -19,6 +19,7 @@ import shlex
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -32,14 +33,15 @@ from .codex_auth import AuthError, CodexAuth
 from . import bundle_connectors
 from . import research_bundle as bundle_store
 from .research_spec import CompileError, compile_research, compile_mapping, verify_compiled
+from .runtime_paths import resource_root
 
-QUESTION_ENGINE_ROOT = Path(os.environ.get("CANARY_QUESTION_ENGINE_ROOT", runs.ROOT)).resolve()
+QUESTION_ENGINE_ROOT = Path(os.environ.get("CANARY_QUESTION_ENGINE_ROOT", resource_root())).resolve()
 DEFAULT_PORT = 8789
 MAX_BODY = 64 * 1024
 FINDINGS_TTL_S = 60
 INSPECT_TTL_S = 2
 
-UI_PATH = runs.ROOT / "scripts" / "dashboard" / "index.html"
+UI_PATH = resource_root() / "scripts" / "dashboard" / "index.html"
 INTER_FONT_PATH = UI_PATH.parent / "assets" / "InterVariable.woff2"
 RESEARCH_CSS_PATH = UI_PATH.parent / "assets" / "research.css"
 FINLANDICA_FONT_PATH = UI_PATH.parent / "assets" / "Finlandica-Regular.woff2"
@@ -139,10 +141,12 @@ class Supervisor:
                     bundle = self.root / "container-out" / key
         env = dict(os.environ, OUT=str(bundle), RUN_KEY=key,
                    RUN_NAME=name, RUN_BRIEF=brief,
+                   CANARY_DATA_DIR=str(self.root.resolve()),
                    CANARY_RUNS_REGISTRY=str(self.registry))
         env.update(extra)
         if native:
             env["CODEX_HOME"] = self.auth.home
+            env["CANARY_COVERAGE_PYTHON"] = sys.executable
             if packet_path:
                 env["CANARY_RUN_SPEC"] = str(packet_path.resolve())
         launcher_log = self.root / "container-out" / f"{key}.launcher.log"
@@ -894,7 +898,7 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
 
 
 def _coverage_search_status() -> dict | None:
-    path = QUESTION_ENGINE_ROOT / "out" / "coverage-openalex-usage.sqlite"
+    path = runs.ROOT / "out" / "coverage-openalex-usage.sqlite"
     if not path.is_file():
         return None
     date = runs.utcnow()[:10]
@@ -991,6 +995,7 @@ def console_tail(bundle: str | Path, tail: int = 200) -> dict:
 
 class Handler(BaseHTTPRequestHandler):
     supervisor: Supervisor = None  # type: ignore
+    dashboard_enabled = True
     server_version = "CanaryRuns/1"
 
     def log_message(self, fmt, *args):  # quieter than BaseHTTPRequestHandler
@@ -1034,6 +1039,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if parsed.path.startswith("/api/auth/"):
                 self._auth_request(parsed.path, "GET")
+            elif parsed.path == '/api/status':
+                from .service_status import service_status
+                self._send(200, service_status(self.supervisor.root, self.dashboard_enabled))
+            elif not self.dashboard_enabled and (parsed.path == '/' or parsed.path.startswith('/assets/')):
+                self._send(404, {'error': 'Dashboard disabled; the research API is available.'})
             elif parsed.path == "/":
                 self._send(200, UI_PATH.read_bytes(), "text/html; charset=utf-8")
             elif parsed.path == "/assets/InterVariable.woff2":
@@ -1311,25 +1321,28 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(port: int = DEFAULT_PORT, registry: str | Path = runs.REGISTRY,
-                root: str | Path = runs.ROOT) -> ThreadingHTTPServer:
+                root: str | Path = runs.ROOT, *, host: str = '127.0.0.1',
+                dashboard_enabled: bool = True) -> ThreadingHTTPServer:
     """Loopback-bound server (port 0 picks an ephemeral port for tests)."""
     handler = type("RunsHandler", (Handler,), {})
     handler.supervisor = Supervisor(registry, root)
+    handler.dashboard_enabled = dashboard_enabled
     class AuthServer(ThreadingHTTPServer):
         def server_close(self):
             handler.supervisor.auth.close()
             super().server_close()
 
-    server = AuthServer(("127.0.0.1", port), handler)
+    server = AuthServer((host, port), handler)
     server.daemon_threads = True
     return server
 
 
 def serve(port: int = DEFAULT_PORT, registry: str | Path = runs.REGISTRY,
-          root: str | Path = runs.ROOT) -> None:
+          root: str | Path = runs.ROOT, *, host: str = '127.0.0.1',
+          dashboard_enabled: bool = True) -> None:
     """Bind loopback and serve forever. Runs outlive this process by design."""
-    server = make_server(port, registry, root)
-    print(f"runs dashboard serving at http://127.0.0.1:{server.server_port}/")
+    server = make_server(port, registry, root, host=host, dashboard_enabled=dashboard_enabled)
+    print(f"Canary serving at http://{host}:{server.server_port}/; data: {Path(root).resolve()}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

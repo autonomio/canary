@@ -7,12 +7,14 @@ if [[ "$#" != 2 || "$1" != ask || -z "$2" ]]; then
   exit 2
 fi
 : "${OUT:?OUT must name a new research workspace}"
-PYTHON="${CANARY_COVERAGE_PYTHON:-$PWD/.venv/bin/python}"
+PYTHON="${CANARY_COVERAGE_PYTHON:-$(command -v python3)}"
 if [[ ! -x "$PYTHON" ]]; then
   echo "Missing Python environment: $PYTHON; run uv sync" >&2
   exit 2
 fi
-export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
+if [[ -d "$PWD/src" ]]; then
+  export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
+fi
 if [[ -n "${CANARY_RUN_SPEC:-}" ]]; then
   exec "$PYTHON" -m canary.research_bundle "$CANARY_RUN_SPEC" "$OUT"
 fi

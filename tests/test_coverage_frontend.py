@@ -38,7 +38,7 @@ def test_fixed_question_launcher_retains_question_as_one_argument(tmp_path, monk
 
 
 def test_operator_keyword_counter_is_read_only_and_scoped(tmp_path, monkeypatch):
-    monkeypatch.setattr(dashboard, "QUESTION_ENGINE_ROOT", tmp_path)
+    monkeypatch.setattr(runs, "ROOT", tmp_path)
     path = tmp_path / "out" / "coverage-openalex-usage.sqlite"
     path.parent.mkdir()
     with sqlite3.connect(path) as db:

@@ -20,7 +20,9 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
+from .runtime_paths import data_root
+
+ROOT = data_root()
 # Overridable so tests and alternate checkouts isolate their registry; the
 # daemon exports it for launcher children so hooks land in the same file.
 REGISTRY = Path(os.environ.get("CANARY_RUNS_REGISTRY", ROOT / "runs" / "registry.json"))

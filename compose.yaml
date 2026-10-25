@@ -1,0 +1,15 @@
+services:
+  canary:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+    ports:
+      - "127.0.0.1:8789:8789"
+    environment:
+      OPENALEX_API_KEY: ${OPENALEX_API_KEY:-}
+    volumes:
+      - research:/data
+      - codex-auth:/auth
+volumes:
+  research:
+  codex-auth:

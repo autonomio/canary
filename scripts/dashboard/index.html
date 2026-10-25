@@ -1471,7 +1471,7 @@
     <main id="main">
       <details class="workspace-menu" id="workspace-menu">
         <summary aria-label="Menu" role="button" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></summary>
-        <nav aria-label="Workspace menu"><a href="#log">Log</a><div id="codex-auth" aria-live="polite">Codex · checking</div></nav>
+        <nav aria-label="Workspace menu"><a href="#log">Log</a><details><summary>Service</summary><div id="service-status">Open menu to inspect runtime</div></details><div id="codex-auth" aria-live="polite">Codex · checking</div></nav>
       </details>
       <div class="topbar">
         <span id="breadcrumb">Workspace / Research</span
@@ -2172,6 +2172,13 @@
         return d;
       }
       let authTimer = null, authBusy = false;
+      async function refreshService() {
+        const el = document.getElementById('service-status');
+        try {
+          const s = await api('/api/status');
+          el.innerHTML = `<small>Storage <code>${esc(s.data_directory)}</code><br>Codex ${esc(s.codex.version || 'unavailable')}<br>PDF extraction ${esc(s.pdf_extraction.engine)}<br>${esc(s.readiness_note)}</small>`;
+        } catch (error) { el.textContent = error.message; }
+      }
       function authHtml(status) {
         const login = status.login;
         const label = status.state === "signed_in" ? "Signed in" : status.state === "signed_out" ? "Signed out" : "Unavailable";
@@ -3639,7 +3646,7 @@
         updateComposer();
         refreshAuth();
         document.getElementById("workspace-menu").addEventListener("toggle", e => {
-          if (e.target.open && !authBusy) refreshAuth();
+          if (e.target.open) { refreshService(); if (!authBusy) refreshAuth(); }
         });
         document.addEventListener("click", (e) => {
           const menu=document.getElementById("workspace-menu");

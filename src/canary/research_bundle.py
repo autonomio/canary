@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from .research_spec import verify_compiled, digest
+from .runtime_paths import resource_root
 
 BUNDLE_VERSION = 1
 INPUT_FILES = ('research.yaml', 'run-spec.json', 'compile-report.json')
@@ -60,7 +61,7 @@ def initialize(workspace, packet):
         name: file_hash(Path(__file__).parent / name) for name in
         ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'claim_freshness.py',
          'research_spec.py', 'research_bundle.py', 'bundle_connectors.py')}}
-    lock = Path(__file__).resolve().parents[2] / 'uv.lock'
+    lock = resource_root() / 'uv.lock'
     report['engine']['dependency_lock_sha256'] = file_hash(lock) if lock.is_file() else None
     write_json(workspace / 'compile-report.json', report)
     seal(workspace, state='running')

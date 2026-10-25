@@ -2,6 +2,7 @@
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -46,7 +47,7 @@ def test_register_start_stores_launch_argv(registry):
 def test_register_script_launch_argv(tmp_path, monkeypatch):
     reg = tmp_path / "registry.json"
     monkeypatch.setenv("CANARY_RUNS_REGISTRY", str(reg))
-    script = str(runs.ROOT / "scripts" / "register_run.py")
+    script = str(Path(__file__).resolve().parents[1] / "scripts" / "register_run.py")
     argv = ["bash", "scripts/container_run.sh", "cycle", "seed with spaces?"]
     base = [sys.executable, script, "start", "--key", "s1", "--name", "n",
             "--brief", "b", "--launch", "LOSSY"]

@@ -47,10 +47,17 @@ The paths below reuse existing routes or name proposed additions. New paths rema
 
 ## Ordered delivery
 
+The current owner-approved delivery uses one PR per step: (1) installable deployment,
+(2) remaining API/lifecycle migration, (3) OpenAPI and MCP interfaces, (4) clean-install
+live proof, (5) Resolvent receiving-side proof in a chosen instance, (6) login-free
+local-footprint dashboard (#125). Bundle embeddings (#126) and the final README
+rewrite follow later. The detailed capabilities below remain the acceptance map;
+the two interface items are delivered together in this six-PR sequence.
+
 Complete each item’s API behavior, client integration and meaningful acceptance evidence together; do not defer the frontend or agent view to a later cleanup.
 
 1. [x] **Service and authentication.** API-owned native Codex browser/device login, status, progress, cancellation and logout; HTTP-only CLI and dashboard clients; one persistent credential context shared with native workers. The current access boundary is the owner-operated loopback service with same-origin authentication controls. See [the auth contract and workflow](AUTH.md); provider login and access to Canary remain separate concerns.
-2. [ ] **Installable execution.** Package required Python entry points/resources, the supported CLI runtime and extraction dependencies. Remove source-checkout path assumptions. Supply a container for the current pipeline with persistent auth and research storage. Keep the dashboard optional for headless use and include its assets when installed.
+2. [x] **Installable execution.** The wheel packages the native launcher, dashboard and lock fingerprint; native scientific tools use installed Python modules. A configurable data root is separate from package resources. [Installation](INSTALL.md) covers Codex, Poppler, API-only startup and the current service container with persistent auth/research volumes. CI exercises a fresh wheel outside the checkout and container replacement. Live scientific deployment proof remains step 6.
 3. [ ] **Research and run lifecycle.** The [compiled YAML and versioned bundle slice](RESEARCH_BUNDLE.md) adds API-owned compilation/submission/repetition, HTTP-only `run`/`bundle` clients, frontend bundle ingestion and a Resolvent handoff. Remaining work: Make `canary ask` and retained application commands thin API clients. Route scientific acquisition/source/finalization tools through the service. Add native cancellation and any explicitly requested run limits without silently changing coverage or reasoning. Persist enough ownership/state for honest status after service restarts.
 4. [ ] **Canonical contract.** Publish OpenAPI and runnable examples for submission, polling, cancellation, results, exports, usage and source/evidence access. Reuse the existing research schemas and diagnostics. Verify that another application can render the findings using only API responses.
 5. [ ] **Agent tools.** Provide a small MCP adapter over the same API: authenticate/status, ask, inspect a run, cancel, retrieve findings and inspect evidence/source context. Keep server tools and schemas aligned with OpenAPI; no second orchestration implementation or direct artifact access.
