@@ -98,6 +98,7 @@ class CodexAuth:
         self.messages = messages = queue.Queue()
         self.completions.clear()
         try:
+            Path(self.home).mkdir(parents=True, exist_ok=True, mode=0o700)
             self.proc = subprocess.Popen(
                 [executable, 'app-server', '-c', 'cli_auth_credentials_store="file"'],
                 env=dict(os.environ, CODEX_HOME=self.home),
@@ -235,8 +236,17 @@ class CodexAuth:
         with self.lock:
             self.progress(login_id)
             if self.login['state'] == 'pending':
-                self._call('account/login/cancel', {'loginId': login_id})
-                self._finish('cancelled')
+                result = self._call('account/login/cancel', {'loginId': login_id})
+                if self.login['state'] == 'pending':
+                    if result.get('status') == 'canceled':
+                        self._finish('cancelled')
+                    elif result.get('status') == 'notFound':
+                        self.status()  # completion can race cancellation
+                        if self.login['state'] == 'pending':
+                            self._finish('failed', 'Login is no longer active; check account status or start again.')
+                    else:
+                        self._stop()
+                        raise AuthError('Codex returned an unsupported cancellation response.')
             return dict(self.login)
 
     def logout(self) -> AuthStatus:

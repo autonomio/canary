@@ -52,6 +52,11 @@ for line in sys.stdin:
         credential.unlink(missing_ok=True)
     elif method=='account/login/cancel':
         assert m['params']['loginId']==login_id
+        if (home/'cancel-complete').exists():
+            credential.write_text('fixture')
+            send({'method':'account/login/completed','params':{'loginId':login_id,'success':True}})
+            result={'status':'notFound'}
+        else:result={'status':'canceled'}
     elif method=='initialized':continue
     else:raise AssertionError(method)
     send({'id':m['id'],'result':result})
@@ -188,3 +193,19 @@ def test_worker_uses_api_owned_home_and_native_file_store(auth_server, monkeypat
     assert captured['CODEX_HOME']==str(home)
     command=coverage_runtime.command_line('codex','sol','xhigh','workspace','schema','output')
     assert 'cli_auth_credentials_store="file"' in command
+
+
+def test_cancel_racing_completion_does_not_claim_it_cancelled(auth_server):
+    _, client, home = auth_server
+    login=client.post('/api/auth/login', json={}).json()
+    (home/'cancel-complete').touch()
+    result=client.post('/api/auth/login/'+login['id']+'/cancel', json={}).json()
+    assert result['state']=='complete'
+    assert client.get('/api/auth/status').json()['authenticated']
+
+
+def test_missing_credential_directory_is_created_privately(auth_server):
+    server, client, home = auth_server
+    home.rmdir()
+    assert client.get('/api/auth/status').json()['state']=='signed_out'
+    assert home.is_dir() and home.stat().st_mode & 0o777 == 0o700

@@ -55,7 +55,7 @@ def run(args, port: int) -> int:
                     request('POST', f'/api/auth/login/{login_id}/cancel', {})
                 except (httpx.HTTPError, RuntimeError, ValueError):
                     pass
-            print('Login cancelled.', file=sys.stderr)
+            print('Stopped waiting for login.', file=sys.stderr)
             return 130
         except httpx.HTTPError:
             print(f'Cannot reach the service. Start it with: canary runs serve --port {port}', file=sys.stderr)
