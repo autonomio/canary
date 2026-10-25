@@ -320,10 +320,12 @@ class Supervisor:
         row = runs.get(key, self.registry)
         if row is None:
             raise KeyError(key)
+        suffix = ' (rerun)'
+        repeated_name = name or (str(row.get('name') or key)[:120 - len(suffix)] + suffix)
         saved = bundle_store.read(row.get('bundle', ''))
         if saved.get('specification') or row.get("run_spec_path"):
             packet = saved.get('specification') or json.loads(Path(row['run_spec_path']).read_text())
-            started = self.start_compiled(packet, name or row.get('name', key) + ' (rerun)', brief or row.get('brief', ''))
+            started = self.start_compiled(packet, repeated_name, brief or row.get('brief', ''))
             return dict(started, **{'from': key})
         argv = row.get("launch_argv") or []
         if not (isinstance(argv, list) and argv
@@ -336,7 +338,7 @@ class Supervisor:
             except ValueError as e:
                 raise RuntimeError(
                     f"recorded launch is not parseable: {e}") from e
-        new_name = name or row.get("name", key) + " (rerun)"
+        new_name = repeated_name
         new_brief = brief or (row.get("brief", "") + f"\nRerun of {key}.")
         started = self.start(new_name, new_brief, argv,
                              env=row.get("launch_env") or {})

@@ -289,3 +289,39 @@ def test_bundle_preserves_auxiliary_research_files_and_unicode_without_credentia
         assert z.read('analysis/table.csv').decode('utf-8')=='condition,μ\nA,2\n'
         assert 'figure.svg' in z.namelist()
         assert 'auth.json' not in z.namelist() and '.env' not in z.namelist()
+
+
+def test_long_question_default_names_can_repeat_without_losing_original_scope(api):
+    _,client,_=api
+    question='A long original researcher question? '*10
+    started=client.post('/api/runs',json={'spec':{'question':question}}).json()
+    first=wait_bundle(client,started['key'])
+    assert first['bundle']['specification']['resolved']['question']==question.strip()
+    response=client.post(f"/api/runs/{started['key']}/rerun",json={})
+    assert response.status_code==201,response.text
+    repeated=response.json()
+    second=wait_bundle(client,repeated['key'])
+    assert second['bundle']['specification']['spec_sha256']==started['spec_sha256']
+    row=client.get('/api/runs/'+repeated['key']).json()
+    assert len(row['name'])<=120 and row['name'].endswith(' (rerun)')
+    assert client.get(f"/api/runs/{repeated['key']}/exports/resolvent").json()['scope']==question.strip()
+
+
+@pytest.mark.parametrize('missing',['state','id','created_at','execution','artifacts'])
+def test_incomplete_manifest_reports_invalid_without_hiding_findings(api,tmp_path,missing):
+    server,client,_=api
+    folder=tmp_path/'damaged';folder.mkdir()
+    completed(folder)
+    from canary.coverage_export import export_bundle
+    from canary import runs
+    export_bundle(folder);research_bundle.seal(folder)
+    manifest=folder/'bundle.json'
+    value=json.loads(manifest.read_text());del value[missing]
+    research_bundle.write_json(manifest,value)
+    runs.register_start('damaged','Damaged','',bundle=str(folder),status='done',path=server.RequestHandlerClass.supervisor.registry)
+    response=client.get('/api/runs/damaged/bundle')
+    assert response.status_code==200,response.text
+    result=response.json()
+    assert result['bundle']['state']=='invalid'
+    assert result['research']['answer']['claims']
+    assert missing in result['bundle']['limitations'][0]

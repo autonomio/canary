@@ -90,7 +90,7 @@ def resolvent(workspace):
         claims.append({'id': local_id, 'class': 'derived_inference', 'statement': item['text'],
                        'uncertainty': uncertainty[level], 'evidence_ids': [evidence_map[x] for x in links]})
     summary = '\n\n'.join(x['text'] for x in payload.get('executive_summary', []) if x.get('text'))
-    scope = (payload.get('question_plan') or {}).get('question') or bundle['specification']['resolved']['question']
+    scope = bundle['specification']['resolved']['question']
     limitations = list(dict.fromkeys([*bundle['limitations'], *payload.get('caveats', []),
         'Candidate claim classes require Resolvent admission; this adapter assigns derived_inference without promoting canonical claims.',
         'Freshness, gaps, residue, evidence relations and audit scope are retained in the full research artifact and metadata.',

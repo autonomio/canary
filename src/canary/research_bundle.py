@@ -24,6 +24,7 @@ class ResearchBundle(TypedDict):
     id: str
     created_at: str | None
     state: str
+    execution: dict
     specification: dict | None
     artifacts: list[dict]
     limitations: list[str]
@@ -114,6 +115,11 @@ def read(workspace) -> ResearchBundle:
     value = json.loads(path.read_text(encoding='utf-8'))
     if not isinstance(value, dict):
         raise ValueError('Bundle manifest must be an object')
+    missing = ResearchBundle.__required_keys__ - value.keys()
+    if missing:
+        raise ValueError('Incomplete bundle manifest: ' + ', '.join(sorted(missing)))
+    if value['state'] not in ('running', 'finished') or not isinstance(value['execution'], dict):
+        raise ValueError('Malformed bundle state or execution record')
     if value.get('format') != 'canary.research-bundle' or value.get('version') != BUNDLE_VERSION:
         raise ValueError('Unsupported research bundle version')
     records = value.get('artifacts')
