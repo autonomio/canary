@@ -18,8 +18,12 @@ def resolvent(workspace):
         raise ValueError('Resolvent export requires a finished versioned bundle')
     inventory = {a['path']: a for a in bundle['artifacts']}
     payload_path = workspace / 'payload.json'
-    if payload_path.is_file():
+    if 'payload.json' in inventory:
+        if not payload_path.is_file():
+            raise ValueError('Recorded research payload is missing: payload.json')
         payload = json.loads(research_bundle.verified_artifact(workspace, inventory['payload.json']).read_text(encoding='utf-8'))
+    elif payload_path.exists():
+        raise ValueError('Research payload is not included in the sealed inventory')
     else:
         payload = {}
     refs = {r['id']: r for r in payload.get('references', [])}

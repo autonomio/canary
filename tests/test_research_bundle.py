@@ -325,3 +325,30 @@ def test_incomplete_manifest_reports_invalid_without_hiding_findings(api,tmp_pat
     assert result['bundle']['state']=='invalid'
     assert result['research']['answer']['claims']
     assert missing in result['bundle']['limitations'][0]
+
+
+def test_missing_recorded_payload_is_an_explicit_export_error_not_an_empty_contribution(api,tmp_path):
+    server,client,_=api
+    folder=tmp_path/'missing-payload';folder.mkdir();completed(folder)
+    (folder/'payload.json').unlink()
+    from canary import runs
+    runs.register_start('missing-payload','Missing payload','',bundle=str(folder),status='done',path=server.RequestHandlerClass.supervisor.registry)
+    response=client.get('/api/runs/missing-payload/exports/resolvent')
+    assert response.status_code==400,response.text
+    assert 'Recorded research payload is missing' in response.json()['error']
+    assert 'claims' not in response.json()
+
+
+def test_lost_staged_input_does_not_hide_existing_research(api,tmp_path):
+    server,client,_=api
+    folder=tmp_path/'lost-input';folder.mkdir();seed(folder)
+    from canary import runs
+    from canary.coverage_export import export_bundle
+    export_bundle(folder)
+    runs.register_start('lost-input','Lost input','',bundle=str(folder),status='done',
+                        run_spec_path=str(tmp_path/'missing-staged.json'),path=server.RequestHandlerClass.supervisor.registry)
+    response=client.get('/api/runs/lost-input/bundle')
+    assert response.status_code==200,response.text
+    result=response.json()
+    assert result['bundle']['state']=='invalid'
+    assert result['research']['answer']['claims']

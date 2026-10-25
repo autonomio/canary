@@ -1087,14 +1087,14 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     try:
                         bundle = bundle_store.read(row['bundle'])
-                    except (ValueError, OSError) as error:
+                        if bundle['state'] == 'legacy_unversioned' and row.get('run_spec_path'):
+                            packet = verify_compiled(json.loads(Path(row['run_spec_path']).read_text()))
+                            bundle.update(state='staged', specification=packet,
+                                          limitations=['No versioned manifest is available; showing the stored compiled input.'])
+                    except (ValueError, OSError, KeyError, TypeError) as error:
                         bundle = {'format': 'canary.research-bundle', 'version': 1, 'id': '', 'state': 'invalid',
                                   'created_at': None, 'execution': {'status': None, 'answered': None, 'audit_complete': None},
                                   'specification': None, 'artifacts': [], 'limitations': [str(error)]}
-                    if bundle['state'] == 'legacy_unversioned' and row.get('run_spec_path'):
-                        packet = verify_compiled(json.loads(Path(row['run_spec_path']).read_text()))
-                        bundle.update(state='staged', specification=packet,
-                                      limitations=['Compiled input is staged; the worker has not committed its bundle manifest.'])
                     research, live = research_for_row(row, self.supervisor)
                     self._send(200, {'key': key, 'live': live, 'bundle': bundle, 'research': research})
             elif parsed.path == "/api/log":
