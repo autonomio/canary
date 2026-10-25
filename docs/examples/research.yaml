@@ -1,0 +1,6 @@
+version: 1
+question: How do capsid amino acid changes affect folding and yield?
+research: {model: gpt-6.1-sol, effort: xhigh}
+audit: {model: gpt-6-astra, effort: ultra, budget_seconds: 600}
+retrieval: {selection: coverage, target_papers: 50, corpus: fresh, access: open_full_text}
+subagents: false

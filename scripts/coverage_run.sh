@@ -13,4 +13,7 @@ if [[ ! -x "$PYTHON" ]]; then
   exit 2
 fi
 export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
+if [[ -n "${CANARY_RUN_SPEC:-}" ]]; then
+  exec "$PYTHON" -m canary.research_bundle "$CANARY_RUN_SPEC" "$OUT"
+fi
 exec "$PYTHON" -m canary.cli ask "$2" --out "$OUT"

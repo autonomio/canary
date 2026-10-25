@@ -1,6 +1,8 @@
 """Typed source-first coverage research contracts, independent of saved experiments."""
 from __future__ import annotations
 
+from .claim_freshness import schema as freshness_schema
+
 RESEARCH_MODEL = "gpt-6.1-sol"
 RESEARCH_EFFORT = "xhigh"
 AUDIT_MODEL = "gpt-6-astra"
@@ -49,7 +51,7 @@ def investigation_schema():
         "executive_summary": arr(obj({"text": S, "claim_ids": SS})),
         "claims": arr(obj({"id": S, "text": S,
             "kind": enum("reported_finding", "author_interpretation", "derived_comparison", "secondary_report"),
-            "uncertainty": uncertainty, "evidence_ids": SS, "study_result_ids": SS})),
+            "uncertainty": uncertainty, "freshness": freshness_schema(), "evidence_ids": SS, "study_result_ids": SS})),
         "evidence": arr(obj({"id": S, "passage_ids": SS, "interpretation": S,
                              "relation": enum("supports", "qualifies", "contradicts")})),
         "study_results": arr(obj({"id": S, "reference_ids": SS,
@@ -64,8 +66,8 @@ def investigation_schema():
         "gaps": arr(obj({"id": S, "kind": enum("unanswered_scope", "missing_data", "unmatched_conditions",
             "access_limit", "measurement_limit", "conflicting_evidence"), "description": S, "basis": S,
             "claim_ids": SS, "evidence_ids": SS, "needed_to_resolve": S})),
-        "residue": arr(obj({"id": S, "observation": S, "why_it_matters": S, "evidence_ids": SS,
-            "alternative_explanations": SS, "follow_up_test": S, "scope_limit": S})),
+        "residue": arr(obj({"id": S, "observation": S, "why_it_matters": S, "basis": S,
+            "claim_ids": SS, "evidence_ids": SS, "scope_limit": S})),
         "next_questions": arr(obj({"id": S, "question": S, "justification": S,
                                    "gap_ids": SS, "residue_ids": SS})),
         "caveats": SS, "scope_note": S,
@@ -91,6 +93,7 @@ Keep experiments, cohorts, versions, denominators, comparators and units distinc
 Distinguish measured, fitted, simulated, associated and qualitative results. Nonsignificance is not equivalence.
 Unreported conditions remain unknown. Preserve adverse/null evidence and source contradictions without manufacturing resolution.
 Claim uncertainty low=1/moderate=2/high=3 is an ordinal model judgment, not a probability or reported source uncertainty.
+Every claim requires freshness: source as_of (ISO date or null), policy scheduled/event_driven/historical/unknown, review_after (ISO date for scheduled only), triggers and rationale. A review horizon requests reassessment, not automatic truth expiry. Historical observations need no scheduled expiry; never invent a source date or review deadline. Record unknown where no defensible horizon is available.
 Never treat abstracts, metadata, a paywall preview or an opened but unexamined document as a substantively reviewed full paper.
 Report publication counts separately from independent study families and core comparisons separately from supporting context.
 No universal absence/recall assertion from this selected corpus. Keep output question-driven and compact, usually several dozen claims maximum.
@@ -126,7 +129,8 @@ If fewer than {minimum_papers} remain, edit question-plan-draft.json with target
 A timeout or inaccessible copy alone does not prove topic scarcity. The target is not {minimum_papers} independent trials: role/family accounting is essential.
 5. Save investigation.json conforming to investigation-schema.json, and return that same JSON as the final response.
 Claims -> evidence -> canonical passages -> references; executive prose links claims. Study-result fields each cite actual supporting passages or are null.
-Include typed contradictions, gaps, residue (what remains awkward, neglected or unexplained), justified next questions, caveats and honest reviewed scope.
+Include typed contradictions, gaps, residue, justified next questions, caveats and honest reviewed scope.
+Residue preserves relevant material that is neither a claim nor a gap: what must not be lost. Bind its basis, claim/evidence links and scope; do not require a resolution, alternative explanation or follow-up test. Gaps describe what remains unanswered and what would resolve it.
 No earlier experiment assets, paper lists, answers or audits. No outputs from other sessions. Complete the actual work in this session.
 """
 

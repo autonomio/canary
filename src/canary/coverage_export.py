@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .runs import has_native_findings
+from .claim_freshness import unknown as unknown_freshness
 
 EXECUTION_MODE = "coverage-guided full-paper research"
 
@@ -173,6 +174,9 @@ def _save_markdown(path: Path, graph: dict):
         lines.extend(["## " + label, "", str(claim.get("text", "")), "",
                       f'Uncertainty: {claim.get("uncertainty_class", "unknown")} ({claim.get("uncertainty_score", "unknown")}/3; ordinal).',
                       str(claim.get("uncertainty_rationale", "")), "Audit: " + str(checks.get(claim["id"], {}).get("assessment", "not_checked")), ""])
+        freshness = claim.get('freshness') or unknown_freshness()
+        lines.extend([f"Freshness: {freshness.get('policy', 'unknown')}; source as of {freshness.get('as_of') or 'unknown'}; review after {freshness.get('review_after') or 'not scheduled'}.",
+                      freshness.get('rationale', ''), *['Reassessment trigger: ' + t for t in freshness.get('triggers', [])], ''])
         linked_evidence = set(claim.get("evidence_ids", []))
         linked_evidence.update(e.get("origin_evidence_id") for e in evidence
                                if e.get("navigation_id", e.get("id")) in linked_evidence)
@@ -511,7 +515,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
             if identifier in duplicate_claim_ids:
                 issue["claim_occurrence"] = occurrence
             graph["binding_issues"].append(issue)
-        record = dict(claim, uncertainty_class=u.get("class"), uncertainty_score=u.get("score"),
+        record = dict(claim, freshness=claim.get("freshness") or unknown_freshness(),
+                      uncertainty_class=u.get("class"), uncertainty_score=u.get("score"),
                       uncertainty_rationale=u.get("rationale", ""),
                       evidence_ids=[eid for key in claim.get("evidence_ids", []) for eid in (evidence_map.get(key) or [key])])
         if identifier in duplicate_claim_ids:

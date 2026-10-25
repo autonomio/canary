@@ -527,6 +527,9 @@ def bind_payload(workspace):
         require(claim.get("study_result_ids", []), results, "result", claim["id"])
         if not claim.get("evidence_ids"):
             issues.append("Claim lacks evidence: " + claim["id"])
+        if 'freshness' in claim:
+            from .claim_freshness import issues as freshness_issues
+            issues.extend(claim['id'] + ': ' + reason for reason in freshness_issues(claim['freshness']))
         uncertainty = claim.get("uncertainty", {})
         if {"low": 1, "moderate": 2, "high": 3}.get(uncertainty.get("class")) != uncertainty.get("score"):
             issues.append("Uncertainty class/score mismatch: " + claim["id"])

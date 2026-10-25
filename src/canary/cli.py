@@ -109,6 +109,14 @@ def review(spec: RunSpec, assess: bool = False) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="canary", description="Canary research toolkit.")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    bundle = sub.add_parser("bundle", help="read a research bundle or connector handoff through the API")
+    bundle.add_argument("key")
+    bundle.add_argument("--connector", choices=['resolvent'])
+    bundle.add_argument("--port", type=int, default=None)
+    compiled = sub.add_parser("run", help="compile a YAML declaration and submit it through the API")
+    compiled.add_argument("declaration", help="research YAML file")
+    compiled.add_argument("--dry-run", action="store_true", help="compile only; no research or provider calls")
+    compiled.add_argument("--port", type=int, default=None)
     auth = sub.add_parser("auth", help="Codex authentication through the local API")
     auth_sub = auth.add_subparsers(dest="auth_cmd", required=True)
     login = auth_sub.add_parser("login", help="sign in on the service host")
@@ -226,6 +234,12 @@ def main(argv: list[str] | None = None) -> int:
     ad.add_argument("--name", default="")
     ad.add_argument("--brief", default="")
     args = ap.parse_args(argv)
+    if args.cmd == "bundle":
+        from .research_cli import fetch_bundle
+        return fetch_bundle(args, _runs_port(args))
+    if args.cmd == "run":
+        from .research_cli import run as compiled_run
+        return compiled_run(args, _runs_port(args))
     if args.cmd == "auth":
         from .auth_cli import run as auth_run
         return auth_run(args, _runs_port(args))
