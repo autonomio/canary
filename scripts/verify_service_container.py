@@ -19,6 +19,7 @@ def main():
     try:
         for attempt in range(2):
             docker('run', '-d', '--name', name, '-p', '127.0.0.1::8789',
+                   '--security-opt', 'seccomp=unconfined', '--security-opt', 'apparmor=unconfined',
                    '-v', data + ':/data', '-v', auth + ':/auth', image)
             address = docker('port', name, '8789/tcp').splitlines()[0]
             url = 'http://' + address
@@ -56,6 +57,11 @@ with tempfile.TemporaryDirectory() as directory:
     assert result.returncode != 0, result.stdout
     assert 'is not valid JSON' in result.stderr, result.stderr
 """)
+                docker('exec', name, 'codex', 'sandbox', '-c', 'sandbox_mode="workspace-write"',
+                       '-c', 'sandbox_workspace_write.network_access=true', '--', 'python', '-c',
+                       "import json,urllib.request; from pathlib import Path; "
+                       "assert json.load(urllib.request.urlopen('http://127.0.0.1:8789/api/status'))['service']=='available'; "
+                       "Path('/data/native-sandbox-proof').write_text('executed')")
             if attempt == 0:
                 docker('exec', name, 'python', '-c',
                        "from pathlib import Path; assert not Path('/build').exists(); "
@@ -69,6 +75,7 @@ with tempfile.TemporaryDirectory() as directory:
         print(json.dumps({'image': image, 'api': True, 'dashboard': True, 'codex': True,
                           'pdftotext': True, 'persistent_data_and_auth_roots': True,
                           'native_invocation_parser': True,
+                          'native_sandbox_execution_and_api': True,
                           'provider_inference': False}))
     finally:
         subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
