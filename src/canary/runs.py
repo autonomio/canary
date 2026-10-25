@@ -116,12 +116,12 @@ def register_start(key: str, name: str, brief: str, kind: str = "?",
                    path: str | Path = REGISTRY,
                    launch_argv: list[str] | None = None,
                    launch_env: dict | None = None,
-                   status: str = "running") -> dict:
+                   status: str = "running", run_spec_path: str = "") -> dict:
     return upsert({"key": key, "name": name, "brief": brief, "run_id": "?",
                    "kind": kind, "status": status, "started_at": utcnow(),
                    "ended_at": None, "bundle": bundle, "container": container,
                    "launch": launch, "launch_argv": list(launch_argv or []),
-                   "launch_env": dict(launch_env or {}),
+                   "launch_env": dict(launch_env or {}), "run_spec_path": run_spec_path,
                    "seed": "?", "profile": "?",
                    "maintenance": False, "model": "?", "usage": {},
                    "iterations": [], "improvements": [], "tally": {}}, path)

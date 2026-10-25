@@ -29,6 +29,9 @@ from xml.etree import ElementTree
 
 from . import runs
 from .codex_auth import AuthError, CodexAuth
+from . import bundle_connectors
+from . import research_bundle as bundle_store
+from .research_spec import CompileError, compile_research, compile_mapping, verify_compiled
 
 QUESTION_ENGINE_ROOT = Path(os.environ.get("CANARY_QUESTION_ENGINE_ROOT", runs.ROOT)).resolve()
 DEFAULT_PORT = 8789
@@ -89,7 +92,7 @@ class Supervisor:
     # -- spawning --
 
     def start(self, name: str, brief: str, argv: list[str],
-              env: dict | None = None) -> dict:
+              env: dict | None = None, *, compiled: dict | None = None) -> dict:
         argv = validate_launch(argv)
         extra = runs.sanitize_launch_env(env)
         if not name.strip() or len(name) > 120:
@@ -111,12 +114,37 @@ class Supervisor:
                                               (QUESTION_ENGINE_ROOT / "scripts/coverage_run.sh").resolve()})
         kind = "question" if native else argv[2] if len(argv) > 2 else "?"
         launch_root = QUESTION_ENGINE_ROOT if native else self.root
+        packet_path = None
+        if native:
+            compiled = verify_compiled(compiled or compile_mapping({'question': argv[3]}))
+            if compiled['resolved']['question'] != argv[3]:
+                raise ValueError("Question disagrees with compiled specification")
+            inputs = self.root / "run-inputs"
+            inputs.mkdir(parents=True, exist_ok=True)
+            # Exclusive input creation reserves the key even before the worker starts.
+            while True:
+                if bundle.exists() or runs.get(key, self.registry) is not None:
+                    n += 1
+                    key = f"{base}-{n}"
+                    bundle = self.root / "container-out" / key
+                    continue
+                packet_path = inputs / (key + ".json")
+                try:
+                    with packet_path.open("x") as stream:
+                        json.dump(compiled, stream, ensure_ascii=False)
+                    break
+                except FileExistsError:
+                    n += 1
+                    key = f"{base}-{n}"
+                    bundle = self.root / "container-out" / key
         env = dict(os.environ, OUT=str(bundle), RUN_KEY=key,
                    RUN_NAME=name, RUN_BRIEF=brief,
                    CANARY_RUNS_REGISTRY=str(self.registry))
         env.update(extra)
         if native:
             env["CODEX_HOME"] = self.auth.home
+            if packet_path:
+                env["CANARY_RUN_SPEC"] = str(packet_path.resolve())
         launcher_log = self.root / "container-out" / f"{key}.launcher.log"
         launcher_log.parent.mkdir(parents=True, exist_ok=True)
         logfh = open(launcher_log, "a", encoding="utf-8", errors="replace")
@@ -132,7 +160,8 @@ class Supervisor:
             self.owned[key] = proc
         runs.register_start(key, name, brief, kind, str(bundle), "",
                             shlex.join(argv), path=self.registry,
-                            launch_argv=list(argv), launch_env=extra)
+                            launch_argv=list(argv), launch_env=extra,
+                            run_spec_path=str(packet_path) if packet_path else "")
         threading.Thread(target=self._wait, args=(key, proc, logfh),
                          daemon=True).start()
         return {"key": key, "bundle": str(bundle)}
@@ -142,7 +171,15 @@ class Supervisor:
         if not question:
             raise ValueError("question cannot be empty")
         return self.start(name or question[:120], brief or question[:2000],
-                          ["bash", str(QUESTION_ENGINE_ROOT / "scripts/coverage_run.sh"), "ask", question])
+                          ["bash", str(QUESTION_ENGINE_ROOT / "scripts/coverage_run.sh"), "ask", question],
+                          compiled=compile_mapping({'question': question}))
+
+    def start_compiled(self, packet: dict, name: str = "", brief: str = "") -> dict:
+        packet = verify_compiled(packet)
+        question = packet['resolved']['question']
+        started = self.start(name or question[:120], brief or question[:2000],
+            ["bash", str(QUESTION_ENGINE_ROOT / "scripts/coverage_run.sh"), "ask", question], compiled=packet)
+        return dict(started, spec_sha256=packet['spec_sha256'], bundle_url=f"/api/runs/{started['key']}/bundle")
 
     def _wait(self, key: str, proc: subprocess.Popen, logfh) -> None:
         try:
@@ -283,6 +320,11 @@ class Supervisor:
         row = runs.get(key, self.registry)
         if row is None:
             raise KeyError(key)
+        saved = bundle_store.read(row.get('bundle', ''))
+        if saved.get('specification') or row.get("run_spec_path"):
+            packet = saved.get('specification') or json.loads(Path(row['run_spec_path']).read_text())
+            started = self.start_compiled(packet, name or row.get('name', key) + ' (rerun)', brief or row.get('brief', ''))
+            return dict(started, **{'from': key})
         argv = row.get("launch_argv") or []
         if not (isinstance(argv, list) and argv
                 and all(isinstance(a, str) for a in argv)):
@@ -376,7 +418,7 @@ def research_summary(row: dict) -> dict:
     """
     summary = {"question": "", "synthesis_excerpt": "", "has_synthesis": False,
                "papers_count": 0, "claims_count": 0, "supported_claims_count": 0,
-               "iterations_count": 0, "unanswered_count": 0, "truncated": False}
+               "iterations_count": 0, "unanswered_count": 0, "gaps_count": 0, "residue_count": 0, "truncated": False}
     bundle = row.get("bundle")
     native_path = Path(bundle) if isinstance(bundle, str) and bundle.strip() else None
     if native_path is not None:
@@ -393,7 +435,8 @@ def research_summary(row: dict) -> dict:
                            synthesis_excerpt=_synthesis_excerpt(prose), has_synthesis=bool(prose),
                            papers_count=native_run.get("discovered", len(access.get("accepted", []))),
                            claims_count=len(claims), supported_claims_count=sum(bool(c.get("evidence_ids")) for c in claims if isinstance(c, dict)),
-                           unanswered_count=len(graph.get("unanswered", [])))
+                           unanswered_count=len(graph.get("unanswered", [])),
+                           gaps_count=len(graph.get("gaps", [])), residue_count=len(graph.get("residue", [])))
             return summary
     remaining = SUMMARY_READ_CHARS
     bundle = row.get("bundle")
@@ -961,6 +1004,16 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_file(self, path: Path, content_type: str):
+        self.send_response(200)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Content-Length', str(path.stat().st_size))
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Cache-Control', 'no-store')
+        self.end_headers()
+        with path.open('rb') as stream:
+            shutil.copyfileobj(stream, self.wfile, length=1024 * 1024)
+
     def _read_json(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -1009,6 +1062,39 @@ class Handler(BaseHTTPRequestHandler):
                                 ".txt": "text/plain; charset=utf-8"}.get(original.suffix.lower(), "application/octet-stream")
                         self._send(200, original.read_bytes(), kind,
                                    {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
+            elif re.fullmatch(r"/api/runs/[^/]+/exports/[^/]+", parsed.path):
+                parts = parsed.path.split('/')
+                row = runs.get(unquote(parts[3]), self.supervisor.registry)
+                if row is None:
+                    raise KeyError(parts[3])
+                self._send(200, bundle_connectors.export(row['bundle'], unquote(parts[5])))
+            elif re.fullmatch(r"/api/runs/[^/]+/bundle(?:/archive|/artifacts/.+)?", parsed.path):
+                parts = parsed.path.split('/')
+                key = unquote(parts[3])
+                row = runs.get(key, self.supervisor.registry)
+                if row is None:
+                    raise KeyError(key)
+                if parsed.path.endswith('/bundle/archive'):
+                    with tempfile.TemporaryDirectory(prefix='canary-bundle-export-') as directory:
+                        path = Path(directory) / 'research-bundle.zip'
+                        bundle_store.archive(row['bundle'], path)
+                        self._send_file(path, 'application/zip')
+                elif len(parts) > 5:
+                    path = bundle_store.artifact(row['bundle'], unquote('/'.join(parts[6:])))
+                    self._send_file(path, 'application/octet-stream')
+                else:
+                    try:
+                        bundle = bundle_store.read(row['bundle'])
+                    except (ValueError, OSError) as error:
+                        bundle = {'format': 'canary.research-bundle', 'version': 1, 'id': '', 'state': 'invalid',
+                                  'created_at': None, 'execution': {'status': None, 'answered': None, 'audit_complete': None},
+                                  'specification': None, 'artifacts': [], 'limitations': [str(error)]}
+                    if bundle['state'] == 'legacy_unversioned' and row.get('run_spec_path'):
+                        packet = verify_compiled(json.loads(Path(row['run_spec_path']).read_text()))
+                        bundle.update(state='staged', specification=packet,
+                                      limitations=['Compiled input is staged; the worker has not committed its bundle manifest.'])
+                    research, live = research_for_row(row, self.supervisor)
+                    self._send(200, {'key': key, 'live': live, 'bundle': bundle, 'research': research})
             elif parsed.path == "/api/log":
                 self._send(200, {"runs": runs.log_rows(self.supervisor.registry, self.supervisor.root)})
             elif parsed.path == "/api/runs":
@@ -1055,9 +1141,26 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/api/auth/"):
             self._auth_request(parsed.path, "POST")
             return
+        if not self._local_origin():
+            self._send(403, {'error': 'Request requires the local service origin.', 'code': 'forbidden'})
+            return
         body = self._read_json()
         try:
-            if parsed.path == "/api/runs":
+            if not isinstance(body, dict):
+                raise ValueError("Expected a JSON object")
+            if parsed.path == "/api/runs/compile" or (parsed.path == "/api/runs" and ('yaml' in body or 'spec' in body)):
+                if self.headers.get('Content-Type', '').split(';')[0].strip().lower() != 'application/json':
+                    self._send(415, {'error': 'Expected application/json', 'code': 'invalid_request'})
+                    return
+                allowed = {'yaml', 'spec'} | ({'name', 'brief'} if parsed.path == '/api/runs' else set())
+                if set(body) - allowed or ('yaml' in body) == ('spec' in body):
+                    raise CompileError('request', 'Supply exactly one yaml or spec declaration.')
+                packet = compile_research(body['yaml']) if 'yaml' in body else compile_mapping(body['spec'])
+                if parsed.path.endswith('/compile'):
+                    self._send(200, packet)
+                else:
+                    self._send(201, self.supervisor.start_compiled(packet, str(body.get('name', '')), str(body.get('brief', ''))))
+            elif parsed.path == "/api/runs":
                 if body.get("kind") == "question":
                     started = self.supervisor.start_question(str(body.get("question", "")),
                               str(body.get("name", "")), str(body.get("brief", "")))
@@ -1080,12 +1183,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, {"error": "not found"})
         except KeyError as e:
             self._send(404, {"error": f"unknown run {e}"})
+        except CompileError as e:
+            self._send(400, {'error': str(e), 'code': 'invalid_research_spec', 'issues': e.issues})
         except (ValueError, RuntimeError) as e:
             self._send(400, {"error": str(e)[:300]})
 
-    def _auth_request(self, path: str, method: str) -> None:
-        # This service is owner-operated and loopback-only. Reject browser-origin
-        # mutations and DNS rebinding; no cross-origin credential controls.
+    def _local_origin(self) -> bool:
         host = self.headers.get("Host", "")
         allowed_hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
         allowed_origins = {f"http://{host}"}
@@ -1094,9 +1197,14 @@ class Handler(BaseHTTPRequestHandler):
             hostname = host.removesuffix(":80")
             allowed_origins = {f"http://{hostname}", f"http://{hostname}:80"}
         origin = self.headers.get("Origin")
-        if (host not in allowed_hosts or
+        return not (host not in allowed_hosts or
                 (origin is not None and origin not in allowed_origins) or
-                self.headers.get("Sec-Fetch-Site") == "cross-site"):
+                self.headers.get("Sec-Fetch-Site") == "cross-site")
+
+    def _auth_request(self, path: str, method: str) -> None:
+        # This service is owner-operated and loopback-only. Reject browser-origin
+        # mutations and DNS rebinding; no cross-origin credential controls.
+        if not self._local_origin():
             self._send(403, {"error": "Authentication requires the local service origin.", "code": "forbidden"})
             return
         auth = self.supervisor.auth

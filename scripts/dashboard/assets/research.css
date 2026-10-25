@@ -502,3 +502,6 @@ dialog::backdrop { background: var(--paper); opacity: .8; }
 .study-fields dd p { margin: 0; }
 .study-fields .source-actions { margin: 3px 0 0; gap: 4px 12px; }
 .study-fields .text-action, .study-fields .hint { font-size: 13px; }
+
+.freshness { font-size: 11px; color: var(--muted); }
+.freshness.review-due { font-weight: 600; color: var(--ink); }

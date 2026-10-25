@@ -1503,7 +1503,7 @@
               <strong id="stat-active">—</strong> in progress
             </div>
             <div class="stat">
-              <strong id="stat-ready">—</strong> answers to read
+              <strong id="stat-ready">—</strong> with findings
             </div>
           </div>
           <div class="toolbar">
@@ -2023,6 +2023,7 @@
       }
       function hasFindings(r) {
         const d = S.research[r.key];
+        if(['gaps','residue','contradictions'].some(key=>qaGraph(d)?.[key]?.length) || summaryOf(r).gaps_count || summaryOf(r).residue_count) return true;
         if(nativeResearch(r,d)) return hasReport(r);
         return !!(
           qaGraph(d)?.claims?.length ||
@@ -2402,8 +2403,8 @@
         }
         S.loading[key] = true;
         try {
-          const d = await api(`/api/runs/${encodeURIComponent(key)}/research`);
-          S.research[key] = d.research || {};
+          const d = await api(`/api/runs/${encodeURIComponent(key)}/bundle`);
+          S.research[key] = {...(d.research || {}), compiled_bundle:d.bundle};
           delete S.errors[key];
           if (S.selected === key) renderDetail();
           renderLibrary();
@@ -2417,6 +2418,13 @@
             await loadResearch(key);
           }
         }
+      }
+      function bundleHtml(d) {
+        const b=d.compiled_bundle;
+        if (!b) return '';
+        if (!b.specification) return `<details class="coverage" data-detail="research-bundle"><summary>Research bundle · ${esc(b.state.replaceAll('_',' '))}</summary>${(b.limitations || []).map(x=>`<p>${esc(x)}</p>`).join('')}</details>`;
+        const p=b.specification, spec=p.resolved, root=`/api/runs/${encodeURIComponent(S.selected)}/bundle`;
+        return `<details class="coverage" data-detail="research-bundle"><summary>Research bundle · ${esc(b.state)}${b.execution?.status ? ` / ${esc(b.execution.status)}` : ''} · ${esc(p.spec_sha256.slice(0,12))}</summary><p class="hint">${esc(b.id || 'Input staged')} · compiler ${esc(p.compiler_version)}</p><p>${esc(spec.research.model)} / ${esc(spec.research.effort)} research · ${esc(spec.audit.model)} / ${esc(spec.audit.effort)} audit · ${esc(spec.retrieval.target_papers)} target papers · ${esc(spec.audit.budget_seconds)}s audit budget</p><details><summary>Original YAML</summary><pre class="search-query">${esc(p.source_yaml)}</pre></details><details><summary>Resolved settings and recorded engine</summary><pre class="search-query">${esc(JSON.stringify({resolved:spec,engine:p.engine || null,checks:p.checks},null,2))}</pre></details><button class="btn small" data-action="repeat-bundle">Repeat these settings</button>${b.state==='finished' ? ` <a class="text-action" href="${root}/archive">Download bundle</a> · <a class="text-action" href="/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent" download="resolvent-submission.json">Resolvent handoff</a>` : ''}<details><summary>Saved artifacts (${b.artifacts.length})</summary><ul>${b.artifacts.map(a=>`<li><a href="${root}/artifacts/${a.path.split('/').map(encodeURIComponent).join('/')}" download>${esc(a.path)}</a> · ${esc(a.bytes)} bytes · <code>${esc(a.sha256)}</code></li>`).join('')}</ul></details>${(b.limitations || []).map(x=>`<p class="hint">${esc(x)}</p>`).join('')}</details>`;
       }
       function synthesisHtml(r, d) {
         const body = reportText(d.synthesis_md);
@@ -3011,6 +3019,14 @@
       }
       async function runAction(action) {
         const r = S.runs.find((r) => r.key === S.selected);
+        if (action === "repeat-bundle" && r) {
+          try {
+            const started=await api(`/api/runs/${encodeURIComponent(r.key)}/rerun`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+            toast("New run started with the saved settings");
+            await loadRuns();openResearch(started.key);
+          } catch(error) {toast(error.message,true);}
+          return;
+        }
         if (action === "new") return openComposer();
         if (action === "close-composer") return closeComposer();
         if (action === "back") {
@@ -3160,7 +3176,7 @@
   }
   function researchStructureHtml(g) {
     const blocks=[['gaps','Remains unanswered in this scope'],['contradictions','Contradictions'],['residue','Residue']];
-    return blocks.map(([key,label])=>Array.isArray(g[key]) && g[key].length ? `<details data-detail="${key}"><summary>${label} (${g[key].length})</summary>${g[key].map((x,i)=>`<article><p>${esc(x.description || x.observation || '')}</p>${x.basis ? `<p>${esc(x.basis)}</p>` : ''}${x.needed_to_resolve ? `<p>Needed: ${esc(x.needed_to_resolve)}</p>` : ''}${x.why_it_matters ? `<p>${esc(x.why_it_matters)}</p>` : ''}${x.resolution ? `<p class="hint">${esc(x.resolution.replaceAll('_',' '))}</p>` : ''}${x.comparability ? `<p>${esc(x.comparability)}</p>` : ''}${x.alternative_explanations?.length ? `<p>Alternatives: ${esc(x.alternative_explanations.join(' · '))}</p>` : ''}${x.follow_up_test ? `<p>Follow-up: ${esc(x.follow_up_test)}</p>` : ''}${x.scope_limit ? `<p class="hint">${esc(x.scope_limit)}</p>` : ''}<div class="finding-links">${qaSectionLinkWarnings(g,key,x,i)}${(x.claim_ids || []).map(id=>qaButton('data-qa-claim',id,id)).join(' ')}${qaEvidencePackets(g,x.evidence_ids).map(qaEvidencePacketButton).join(' ')}</div></article>`).join('')}</details>` : '').join('');
+    return blocks.map(([key,label])=>Array.isArray(g[key]) && g[key].length ? `<details data-detail="${key}"><summary>${label} (${g[key].length})</summary>${g[key].map((x,i)=>`<article><p>${esc(x.description || x.observation || '')}</p>${x.basis ? `<p>${esc(x.basis)}</p>` : ''}${x.needed_to_resolve ? `<p>Needed: ${esc(x.needed_to_resolve)}</p>` : ''}${x.why_it_matters ? `<p>${esc(x.why_it_matters)}</p>` : ''}${x.resolution ? `<p class="hint">${esc(x.resolution.replaceAll('_',' '))}</p>` : ''}${x.comparability ? `<p>${esc(x.comparability)}</p>` : ''}${x.alternative_explanations?.length ? `<p>Alternatives: ${esc(x.alternative_explanations.join(' · '))}</p>` : ''}${x.follow_up_test ? `<p>${key==='residue' ? 'Recorded follow-up (legacy)' : 'Follow-up'}: ${esc(x.follow_up_test)}</p>` : ''}${x.scope_limit ? `<p class="hint">${esc(x.scope_limit)}</p>` : ''}<div class="finding-links">${qaSectionLinkWarnings(g,key,x,i)}${(x.claim_ids || []).map(id=>qaButton('data-qa-claim',id,id)).join(' ')}${qaEvidencePackets(g,x.evidence_ids).map(qaEvidencePacketButton).join(' ')}</div></article>`).join('')}</details>` : '').join('');
   }
   function sourceEfficiencyHtml(d) {
     const x=d.source_efficiency || d.answer?.source_efficiency;
@@ -3174,7 +3190,7 @@
     const roles=d.profile?.roles || d.answer?.profile_summary?.roles || {}, valid=v=>Number.isInteger(v) && v>=0, f=v=>valid(v) ? fmt(v) : '—';
     return `<details data-detail="token-receipts"><summary>Full token and timing receipts</summary><p class="hint">Cached input is included in input; reasoning is included in output. These are scientific-session counts; parent orchestration is separate when recorded.</p><div class="table-wrap"><table class="run-log"><thead><tr><th>Stage</th><th>Seconds</th><th>Input</th><th>Cached</th><th>Uncached</th><th>Output</th><th>Reasoning</th></tr></thead><tbody>${Object.entries(roles).map(([role,r])=>{const t=r.tokens || {};return `<tr><th>${esc(role)}</th><td>${logMetric(r.seconds)}</td><td>${f(t.input_tokens)}</td><td>${f(t.cached_input_tokens)}</td><td>${f(valid(t.input_tokens) && valid(t.cached_input_tokens) ? t.input_tokens-t.cached_input_tokens : null)}</td><td>${f(t.output_tokens)}</td><td>${f(t.reasoning_output_tokens)}</td></tr>`;}).join('')}</tbody></table></div>${Object.keys(roles).length ? '' : '<p class="hint">Per-stage profile not committed yet.</p>'}</details>`;
   }
-  function qaGraph(d) { const g=d?.answer; return (Array.isArray(g?.claims) && g.claims.length) || (Array.isArray(g?.references) && g.references.length) || (Array.isArray(g?.executive_summary) && g.executive_summary.some(p=>typeof p==='string' ? p.trim() : typeof p?.text==='string' && p.text.trim())) ? g : null; }
+  function qaGraph(d) { const g=d?.answer; return ['claims','gaps','residue','contradictions'].some(key=>Array.isArray(g?.[key]) && g[key].length) || (Array.isArray(g?.references) && g.references.length) || (Array.isArray(g?.executive_summary) && g.executive_summary.some(p=>typeof p==='string' ? p.trim() : typeof p?.text==='string' && p.text.trim())) ? g : null; }
   function qaLinks(g, id) {
     const claims=(g?.claims || []).filter(c=>c.evidence_ids?.includes(id)), empty={evidence:null,records:[],ambiguous:false,passage:null,reference:null,claims};
     if(typeof id!=='string' || !id) return empty;
@@ -3270,6 +3286,16 @@
     const x=qaUncertainty(c), valid=x.valid && !x.mismatch;
     const label=x.mismatch ? `Inconsistent uncertainty · class ${x.recordedClass} · score ${x.recordedScore ?? 'unknown'}/3` : valid ? ["","Low","Moderate","High"][x.n] : "Uncertainty not recorded";
     return `<span class="uncertainty-gauge" role="img" aria-label="${esc(x.mismatch ? label+'; both recorded values retained.' : valid ? `${label} uncertainty, ${x.n} of 3. Higher means more uncertain. Ordinal judgment.` : label)}" title="${esc(c?.uncertainty_rationale || c?.uncertainty?.rationale || label)}">${[1,2,3].map(i => `<span class="bar ${valid && i <= x.n ? "on" : "off"}" aria-hidden="true"></span>`).join("")}<span class="uncertainty-label">${esc(label)}${valid ? ` uncertainty · ${x.n}/3` : ""}</span></span>`;
+  }
+  function freshnessHtml(c, expanded=false, now=Date.now()) {
+    const f=c.freshness, iso=value=>typeof value==='string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(Date.parse(value)).toISOString().slice(0,10)===value;
+    let label='Freshness unknown', due=false;
+    if(f?.policy==='historical' && f.review_after==null) label='Historical · no scheduled expiry';
+    else if(f?.policy==='event_driven' && f.triggers?.length && f.review_after==null) label='Event-driven review';
+    else if(f?.policy==='scheduled' && iso(f.review_after)) {due=now>=Date.parse(f.review_after);label=`${due ? 'Review due' : 'Review after'} ${f.review_after}`;}
+    const badge=`<span class="freshness${due ? ' review-due' : ''}">${esc(label)}</span>`;
+    if(!expanded) return badge;
+    return `<details data-detail="freshness-${esc(c.id)}"><summary>Freshness · ${esc(label)}</summary><p>${esc(f?.rationale || 'No review horizon was recorded for this claim.')}</p><p class="hint">Source scope as of: ${esc(iso(f?.as_of) ? f.as_of : 'unknown')}. A review date requests reassessment; it does not make the claim false.</p>${f?.triggers?.length ? `<ul>${f.triggers.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>` : ''}</details>`;
   }
   function qaButton(attr, id, label) { return `<button type="button" class="text-action" ${attr}="${esc(id)}">${esc(label)}</button>`; }
   function sourceFileUrl(id) { return `/api/runs/${encodeURIComponent(S.selected)}/sources/${encodeURIComponent(id)}/file`; }
@@ -3373,7 +3399,7 @@
     return `<h2 tabindex="-1">${esc(id)} · Ambiguous claim ID</h2><p role="alert">${records.length} recorded claims share this ID. ID-only links and audit judgments cannot identify one occurrence.</p>${records.map((c,i)=>`<section data-claim-occurrence="${esc(c.claim_occurrence || i+1)}">${claimRecordHtml(g,c,`<h3>Recorded claim ${esc(c.claim_occurrence || i+1)}</h3>`)}</section>`).join('')}`;
   }
   function claimRecordHtml(g,c,heading) {
-    return `${heading}${uncertaintyGauge(c)}<p class="finding-text">${esc(c.text)}</p>${qaProvenanceDetails(g,c)}${sourceCheckHtml(g,c)}<h3>Why this uncertainty?</h3><p>${esc(c.uncertainty_rationale || "Rationale not recorded.")}</p>${claimStudyResults(g,c).length ? `<h3>Study results</h3><div class="finding-links">${claimStudyResults(g,c).map(r=>studyResultButton(r.id,c.id)).join('')}</div>` : ''}<h3>Evidence packets</h3>${qaEvidencePackets(g,c.evidence_ids).map(packet => {
+    return `${heading}${uncertaintyGauge(c)}${freshnessHtml(c,true)}<p class="finding-text">${esc(c.text)}</p>${qaProvenanceDetails(g,c)}${sourceCheckHtml(g,c)}<h3>Why this uncertainty?</h3><p>${esc(c.uncertainty_rationale || "Rationale not recorded.")}</p>${claimStudyResults(g,c).length ? `<h3>Study results</h3><div class="finding-links">${claimStudyResults(g,c).map(r=>studyResultButton(r.id,c.id)).join('')}</div>` : ''}<h3>Evidence packets</h3>${qaEvidencePackets(g,c.evidence_ids).map(packet => {
       const x = qaLinks(g,packet.id);
       return `<div class="inspector-quote">${qaEvidencePacketButton(packet)}<p class="hint">${esc(x.reference?.paper?.title || "Evidence")} · ${esc(x.reference?.paper?.year || "")} · ${x.passage ? (x.passage.kind === "abstract" ? "Abstract passage" : "Full paper passage") : packet.ambiguous ? "Ambiguous packet" : "No verbatim recorded"}</p></div>`;
     }).join("")}`;
@@ -3400,7 +3426,7 @@
   }
   function findingHtml(g,c) {
     const refs = new Set((c.evidence_ids || []).map(id=>qaLinks(g,id).reference?.id).filter(Boolean));
-    return `<article class="finding" id="claim-${esc(c.id)}${qaClaimOccurrence(g,c) ? `-${qaClaimOccurrence(g,c)}` : ''}"><div class="finding-meta">${qaButton("data-qa-claim",c.id,c.id)}${uncertaintyGauge(c)}${qaProvenanceNotice(g,c)}</div><p class="finding-text">${esc(c.text)}</p><div class="finding-links">${qaButton("data-qa-claim",c.id,"Why this uncertainty?")}${qaSourceCheck(g,c.id) ? qaButton("data-qa-claim",c.id,"Source check") : ""}${claimStudyResults(g,c).map(r=>studyResultButton(r.id,c.id)).join('')}${qaEvidencePackets(g,c.evidence_ids).map(qaEvidencePacketButton).join("")}<span class="hint">${refs.size} ${refs.size === 1 ? "source" : "sources"}</span></div></article>`;
+    return `<article class="finding" id="claim-${esc(c.id)}${qaClaimOccurrence(g,c) ? `-${qaClaimOccurrence(g,c)}` : ''}"><div class="finding-meta">${qaButton("data-qa-claim",c.id,c.id)}${uncertaintyGauge(c)}${freshnessHtml(c)}${qaProvenanceNotice(g,c)}</div><p class="finding-text">${esc(c.text)}</p><div class="finding-links">${qaButton("data-qa-claim",c.id,"Why this uncertainty?")}${qaSourceCheck(g,c.id) ? qaButton("data-qa-claim",c.id,"Source check") : ""}${claimStudyResults(g,c).map(r=>studyResultButton(r.id,c.id)).join('')}${qaEvidencePackets(g,c.evidence_ids).map(qaEvidencePacketButton).join("")}<span class="hint">${refs.size} ${refs.size === 1 ? "source" : "sources"}</span></div></article>`;
   }
   function cliResearch(d) {
     return d?.run?.execution_mode==='coverage-guided full-paper research' || d?.run?.execution_mode==='saved full-paper Codex CLI research'  || (Number.isInteger(d?.run?.available_unique_sources) && d.run.keyword_requests===0 && typeof d.run.replay_of==='string');
@@ -3436,9 +3462,9 @@
   }
   function answerHtml(row,d) {
     const g=qaGraph(d), claims=(Array.isArray(g?.claims) ? g.claims : []).filter(c=>typeof c?.text==='string' && c.text.trim()), summaries=(Array.isArray(g?.executive_summary) ? g.executive_summary : []).filter(p=>typeof p==='string' ? p.trim() : typeof p?.text==='string' && p.text.trim());
-    if (!claims.length && !summaries.length) return `${acquisitionHtml(d)}${coverageAuditHtml(d)}${peerReviewHtml(d,{claims:[],passages:[]})}<p>${esc(active(row) ? (cliResearch(d) ? "Reading selected sources from the saved corpus…" : "Building the search net and reading accessible full papers…") : "No grounded answer is available yet.")}</p>${(d.decisions || d.journal?.events)?.length ? `<details open><summary>Progress</summary>${(d.decisions || d.journal.events).slice(-4).map(e=>`<p>${esc(e.detail || e.event || "")}</p>`).join("")}</details>` : ""}`;
+    if (!claims.length && !summaries.length && !(g?.gaps?.length || g?.residue?.length || g?.contradictions?.length)) return `${acquisitionHtml(d)}${coverageAuditHtml(d)}${peerReviewHtml(d,{claims:[],passages:[]})}<p>${esc(active(row) ? (cliResearch(d) ? "Reading selected sources from the saved corpus…" : "Building the search net and reading accessible full papers…") : "No grounded answer is available yet.")}</p>${(d.decisions || d.journal?.events)?.length ? `<details open><summary>Progress</summary>${(d.decisions || d.journal.events).slice(-4).map(e=>`<p>${esc(e.detail || e.event || "")}</p>`).join("")}</details>` : ""}`;
     const summary = summaries.length ? `<section class="answer-summary" aria-label="Executive summary">${summaries.map(p=>`<p>${esc(typeof p === "string" ? p : p.text)} <span class="finding-links">${(p.claim_ids || []).map(id=>qaButton("data-qa-claim",id,id)).join(" ")}</span>${!(p.claim_ids || []).length ? '<span role="alert">Provenance failure · summary has no recorded claim IDs</span>' : (p.claim_ids || []).some(id=>!(g.claims || []).some(c=>c.id===id)) ? '<span role="alert">Provenance failure · missing claim link</span>' : ''}</p>`).join("")}</section>` : "";
-    return `${summary}${acquisitionHtml(d)}${coverageAuditHtml(d)}${sourceEfficiencyHtml(d)}${peerReviewHtml(d,g)}${claims.length ? `<section class="answer-findings"><div class="answer-section-title"><h2>Claims</h2><details class="uncertainty-key" data-detail="uncertainty-key"><summary>Reading uncertainty</summary><p>1/3 Low · 2/3 Moderate · 3/3 High. More filled bars mean more uncertainty. These are ordinal judgments; each claim carries its reasoning.</p></details></div>${claims.map(c=>findingHtml(g,c)).join("")}</section>` : ''}<section class="answer-gaps">${researchStructureHtml(g)}${(g.caveats || []).length ? `<details data-detail="caveats"><summary>Caveats (${g.caveats.length})</summary>${g.caveats.map(c=>`<p>${esc(typeof c==="string" ? c : c.text)}</p>`).join("")}</details>` : ""}<div class="answer-section"><h2>Most important next questions</h2>${(g.next_questions || []).map((q,i)=>`<details data-detail="next-${i}"><summary>${esc(q.question)}</summary><p>${esc(q.justification)}</p>${qaSectionLinkWarnings(g,'next_questions',q,i)}<button type="button" class="text-action" data-question="${esc(q.question)}">Ask this question →</button></details>`).join("")}</div>${!g.gaps?.length && (g.unanswered || []).length ? `<details data-detail="unanswered"><summary>Remains unanswered in this scope (${g.unanswered.length})</summary>${g.unanswered.map(q=>`<p>${esc(typeof q==="string" ? q : q.question || q.text)}</p>`).join("")}</details>` : ""}</section>`;
+    return `${summary}${acquisitionHtml(d)}${coverageAuditHtml(d)}${sourceEfficiencyHtml(d)}${peerReviewHtml(d,g)}${(claims.length || g.gaps?.length || g.residue?.length || g.contradictions?.length) ? `<section class="answer-findings"><div class="answer-section-title"><h2>Findings</h2><details class="uncertainty-key" data-detail="uncertainty-key"><summary>Reading uncertainty</summary><p>1/3 Low · 2/3 Moderate · 3/3 High. More filled bars mean more uncertainty. These are ordinal judgments; each claim carries its reasoning.</p></details></div>${claims.map(c=>findingHtml(g,c)).join("")}${researchStructureHtml(g)}</section>` : ''}<section class="answer-gaps">${(g.caveats || []).length ? `<details data-detail="caveats"><summary>Caveats (${g.caveats.length})</summary>${g.caveats.map(c=>`<p>${esc(typeof c==="string" ? c : c.text)}</p>`).join("")}</details>` : ""}<div class="answer-section"><h2>Most important next questions</h2>${(g.next_questions || []).map((q,i)=>`<details data-detail="next-${i}"><summary>${esc(q.question)}</summary><p>${esc(q.justification)}</p>${qaSectionLinkWarnings(g,'next_questions',q,i)}<button type="button" class="text-action" data-question="${esc(q.question)}">Ask this question →</button></details>`).join("")}</div>${!g.gaps?.length && (g.unanswered || []).length ? `<details data-detail="unanswered"><summary>Remains unanswered in this scope (${g.unanswered.length})</summary>${g.unanswered.map(q=>`<p>${esc(typeof q==="string" ? q : q.question || q.text)}</p>`).join("")}</details>` : ""}</section>`;
   }
   function modernPapersHtml(d) {
     const g=qaGraph(d), refs=g?.references || [];
@@ -3471,7 +3497,7 @@
     if(statusInfo(row)[0]==="attention" || S.tab==="issue") tabs.push(["issue","Run issue"]);
     if(S.tab==="claims") S.tab="overview";
     if(!tabs.some(x=>x[0]===S.tab)) S.tab="overview";
-    const body=S.tab==="issue" ? issueHtml(row) : S.tab==="sources" ? modernPapersHtml(d) : S.tab==="trail" ? queryNetHtml(d) : answerHtml(row,d);
+    const body=S.tab==="issue" ? issueHtml(row) : S.tab==="sources" ? modernPapersHtml(d) : S.tab==="trail" ? queryNetHtml(d) : bundleHtml(d)+answerHtml(row,d);
     const scrolls=preserveRender(el,`<div class="answer-workspace"><div class="heading-row"><button class="back" data-action="back">← All questions</button><div class="source-actions"><button class="text-action" data-action="new">New question</button><button class="text-action" data-action="retry-research">Ask again</button>${hasReport(row) ? '<button class="text-action" data-action="export-report">Save answer ↗</button>' : ""}</div></div><div class="detail-heading"><h1 id="research-heading" tabindex="-1" data-focus="research-heading">${esc(g?.question || d.run?.question || questionOf(row))}</h1><div class="detail-meta">${badge(row)}<span>${g?.claims?.length ?? 0} claims · ${g?.evidence?.length ?? 0} passages · ${cliResearch(d) ? esc(cliSourceCounts(d)) : hasMergedSourceCopies(d) ? `${g?.references?.length ?? 0} unique source${g?.references?.length===1 ? '' : 's'}` : `${d.run?.accepted ?? g?.references?.length ?? 0} full papers`}</span><span>${dateText(row.ended_at || row.started_at,true)}</span>${active(row) ? "<span>Updates automatically</span>" : ""}</div></div><nav class="research-tabs" aria-label="Question sections">${tabs.map(([id,label])=>`<button class="${S.tab===id ? "on" : ""}" data-research-tab="${id}" aria-current="${S.tab===id ? "page" : "false"}" data-focus="tab-${id}">${label}</button>`).join("")}</nav>${S.errors[row.key] ? `<p role="alert">${esc(S.errors[row.key])}</p>` : ""}<div class="answer-grid"><div class="answer-main">${body}</div><aside class="evidence-inspector" id="evidence-inspector" aria-label="Claim and source inspector" hidden></aside></div>${technicalHtml(row,d)}</div>`);
     if(S.inspector) paintInspector(false,scrolls);
     if(S.logs[row.key]) paintLogs();
