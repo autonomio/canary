@@ -77,7 +77,8 @@ def schemas():
         'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O)},closed=False)
     research = obj({'kind':S,'answer':ref('Findings'),'run':O,'peer_review':O,'query_net':O,
         'access':O,'profile':O,'coverage':O,'paper_selection':O,'usage':O,'synthesis_md':nullable(S),
-        'seed':S,'stopped':S,'model':nullable(S),'papers':arr(O),'iterations':arr(O)},closed=False)
+        'seed':S,'stopped':S,'model':nullable(S),'papers':arr(O),'iterations':arr(O),
+        'startup_error':nullable(S)},closed=False)
     run = obj({'key':S,'name':S,'brief':S,'kind':S,'status':nullable(S),'live':B,'can_cancel':B,
         'recorded_status':nullable(S),'bundle_missing':B,
         'started_at':nullable(S),'ended_at':nullable(S),'duration_seconds':nullable({'type':'number'}),

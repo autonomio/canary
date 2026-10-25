@@ -77,3 +77,20 @@ a live scientific run or model-access certification.
 The dashboard is local and has no provider-login controls. Authenticate with the
 API-backed CLI. See [local research footprint](LOCAL_FOOTPRINT.md) to include old
 research directories without moving or rewriting their files.
+
+The service Compose profile allows the namespace setup required by Codex's inner
+Linux sandbox (`seccomp=unconfined`, `apparmor=unconfined` on the outer container).
+Codex still runs tools with its workspace-write bubblewrap/seccomp sandbox and
+native approval policy. This follows the [official nested-container setup](https://learn.chatgpt.com/docs/agent-approvals-security).
+A plain `docker run` with Docker's default profile can start the API but fail to
+execute native tools; use the Compose profile or the same explicit runtime options.
+CI executes a sandboxed command and a local API request, in addition to boot checks.
+
+The image includes distribution bubblewrap and procps for sandbox construction
+and process-tree control. It runs as the non-root `canary` user, without added
+capabilities or a setuid sandbox launcher. The Linux host must permit unprivileged
+user namespaces. Ubuntu hosts that restrict them need the bubblewrap AppArmor
+profile described in the official guidance above. Canary does not alter host
+kernel settings on startup. CI explicitly enables namespace support on its
+disposable runner, then tests execution, API access and cancellation inside the
+non-root container.

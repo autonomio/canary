@@ -1,0 +1,137 @@
+{
+  "run_key": "clean-install-proof-pla-infill-and-tensi-202610251354",
+  "bundle_id": "RB-217f0ce55ad742e2923a8f5d936812e8",
+  "status": "answered",
+  "wall_seconds": 2153.840893,
+  "reviewed_papers": 50,
+  "acquired_papers": 55,
+  "claims": 16,
+  "binding_issues": [],
+  "audit": {
+    "status": "partial",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "ultra",
+    "checked_claims": 16,
+    "total_claims": 16,
+    "scope_note": "Independent audit started 2026-10-25T14:20:56Z; 600-second budget. Scope: 16 claims, eight study-result records, evidence binding, selection and family/role accounting.",
+    "limitations": [
+      "All 16 claims checked; broader source-role and substantive-review-count verification remains in progress.",
+      "Audit stopped at its recorded time budget; intermediate audit preserved."
+    ],
+    "scores": {
+      "selection_defensibility": {
+        "score": 0,
+        "reason": "Audit in progress; not yet assessed."
+      },
+      "question_relevance": {
+        "score": 0,
+        "reason": "Audit in progress; not yet assessed."
+      },
+      "scientific_fidelity": {
+        "score": 0,
+        "reason": "Audit in progress; not yet assessed."
+      },
+      "evidence_coverage": {
+        "score": 0,
+        "reason": "Audit in progress; not yet assessed."
+      },
+      "information_value": {
+        "score": 0,
+        "reason": "Audit in progress; not yet assessed."
+      }
+    },
+    "is_scientific_certification": false
+  },
+  "roles": {
+    "research": {
+      "model": "gpt-6.1-sol",
+      "reasoning_effort": "xhigh",
+      "started_at": "2026-10-25T13:54:55.199186+00:00",
+      "ended_at": "2026-10-25T14:20:46.990488+00:00",
+      "seconds": 1551.676,
+      "tokens": {
+        "input_tokens": 12132293,
+        "cached_input_tokens": 11891072,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 65984,
+        "reasoning_output_tokens": 12810,
+        "total_tokens": 12198277,
+        "uncached_input_tokens": 241221,
+        "other_output_tokens": 53174
+      }
+    },
+    "audit": {
+      "model": "gpt-6-astra",
+      "reasoning_effort": "ultra",
+      "started_at": "2026-10-25T14:20:47.456600+00:00",
+      "ended_at": "2026-10-25T14:30:47.552374+00:00",
+      "seconds": 600.08,
+      "tokens": {
+        "input_tokens": 2206159,
+        "cached_input_tokens": 2039680,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 14625,
+        "reasoning_output_tokens": 4707,
+        "total_tokens": 2220784,
+        "uncached_input_tokens": 166479,
+        "other_output_tokens": 9918
+      }
+    }
+  },
+  "artifacts": 506,
+  "all_no_subagents": true,
+  "source_commit": "165cb0fc090bec44252fb7557cddf9616a911a5e",
+  "python": "3.12.12",
+  "codex_cli": "0.162.0",
+  "fresh_noneditable_wheel": true,
+  "outside_source_checkout": true,
+  "fresh_corpus": true,
+  "stdio_mcp_verified": true,
+  "service_restart": {
+    "old_service_pid": 23424,
+    "new_service_pid": 24201,
+    "worker_before": {
+      "pid": 23457,
+      "identity": "Sun Oct 25 15:54:55 2026"
+    },
+    "worker_after": {
+      "pid": 23457,
+      "identity": "Sun Oct 25 15:54:55 2026"
+    },
+    "live_after": true,
+    "can_cancel_after": true
+  },
+  "cancellation": {
+    "run_key": "clean-install-cancellation-proof-202610251402",
+    "thread_id": "01a1735e-99b8-7da1-acff-17ad9d524e65",
+    "worker": {
+      "pid": 27234,
+      "identity": "Sun Oct 25 16:02:21 2026"
+    },
+    "status": "cancelled",
+    "seconds": 0.336,
+    "bundle_state": "finished",
+    "usage": {
+      "model_calls": null,
+      "tokens": null,
+      "keyword_requests": null,
+      "receipts_available": 1
+    },
+    "artifacts": 22
+  },
+  "source_reconstruction": {
+    "claim_id": "C02",
+    "evidence_id": "E01.6",
+    "passage_id": "W3128926079-p0035",
+    "source_id": "W3128926079",
+    "doi": "https://doi.org/10.1088/1742-6596/1402/4/044041",
+    "context_scope": "page",
+    "context_paragraphs": 6,
+    "offset_verified": true,
+    "original_bytes": 771840,
+    "original_sha256": "c47c5501b398e46c0f4af9a9530ca0503eecf97bc04655b3987bc985daa0e9b3",
+    "http_only": true
+  },
+  "wall_time_source": "Recorded run.json start/end; observer latency excluded",
+  "observed_registry_wall_seconds": 2213.630127
+}
