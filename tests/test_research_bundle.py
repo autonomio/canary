@@ -243,3 +243,32 @@ def test_finding_contract_keeps_residue_without_a_resolution_and_requires_claim_
     assert freshness_issues(dict(unknown(),policy='scheduled'))
     assert freshness_issues(dict(unknown(),policy='scheduled',review_after='2026-02-30'))
     assert freshness_issues(dict(unknown(),policy='scheduled',review_after='2026-12-01'))==[]
+
+
+def test_archive_uses_one_inventory_snapshot_for_many_artifacts(tmp_path, monkeypatch):
+    completed(tmp_path)
+    for i in range(100):
+        (tmp_path/'texts'/f'extra-{i}.txt').write_text('Synthetic artifact '+str(i))
+    research_bundle.seal(tmp_path)
+    read=research_bundle.read
+    snapshots=[]
+    def record(workspace):
+        snapshots.append(workspace)
+        return read(workspace)
+    monkeypatch.setattr(research_bundle,'read',record)
+    output=io.BytesIO()
+    research_bundle.archive(tmp_path,output)
+    assert len(snapshots)==1
+    with zipfile.ZipFile(output) as z:
+        assert z.read('texts/extra-99.txt')==b'Synthetic artifact 99'
+
+
+def test_connector_rejects_wrong_verbatim_even_inside_an_intact_snapshot(tmp_path):
+    completed(tmp_path)
+    path=tmp_path/'payload.json'
+    value=json.loads(path.read_text())
+    value['evidence'][0]['verbatims'][0]['text']='Not the original passage.'
+    research_bundle.write_json(path,value)
+    research_bundle.seal(tmp_path)
+    with pytest.raises(ValueError,match='Verbatim slice mismatch'):
+        bundle_connectors.export(tmp_path,'resolvent')

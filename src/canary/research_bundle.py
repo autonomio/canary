@@ -141,18 +141,26 @@ def archive(workspace, target):
     with zipfile.ZipFile(target, 'w', compression=zipfile.ZIP_STORED) as output:
         output.write(workspace / 'bundle.json', 'bundle.json')
         for entry in manifest['artifacts']:
-            output.write(artifact(workspace, entry['path']), entry['path'])
+            output.write(verified_artifact(workspace, entry), entry['path'])
+
+
+def verified_artifact(workspace, record):
+    """Verify one artifact against an already-read inventory snapshot."""
+    workspace = Path(workspace).resolve()
+    name = record['path']
+    path = (workspace / name).resolve()
+    if not path.is_relative_to(workspace) or not path.is_file():
+        raise KeyError('Unknown bundle artifact')
+    if file_hash(path) != record['sha256']:
+        raise ValueError('Bundle artifact changed since its recorded snapshot')
+    return path
 
 
 def artifact(workspace, name):
-    workspace = Path(workspace).resolve()
     records = {r['path']: r for r in read(workspace)['artifacts']}
-    path = (workspace / name).resolve()
-    if name not in records or not path.is_relative_to(workspace) or not path.is_file():
+    if name not in records:
         raise KeyError('Unknown bundle artifact')
-    if file_hash(path) != records[name]['sha256']:
-        raise ValueError('Bundle artifact changed since its recorded snapshot')
-    return path
+    return verified_artifact(workspace, records[name])
 
 
 def run_compiled(staged, workspace):

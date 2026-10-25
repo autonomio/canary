@@ -16,9 +16,10 @@ def resolvent(workspace):
     bundle = research_bundle.read(workspace)
     if bundle['state'] != 'finished':
         raise ValueError('Resolvent export requires a finished versioned bundle')
+    inventory = {a['path']: a for a in bundle['artifacts']}
     payload_path = workspace / 'payload.json'
     if payload_path.is_file():
-        payload = json.loads(research_bundle.artifact(workspace, 'payload.json').read_text())
+        payload = json.loads(research_bundle.verified_artifact(workspace, inventory['payload.json']).read_text())
     else:
         payload = {}
     refs = {r['id']: r for r in payload.get('references', [])}
@@ -27,7 +28,7 @@ def resolvent(workspace):
     id_map = {'claims': {}, 'evidence': {}, 'passages': {}}
     @lru_cache(maxsize=8)
     def source_text(name):
-        return research_bundle.artifact(workspace, name).read_text(encoding='utf-8')
+        return research_bundle.verified_artifact(workspace, inventory[name]).read_text(encoding='utf-8')
     for index, item in enumerate(payload.get('evidence', []), 1):
         identifier = item['id']
         if identifier in evidence_map:
@@ -48,7 +49,8 @@ def resolvent(workspace):
                 raise ValueError('Source hash mismatch: ' + reference['id'])
             if pid in source_map:
                 existing = sources[int(source_map[pid][1:]) - 1]
-                if existing['excerpt'] != text:
+                prior = json.loads(existing['locator'])
+                if existing['excerpt'] != text or prior['reference_id'] != reference['id'] or prior['start'] != start or prior['end'] != end:
                     raise ValueError('Conflicting canonical passage ID: ' + pid)
             if pid not in source_map:
                 sid = 's' + str(len(sources) + 1)
