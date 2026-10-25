@@ -23,7 +23,6 @@ def main():
         for attempt in range(2):
             docker('run', '-d', '--name', name, '-p', '127.0.0.1::8789',
                    '--security-opt', 'seccomp=unconfined', '--security-opt', 'apparmor=unconfined',
-                   '--cap-add', 'SYS_ADMIN',
                    '-v', data + ':/data', '-v', auth + ':/auth', image)
             address = docker('port', name, '8789/tcp').splitlines()[0]
             url = 'http://' + address

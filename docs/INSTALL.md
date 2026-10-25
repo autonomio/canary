@@ -82,10 +82,11 @@ A plain `docker run` with Docker's default profile can start the API but fail to
 execute native tools; use the Compose profile or the same explicit runtime options.
 CI executes a sandboxed command and a local API request, in addition to boot checks.
 
-The image installs distribution bubblewrap with its setuid launcher so the
-non-root service user can construct the inner sandbox on hosts that reject
-unprivileged UID mapping. It also includes procps for native process-tree control.
-The container proof cancels a real sandboxed child process without model inference.
-`SYS_ADMIN` is available to the setuid sandbox launcher for nested namespace setup;
-the service continues to run as the non-root `canary` user. The same explicit
-runtime configuration is exercised by the container check on Linux CI.
+The image includes distribution bubblewrap and procps for sandbox construction
+and process-tree control. It runs as the non-root `canary` user, without added
+capabilities or a setuid sandbox launcher. The Linux host must permit unprivileged
+user namespaces. Ubuntu hosts that restrict them need the bubblewrap AppArmor
+profile described in the official guidance above. Canary does not alter host
+kernel settings on startup. CI explicitly enables namespace support on its
+disposable runner, then tests execution, API access and cancellation inside the
+non-root container.
