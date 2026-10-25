@@ -60,7 +60,8 @@ def initialize(workspace, packet):
     report['engine'] = {'python': sys.version.split()[0], 'sources': {
         name: file_hash(Path(__file__).parent / name) for name in
         ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'claim_freshness.py',
-         'research_spec.py', 'research_bundle.py', 'bundle_connectors.py')}}
+         'research_spec.py', 'research_bundle.py', 'bundle_connectors.py',
+         'processes.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py')}}
     lock = resource_root() / 'uv.lock'
     report['engine']['dependency_lock_sha256'] = file_hash(lock) if lock.is_file() else None
     write_json(workspace / 'compile-report.json', report)
@@ -199,6 +200,12 @@ def run_compiled(staged, workspace):
 
 if __name__ == '__main__':
     import sys
+    import signal
+    from .processes import RunCancelled
+    def cancel(signum, frame):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        raise RunCancelled('Research cancelled by the service')
+    signal.signal(signal.SIGTERM, cancel)
     if len(sys.argv) != 3:
         raise SystemExit('Usage: python -m canary.research_bundle STAGED_SPEC WORKSPACE')
     run_compiled(sys.argv[1], sys.argv[2])

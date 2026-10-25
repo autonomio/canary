@@ -23,6 +23,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse, quote, unquote
@@ -34,6 +35,7 @@ from . import bundle_connectors
 from . import research_bundle as bundle_store
 from .research_spec import CompileError, compile_research, compile_mapping, verify_compiled
 from .runtime_paths import resource_root
+from . import processes
 
 QUESTION_ENGINE_ROOT = Path(os.environ.get("CANARY_QUESTION_ENGINE_ROOT", resource_root())).resolve()
 DEFAULT_PORT = 8789
@@ -84,6 +86,7 @@ class Supervisor:
     def __init__(self, registry: str | Path = runs.REGISTRY,
                  root: str | Path = runs.ROOT):
         self.auth = CodexAuth()
+        self.port = DEFAULT_PORT
         self.registry = Path(registry)
         self.root = Path(root)
         self.owned: dict[str, subprocess.Popen] = {}
@@ -94,8 +97,8 @@ class Supervisor:
     # -- spawning --
 
     def start(self, name: str, brief: str, argv: list[str],
-              env: dict | None = None, *, compiled: dict | None = None) -> dict:
-        argv = validate_launch(argv)
+              env: dict | None = None, *, compiled: dict | None = None, action: dict | None = None) -> dict:
+        argv = validate_launch(argv) if action is None else []
         extra = runs.sanitize_launch_env(env)
         if not name.strip() or len(name) > 120:
             raise ValueError("name must be 1..120 chars")
@@ -114,13 +117,14 @@ class Supervisor:
         native = (len(argv) > 2 and argv[2] == "ask" and
                   Path(argv[1]).resolve() in {(QUESTION_ENGINE_ROOT / "scripts/container_run.sh").resolve(),
                                               (QUESTION_ENGINE_ROOT / "scripts/coverage_run.sh").resolve()})
-        kind = "question" if native else argv[2] if len(argv) > 2 else "?"
+        kind = action['command'] if action else "question" if native else argv[2] if len(argv) > 2 else "?"
         launch_root = QUESTION_ENGINE_ROOT if native else self.root
         packet_path = None
-        if native:
-            compiled = verify_compiled(compiled or compile_mapping({'question': argv[3]}))
-            if compiled['resolved']['question'] != argv[3]:
-                raise ValueError("Question disagrees with compiled specification")
+        if native or action:
+            if native:
+                compiled = verify_compiled(compiled or compile_mapping({'question': argv[3]}))
+                if compiled['resolved']['question'] != argv[3]:
+                    raise ValueError("Question disagrees with compiled specification")
             inputs = self.root / "run-inputs"
             inputs.mkdir(parents=True, exist_ok=True)
             # Exclusive input creation reserves the key even before the worker starts.
@@ -133,7 +137,7 @@ class Supervisor:
                 packet_path = inputs / (key + ".json")
                 try:
                     with packet_path.open("x") as stream:
-                        json.dump(compiled, stream, ensure_ascii=False)
+                        json.dump(action or compiled, stream, ensure_ascii=False)
                     break
                 except FileExistsError:
                     n += 1
@@ -142,13 +146,17 @@ class Supervisor:
         env = dict(os.environ, OUT=str(bundle), RUN_KEY=key,
                    RUN_NAME=name, RUN_BRIEF=brief,
                    CANARY_DATA_DIR=str(self.root.resolve()),
+                   CANARY_RUNS_PORT=str(self.port),
                    CANARY_RUNS_REGISTRY=str(self.registry))
         env.update(extra)
-        if native:
+        if native or action:
             env["CODEX_HOME"] = self.auth.home
             env["CANARY_COVERAGE_PYTHON"] = sys.executable
-            if packet_path:
+            env['CANARY_CANCEL_MARKER'] = str(packet_path.with_suffix('.cancel'))
+            if native:
                 env["CANARY_RUN_SPEC"] = str(packet_path.resolve())
+            else:
+                argv = [sys.executable, '-m', 'canary.service_commands', str(packet_path.resolve())]
         launcher_log = self.root / "container-out" / f"{key}.launcher.log"
         launcher_log.parent.mkdir(parents=True, exist_ok=True)
         logfh = open(launcher_log, "a", encoding="utf-8", errors="replace")
@@ -165,10 +173,24 @@ class Supervisor:
         runs.register_start(key, name, brief, kind, str(bundle), "",
                             shlex.join(argv), path=self.registry,
                             launch_argv=list(argv), launch_env=extra,
-                            run_spec_path=str(packet_path) if packet_path else "")
+                            run_spec_path=str(packet_path) if native else "",
+                            action_spec_path=str(packet_path) if action else "",
+                            worker={'pid': proc.pid, 'identity': processes.identity(proc.pid)} if native or action else None)
         threading.Thread(target=self._wait, args=(key, proc, logfh),
                          daemon=True).start()
         return {"key": key, "bundle": str(bundle)}
+
+    def start_action(self, body: dict) -> dict:
+        from .service_commands import prepare
+        if not isinstance(body, dict) or set(body) != {'command','options'}:
+            raise ValueError('Expected command and typed options')
+        prepare(body['command'], body['options'], self.root, self.registry)
+        if body['command'] == 'inspect':
+            from .report import read_bundle
+            options = prepare(body['command'], body['options'], self.root, self.registry)
+            return read_bundle(options['bundle'])
+        return self.start(body['command']+' '+str(body['options'].get('question',''))[:80],
+                          'Retained compatibility workflow: '+body['command'], [], action=body)
 
     def start_question(self, question: str, name: str = "", brief: str = "") -> dict:
         question = question.strip()
@@ -199,7 +221,8 @@ class Supervisor:
         bundle = row.get("bundle", "") if row else ""
         with self.lock:
             try:
-                runs.register_finish(key, "done" if rc == 0 else "failed",
+                row = runs.get(key, self.registry)
+                runs.register_finish(key, 'cancelled' if row and row.get('cancel_requested_at') else "done" if rc == 0 else "failed",
                                      bundle, path=self.registry)
             finally:
                 self.owned.pop(key, None)
@@ -231,6 +254,18 @@ class Supervisor:
         """Fold live truth over registry rows; finish stale launch rows."""
         rows = runs.load(self.registry)
         for row in rows:
+            if isinstance(row.get('worker'), dict):
+                alive = processes.live(row['worker'])
+                if not alive and row.get('status') in runs._ACTIVE_STATUS:
+                    parsed = runs.parse_bundle(row['bundle'])
+                    finished = runs.register_finish(row['key'],
+                        'cancelled' if row.get('cancel_requested_at') else 'interrupted' if parsed.get('status') in runs._ACTIVE_STATUS else 'done',
+                        row.get('bundle', ''), path=self.registry)
+                    row.update(finished or {})
+                elif alive and row.get('status') != 'cancelling':
+                    row.update({k:v for k,v in runs.parse_bundle(row['bundle']).items() if v not in (None,'?',{})})
+                row.update(live=alive, can_cancel=alive and row.get('status') in runs._ACTIVE_STATUS and row.get('status') != 'cancelling')
+                continue
             container = row.get("container") or ""
             if not container and row.get("bundle"):
                 bundle = Path(row["bundle"])
@@ -278,6 +313,54 @@ class Supervisor:
                     row["live"] = False
         return rows
 
+    def cancel(self, key: str) -> dict:
+        with self.lock:
+            row = runs.get(key, self.registry)
+            if row is None: raise KeyError(key)
+            recorded = _load_json_file(Path(row['bundle'])/'run.json', {}).get('status')
+            if recorded not in runs._ACTIVE_STATUS:
+                return {'key':key,'status':recorded}
+            receipt = row.get('worker')
+            if not processes.live(receipt):
+                return {'key': key, 'status': row.get('status')}
+            row.update(status='cancelling', cancel_requested_at=runs.utcnow())
+            runs.upsert(row, self.registry)
+            Path(row.get('run_spec_path') or row['action_spec_path']).with_suffix('.cancel').touch()
+            tools = processes.tool_receipts(self.root, key)
+        def stop():
+            for tool in tools: processes.stop_tree(tool)
+            processes.stop_tree(receipt)
+        threading.Thread(target=stop, daemon=True).start()
+        return {'key': key, 'status': 'cancelling'}
+
+    def execute_tool(self, key, action, body):
+        from .research_tools import execute
+        with self.lock:
+            row = runs.get(key, self.registry)
+            if row is None: raise KeyError(key)
+            recorded = _load_json_file(Path(row['bundle'])/'run.json', {}).get('status')
+            if recorded not in runs._ACTIVE_STATUS: row = dict(row, status=recorded)
+            if action == 'catalog' or action == 'source' and row.get('status') not in runs._ACTIVE_STATUS:
+                return execute(row, action, body, self.root)
+            if row.get('status') not in runs._ACTIVE_STATUS or row.get('cancel_requested_at'):
+                raise ValueError('Run is stopped; committed sources remain readable')
+            if action in ('discover','acquire','finalize') and not (Path(row['bundle'])/'run.json').is_file():
+                raise ValueError('The run has not initialized its research workspace yet')
+            directory = self.root/'run-tools'/key/uuid.uuid4().hex
+            directory.mkdir(parents=True)
+            from .coverage_runtime import write
+            packet, output = directory/'request.json', directory/'response.json'
+            write(packet, {'row':row,'action':action,'body':body,'root':str(self.root.resolve())})
+            with (directory/'console.log').open('wb') as log:
+                proc = subprocess.Popen([sys.executable,'-m','canary.research_tools',str(packet),str(output)],
+                    stdout=log,stderr=subprocess.STDOUT,stdin=subprocess.DEVNULL,start_new_session=True)
+            write(directory/'ownership.json', {'pid':proc.pid,'identity':processes.identity(proc.pid)})
+        proc.wait()
+        if not output.is_file(): raise ValueError('Research tool stopped; committed work is preserved')
+        result = json.loads(output.read_text(encoding='utf-8'))
+        if 'error' in result: raise ValueError(result['error'])
+        return result['result']
+
     def pause(self, key: str) -> dict:
         row = runs.get(key, self.registry)
         if row is None:
@@ -324,6 +407,8 @@ class Supervisor:
         row = runs.get(key, self.registry)
         if row is None:
             raise KeyError(key)
+        if row.get('action_spec_path'):
+            return self.start_action(json.loads(Path(row['action_spec_path']).read_text(encoding='utf-8')))
         suffix = ' (rerun)'
         repeated_name = name or (str(row.get('name') or key)[:120 - len(suffix)] + suffix)
         saved = bundle_store.read(row.get('bundle', ''))
@@ -543,7 +628,7 @@ def research_for_row(row: dict, supervisor: "Supervisor") -> tuple[dict, bool]:
     """Research record for a registry row, live-snapping running workers."""
     bundle = row.get("bundle", "")
     if (Path(str(bundle)) / "run.json").exists():
-        return research_bundle(bundle), False
+        return research_bundle(bundle), processes.live(row.get('worker'))
     container = row.get("container") or ""
     if (row.get("status") in ("running", "paused") and container
             and supervisor.inspect(container)["live"]):
@@ -1033,6 +1118,27 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return {}
 
+    def _upload_input(self):
+        path = None
+        try:
+            size = int(self.headers.get('Content-Length', '0'))
+            if size <= 0 or self.headers.get('Content-Type', '').split(';')[0] != 'application/octet-stream':
+                raise ValueError('Input upload requires application/octet-stream and a positive Content-Length')
+            identifier = uuid.uuid4().hex
+            directory = self.supervisor.root/'inputs'
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory/identifier
+            remaining = size
+            with path.open('xb') as stream:
+                while remaining:
+                    chunk = self.rfile.read(min(1024*1024, remaining))
+                    if not chunk: raise ValueError('Incomplete input upload')
+                    stream.write(chunk);remaining -= len(chunk)
+            self._send(201, {'id':identifier,'bytes':size})
+        except (ValueError, OSError) as error:
+            if path: path.unlink(missing_ok=True)
+            self._send(400, {'error':str(error),'code':'invalid_input'})
+
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
@@ -1137,6 +1243,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, self._findings())
             elif parsed.path == "/api/usage":
                 self._send(200, {"usage": self._usage()})
+            elif parsed.path.startswith('/api/usage/threads/'):
+                from .coverage_runtime import native_usage
+                self._send(200, native_usage(unquote(parsed.path.rsplit('/',1)[1]), self.supervisor.auth.home))
             elif parsed.path == "/api/experiments":
                 self._send(200, {"experiments": acceptance_runs(self.supervisor.root)})
             else:
@@ -1156,11 +1265,25 @@ class Handler(BaseHTTPRequestHandler):
         if not self._local_origin():
             self._send(403, {'error': 'Request requires the local service origin.', 'code': 'forbidden'})
             return
+        if parsed.path == '/api/inputs':
+            self._upload_input()
+            return
         body = self._read_json()
         try:
             if not isinstance(body, dict):
                 raise ValueError("Expected a JSON object")
-            if parsed.path == "/api/runs/compile" or (parsed.path == "/api/runs" and ('yaml' in body or 'spec' in body)):
+            if parsed.path == '/api/actions':
+                self._send(200 if body.get('command') == 'inspect' else 201, self.supervisor.start_action(body))
+            elif parsed.path == '/api/runs/import':
+                if set(body) - {'server_path','name','brief'} or not isinstance(body.get('server_path'), str):
+                    raise ValueError('Expected a server-side bundle path')
+                path = Path(body['server_path']).expanduser().resolve()
+                if not path.is_dir(): raise ValueError('Server-side bundle directory does not exist')
+                existing = next((r for r in runs.load(self.supervisor.registry)
+                    if r.get('bundle') and Path(r['bundle']).resolve() == path), None)
+                self._send(200 if existing else 201, existing or runs.adopt_bundle(
+                    path, body.get('name',''), body.get('brief',''), self.supervisor.registry))
+            elif parsed.path == "/api/runs/compile" or (parsed.path == "/api/runs" and ('yaml' in body or 'spec' in body)):
                 if self.headers.get('Content-Type', '').split(';')[0].strip().lower() != 'application/json':
                     self._send(415, {'error': 'Expected application/json', 'code': 'invalid_request'})
                     return
@@ -1172,6 +1295,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, packet)
                 else:
                     self._send(201, self.supervisor.start_compiled(packet, str(body.get('name', '')), str(body.get('brief', ''))))
+            elif re.fullmatch(r'/api/runs/[^/]+/tools/[^/]+', parsed.path):
+                parts = parsed.path.split('/')
+                self._send(200, self.supervisor.execute_tool(unquote(parts[3]), parts[5], body))
             elif parsed.path == "/api/runs":
                 if body.get("kind") == "question":
                     started = self.supervisor.start_question(str(body.get("question", "")),
@@ -1191,6 +1317,8 @@ class Handler(BaseHTTPRequestHandler):
                 key = parsed.path[len("/api/runs/"):-len("/rerun")]
                 self._send(201, self.supervisor.rerun(
                     key, str(body.get("name", "")), str(body.get("brief", ""))))
+            elif re.fullmatch(r'/api/runs/[^/]+/cancel', parsed.path):
+                self._send(202, self.supervisor.cancel(unquote(parsed.path.split('/')[3])))
             else:
                 self._send(404, {"error": "not found"})
         except KeyError as e:
@@ -1333,6 +1461,7 @@ def make_server(port: int = DEFAULT_PORT, registry: str | Path = runs.REGISTRY,
             super().server_close()
 
     server = AuthServer((host, port), handler)
+    handler.supervisor.port = server.server_port
     server.daemon_threads = True
     return server
 

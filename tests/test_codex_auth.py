@@ -190,6 +190,7 @@ def test_worker_uses_api_owned_home_and_native_file_store(auth_server, monkeypat
     captured={}
     real_popen=subprocess.Popen
     def worker(argv, **kwargs):
+        if 'env' not in kwargs: return real_popen(argv, **kwargs)
         captured.update(kwargs['env'])
         return real_popen(['true'],**kwargs)
     monkeypatch.setattr(dashboard.subprocess,'Popen',worker)

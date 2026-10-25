@@ -22,7 +22,7 @@ def test_ask_routes_to_coverage_without_touching_legacy_review(tmp_path, monkeyp
     monkeypatch.setattr(coverage_export, "export_bundle", lambda directory: calls.append(directory))
     monkeypatch.setattr(cli, "review", lambda *a, **k: pytest.fail("legacy review invoked"))
     workspace = tmp_path / "new"
-    assert cli.main(["ask", "Question?", "--out", str(workspace)]) == 0
+    assert cli.engine_main(["ask", "Question?", "--out", str(workspace)]) == 0
     assert calls[0] == ("Question?", str(workspace), {"minimum_papers": 50, "audit_seconds": 600})
     assert calls[1] == str(workspace)
 
@@ -74,7 +74,7 @@ def test_ask_refusal_keeps_existing_bundle_byte_identical(tmp_path, monkeypatch)
     before = {p.name: p.read_bytes() for p in old.iterdir()}
     monkeypatch.setattr(coverage_runtime, "run", lambda *a, **k: pytest.fail("Existing workspace admitted"))
     monkeypatch.setattr(coverage_export, "export_bundle", lambda *a, **k: pytest.fail("Existing bundle exported"))
-    assert cli.main(["ask", "New question?", "--out", str(old)]) == 1
+    assert cli.engine_main(["ask", "New question?", "--out", str(old)]) == 1
     assert {p.name: p.read_bytes() for p in old.iterdir()} == before
 
 
@@ -420,7 +420,7 @@ def test_ask_exports_only_after_its_own_runtime_reservation(tmp_path, monkeypatc
             raise RuntimeError("Offline owned failure")
     monkeypatch.setattr(coverage_runtime, "run", research)
     monkeypatch.setattr(coverage_export, "export_bundle", lambda directory: exports.append(directory))
-    assert cli.main(["ask", "Owned question?", "--out", str(workspace)]) == (1 if fails else 0)
+    assert cli.engine_main(["ask", "Owned question?", "--out", str(workspace)]) == (1 if fails else 0)
     assert exports == [str(workspace)]
 
 
@@ -434,7 +434,7 @@ def test_ask_pre_reservation_failure_cannot_export_a_competing_run(tmp_path, mon
         raise RuntimeError("Offline pre-reservation failure")
     monkeypatch.setattr(coverage_runtime, "run", fail_before_reservation)
     monkeypatch.setattr(coverage_export, "export_bundle", lambda directory: exports.append(directory))
-    assert cli.main(["ask", "New question?", "--out", str(workspace)]) == 1
+    assert cli.engine_main(["ask", "New question?", "--out", str(workspace)]) == 1
     assert exports == []
     assert json.loads((workspace / "run.json").read_text())["question"] == "Other owner?"
 
@@ -468,7 +468,7 @@ def test_concurrent_same_question_cli_loser_never_exports_owner_artifacts(tmp_pa
     monkeypatch.setattr(coverage_runtime, "scientific_session", offline_session)
     monkeypatch.setattr(coverage_export, "export_bundle", export)
     def attempt():
-        code = cli.main(["ask", "Same question?", "--out", str(workspace)])
+        code = cli.engine_main(["ask", "Same question?", "--out", str(workspace)])
         returned.set()
         return code
     with ThreadPoolExecutor(max_workers=2) as pool:

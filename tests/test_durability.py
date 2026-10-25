@@ -178,7 +178,7 @@ def test_inspect_command_reports_bundle(tmp_path, capsys):
     spec = RunSpec(question="seed?", max_iterations=1)
     out = tmp_path / "out"
     reportmod.begin_run(out, spec, "cycle")
-    assert climod.main(["inspect", str(out)]) == 0
+    assert climod.engine_main(["inspect", str(out)]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "interrupted"
 
 
@@ -259,7 +259,7 @@ def test_cli_review_failure_journals_failed_event(tmp_path, monkeypatch, capsys)
 
     monkeypatch.setattr(retrievalmod, "retrieve_with_report", boom)
     out = tmp_path / "out"
-    rc = climod.main(["review", "q?", "--out", str(out)])
+    rc = climod.engine_main(["review", "q?", "--out", str(out)])
     assert rc == 1
     assert "boom-probe" in capsys.readouterr().err
     events = _failed_lines(out)
@@ -277,7 +277,7 @@ def test_cli_resume_unexpected_failure_journals_failed_event(tmp_path, monkeypat
     Journal(out / "journal.jsonl", run_id=run_id).note("cycle", "start", "seed?")
     monkeypatch.setattr(climod, "resume_bundle",
                         lambda args: (_ for _ in ()).throw(RuntimeError("resume-boom")))
-    rc = climod.main(["resume", str(out)])
+    rc = climod.engine_main(["resume", str(out)])
     assert rc == 1
     events = _failed_lines(out)
     assert events[-1]["event"] == "failed"

@@ -353,12 +353,12 @@ def test_nested_work_shares_one_tracker():
 
 def test_cli_rejects_invalid_input_before_any_work(tmp_path, capsys):
     from canary import cli as climod
-    rc = climod.main(["cycle", "seed?", "--max-iterations", "0", "--out", str(tmp_path / "o")])
+    rc = climod.engine_main(["cycle", "seed?", "--max-iterations", "0", "--out", str(tmp_path / "o")])
     assert rc == 2
     err = capsys.readouterr().err
     assert "invalid input" in err
     assert not (tmp_path / "o").exists()
-    rc = climod.main(["cycle", "seed?", "--max-calls", "0", "--out", str(tmp_path / "o2")])
+    rc = climod.engine_main(["cycle", "seed?", "--max-calls", "0", "--out", str(tmp_path / "o2")])
     assert rc == 2
     assert not (tmp_path / "o2").exists()
 

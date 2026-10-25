@@ -467,7 +467,7 @@ def test_rejected_query_change_keeps_committed_plan_candidates_and_exported_net(
     import re
     prompt = protocol.research_prompt("Synthetic question?", "canary", 50)
     draft = re.search(r"1\. Write ([\w.-]+)", prompt)[1]
-    command_plan = re.search(r"discover --workspace \. --plan ([\w.-]+\.json)\b", prompt)[1]
+    command_plan = re.search(r"discover --plan ([\w.-]+\.json)\b", prompt)[1]
     assert draft == command_plan and draft != "question-plan.json"
     assert "never overwrite that canonical file directly" in prompt
     assert "assign a new ID whenever changing a search string" in prompt

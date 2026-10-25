@@ -106,7 +106,7 @@ def test_cli_revise_refuses_uncontained(tmp_path, repo, monkeypatch, capsys):
     monkeypatch.setenv("CANARY_SANDBOXED", "1")  # bypass attempt via public CLI
     monkeypatch.setenv("CANARY_GATE_URL", "http://127.0.0.1:9")
     monkeypatch.setenv("CANARY_GATE_TOKEN", "fixture-only")
-    rc = climod.main(["revise", "--run-dir", str(run_dir), "--repo", str(repo)])
+    rc = climod.engine_main(["revise", "--run-dir", str(run_dir), "--repo", str(repo)])
     assert rc == 1
     assert "refusing" in capsys.readouterr().err
     assert not (run_dir / "assessment.md").exists()
@@ -118,7 +118,7 @@ def test_cli_cycle_maintenance_refuses_before_any_work(tmp_path, repo, monkeypat
     monkeypatch.setenv("CANARY_SANDBOXED", "1")  # bypass attempt via public CLI
     monkeypatch.setenv("CANARY_GATE_URL", "http://127.0.0.1:9")
     monkeypatch.setenv("CANARY_GATE_TOKEN", "fixture-only")
-    rc = climod.main(["cycle", "seed?", "--maintenance", "--repo", str(repo),
+    rc = climod.engine_main(["cycle", "seed?", "--maintenance", "--repo", str(repo),
                       "--out", str(out), "--max-iterations", "1"])
     assert rc == 1
     assert "refusing" in capsys.readouterr().err
@@ -293,7 +293,7 @@ def test_cli_revise_prod_off_main_refuses_before_any_work(tmp_path, main_repo,
                                            encoding="utf-8")
     _checkout(main_repo, "dev")
     monkeypatch.setenv("CANARY_GUEST", "1")  # trusted role, wrong branch
-    rc = climod.main(["revise", "--run-dir", str(run_dir), "--repo", str(main_repo),
+    rc = climod.engine_main(["revise", "--run-dir", str(run_dir), "--repo", str(main_repo),
                       "--profile", "prod"])
     assert rc == 1
     assert "refusing" in capsys.readouterr().err

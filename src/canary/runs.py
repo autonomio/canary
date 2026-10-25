@@ -118,18 +118,16 @@ def register_start(key: str, name: str, brief: str, kind: str = "?",
                    path: str | Path = REGISTRY,
                    launch_argv: list[str] | None = None,
                    launch_env: dict | None = None,
-                   status: str = "running", run_spec_path: str = "") -> dict:
+                   status: str = "running", run_spec_path: str = "", action_spec_path: str = "", worker: dict | None = None) -> dict:
     return upsert({"key": key, "name": name, "brief": brief, "run_id": "?",
                    "kind": kind, "status": status, "started_at": utcnow(),
                    "ended_at": None, "bundle": bundle, "container": container,
                    "launch": launch, "launch_argv": list(launch_argv or []),
                    "launch_env": dict(launch_env or {}), "run_spec_path": run_spec_path,
-                   "seed": "?", "profile": "?",
+                   "action_spec_path": action_spec_path,
+                   "worker": worker, "seed": "?", "profile": "?",
                    "maintenance": False, "model": "?", "usage": {},
                    "iterations": [], "improvements": [], "tally": {}}, path)
-
-
-_NON_TERMINAL = (None, "unknown", "starting", "running", "paused", "")
 
 
 def register_finish(key: str, status: str = "done", bundle: str = "",
@@ -139,7 +137,7 @@ def register_finish(key: str, status: str = "done", bundle: str = "",
         current = next((r for r in rows if r.get("key") == key), None)
         if current is None:
             return None
-        if current.get("status") not in _NON_TERMINAL:
+        if current.get("status") not in _ACTIVE_STATUS:
             return current  # terminal rows are immutable; late writers no-op
         target = Path(bundle or current.get("bundle", ""))
         if target.is_dir():
@@ -147,7 +145,7 @@ def register_finish(key: str, status: str = "done", bundle: str = "",
             current.update({k: v for k, v in parsed.items()
                             if k != "bundle" and v not in (None, "?", {})})
             current["bundle"] = str(target)
-        if status != "done" or current.get("status") in _NON_TERMINAL:
+        if status != "done" or current.get("status") in _ACTIVE_STATUS:
             current["status"] = status  # failed/interrupted win; done defers to bundle
         current["ended_at"] = utcnow()
         current["ended_at_estimated"] = False
@@ -349,7 +347,7 @@ def parse_bundle(bundle: str | Path) -> dict:
     return record
 
 
-_ACTIVE_STATUS = {None, "", "unknown", "started", "starting", "running", "in_progress", "paused", "planning", "researching", "reading", "acquiring", "auditing"}
+_ACTIVE_STATUS = {None, "", "unknown", "started", "starting", "running", "in_progress", "paused", "cancelling", "planning", "researching", "reading", "acquiring", "auditing"}
 _FAILURE_STATUS = {"failed", "interrupted", "cancelled", "provider_blocked", "invalid_input"}
 _LOG_FIELDS = ("started_at", "ended_at", "duration_seconds", "papers_covered", "papers_acquired", "answered",
                "input_tokens", "output_tokens", "cached_tokens", "timing_source",

@@ -416,7 +416,7 @@ def test_publish_is_separate_and_loads_recorded_round(repo, tmp_path, monkeypatc
     monkeypatch.setattr(ghmod, "commit_and_push", lambda *a, **k: ["src/canary/foo.py"])
     monkeypatch.setattr("canary.cli.MuseClient", lambda *a, **k: None)
     monkeypatch.setenv("GITHUB_TOKEN", "maintainer-token")
-    assert cli.main(["publish", "--repo", str(repo), "--run-dir", str(run_dir)]) == 0
+    assert cli.engine_main(["publish", "--repo", str(repo), "--run-dir", str(run_dir)]) == 0
     assert published["token"] == "maintainer-token"
     assert published["issue"].startswith("Maintenance ")
 
@@ -427,5 +427,5 @@ def test_publish_without_record_fails_cleanly(repo, tmp_path, capsys):
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     Journal(run_dir / "journal.jsonl", run_id="r1")
-    assert cli.main(["publish", "--repo", str(repo), "--run-dir", str(run_dir)]) == 1
+    assert cli.engine_main(["publish", "--repo", str(repo), "--run-dir", str(run_dir)]) == 1
     assert "canary: error" in capsys.readouterr().err

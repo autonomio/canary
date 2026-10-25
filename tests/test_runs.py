@@ -138,22 +138,22 @@ def test_cli_list_show_log_adopt(tmp_path, monkeypatch, capsys):
     reg = tmp_path / "registry.json"
     monkeypatch.setenv("CANARY_RUNS_REGISTRY", str(reg))
     bundle = _bundle(tmp_path)
-    assert climod.main(["runs", "adopt", "--bundle", str(bundle),
+    assert climod.engine_main(["runs", "adopt", "--bundle", str(bundle),
                         "--name", "n", "--brief", "b"]) == 0
-    assert climod.main(["runs", "list"]) == 0
+    assert climod.engine_main(["runs", "list"]) == 0
     out = capsys.readouterr().out
     assert "b1" in out and "converged" in out
-    assert climod.main(["runs", "show", "b1"]) == 0
-    assert climod.main(["runs", "log", "b1", "--tail", "5"]) == 0
+    assert climod.engine_main(["runs", "show", "b1"]) == 0
+    assert climod.engine_main(["runs", "log", "b1", "--tail", "5"]) == 0
     out = capsys.readouterr().out
     assert "journal:cycle/revised" in out and "console: no console.log" in out
-    assert climod.main(["runs", "show", "nope"]) == 1
+    assert climod.engine_main(["runs", "show", "nope"]) == 1
 
 
 def test_cli_actions_without_daemon_hint_serve(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CANARY_RUNS_REGISTRY", str(tmp_path / "registry.json"))
     monkeypatch.setenv("CANARY_RUNS_PORT", "9")  # nothing serves discard-port
-    assert climod.main(["runs", "pause", "k1"]) == 1
+    assert climod.engine_main(["runs", "pause", "k1"]) == 1
     assert "canary runs serve" in capsys.readouterr().err
 
 
@@ -193,19 +193,19 @@ def test_cli_start_sends_ambient_launch_env(tmp_path, monkeypatch, capsys):
         return {"key": "k1"}, ""
 
     monkeypatch.setattr(climod, "_runs_post", fake_post)
-    assert climod.main(["runs", "start", "--name", "n", "--brief", "b",
+    assert climod.engine_main(["runs", "start", "--name", "n", "--brief", "b",
                         "--", "bash", "scripts/container_run.sh", "cycle"]) == 0
     assert seen["payload"]["env"] == {"CANARY_STAGE": "dev"}
     assert "launched k1" in capsys.readouterr().out
 
 
 def test_cli_publish_needs_bundle_or_rundir(tmp_path, capsys):
-    assert climod.main(["publish", "--repo", str(tmp_path)]) == 2
+    assert climod.engine_main(["publish", "--repo", str(tmp_path)]) == 2
     assert "needs --bundle or --run-dir" in capsys.readouterr().err
 
 
 def test_cli_publish_bundle_without_journal_fails_closed(tmp_path, capsys):
     b = tmp_path / "bundle"
     b.mkdir()
-    assert climod.main(["publish", "--repo", str(tmp_path),
+    assert climod.engine_main(["publish", "--repo", str(tmp_path),
                         "--bundle", str(b)]) == 1

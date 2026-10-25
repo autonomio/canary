@@ -30,6 +30,7 @@ import httpx
 
 from . import coverage_protocol as protocol
 from .runtime_paths import data_root
+from .processes import RunCancelled, stop_tree, identity, tool_receipts
 
 WORK_ID = re.compile(r"W[1-9][0-9]{0,19}\Z")
 _LOCK = threading.Lock()
@@ -472,7 +473,7 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
     return results
 
 
-def source(workspace, reference_id, *, match=None, page=None, context=2, limit=8):
+def source(workspace, reference_id, *, match=None, page=None, context=2, limit=8, record_read=True):
     if not WORK_ID.fullmatch(reference_id):
         raise ValueError("Invalid source ID")
     if context < 0 or limit < 1:
@@ -483,7 +484,8 @@ def source(workspace, reference_id, *, match=None, page=None, context=2, limit=8
     hits = [i for i, row in enumerate(rows) if (page is None or row["page"] == page) and (pattern is None or pattern.search(row["text"]))]
     selected = sorted({j for i in hits[:limit] for j in range(max(0, i - context), min(len(rows), i + context + 1))})
     result = [rows[i] for i in selected]
-    append(Path(workspace) / "source-reads.jsonl", {"at": now(), "reference_id": reference_id, "passage_ids": [r["id"] for r in result]})
+    if record_read:
+        append(Path(workspace) / "source-reads.jsonl", {"at": now(), "reference_id": reference_id, "passage_ids": [r["id"] for r in result]})
     return result
 
 
@@ -663,6 +665,7 @@ def command_line(executable, model, effort, workspace, shape, output):
         "-m", model, "-c", f'model_reasoning_effort="{effort}"', "-c", "agents.enabled=false",
         "-c", "features.memories=false", "-c", "features.plugins=false", "-c", "features.apps=false",
         "-c", 'web_search="disabled"', "--skip-git-repo-check", "--sandbox", "workspace-write", "--json",
+        "-c", 'sandbox_workspace_write.network_access=true',
         "--approve-for-me", "--output-schema", str(shape), "-o", str(output), "-"]
 
 
@@ -701,7 +704,7 @@ def scientific_session(workspace, role, model, effort, prompt, shape, *, executa
     write(workspace / (role + "-invocation.json"), {"argv": command, "started_at": started,
         "model": model, "effort": effort, "cli_version": version, "subagents_enabled": False})
     event(workspace, role + "_started", model=model, reasoning_effort=effort)
-    thread_id, turn_usage, timed_out, last_refresh = None, [], False, 0.0
+    thread_id, turn_usage, timed_out, last_refresh, exit_code = None, [], False, 0.0, None
     with (workspace / (role + "-events.jsonl")).open("w") as events, (workspace / (role + "-stderr.log")).open("w") as stderr:
         process = subprocess.Popen(command, cwd=workspace, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=stderr, text=True, start_new_session=True)
@@ -754,11 +757,14 @@ def scientific_session(workspace, role, model, effort, prompt, shape, *, executa
         finally:
             if timer:
                 timer.cancel()
-    receipt = {"started_at": started, "ended_at": now(), "seconds": round(time.monotonic() - before, 3),
-        "exit_code": exit_code, "thread_id": thread_id, "model": model, "reasoning_effort": effort,
-        "timed_out": timed_out, "turn_usage": turn_usage,
-        "usage": native_usage(thread_id) if thread_id else {"available": False, "reason": "No scientific thread ID"}}
-    write(workspace / (role + "-receipt.json"), receipt)
+            if process.poll() is None:
+                stop_tree({'pid': process.pid, 'identity': identity(process.pid)})
+            exit_code = process.wait()
+            receipt = {"started_at": started, "ended_at": now(), "seconds": round(time.monotonic() - before, 3),
+                "exit_code": exit_code, "thread_id": thread_id, "model": model, "reasoning_effort": effort,
+                "timed_out": timed_out, "turn_usage": turn_usage,
+                "usage": native_usage(thread_id) if thread_id else {"available": False, "reason": "No scientific thread ID"}}
+            write(workspace / (role + "-receipt.json"), receipt)
     event(workspace, role + "_finished", seconds=receipt["seconds"], exit_code=exit_code, timed_out=timed_out)
     candidate = output_path if output_path.exists() else workspace / "audit.json"
     if role == "audit" and candidate.exists():
@@ -795,7 +801,10 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
     executable = executable or shutil.which("codex")
     if not executable:
         raise RuntimeError("Native Codex CLI is required; no provider/model fallback is configured")
-    command = shlex.join([sys_executable(), '-m', 'canary.coverage_runtime'])
+    run_key = os.environ.get('RUN_KEY')
+    command = shlex.join([sys_executable(), '-m', 'canary.tools_cli', '--run', run_key,
+        '--port', os.environ.get('CANARY_RUNS_PORT', '8789')]) if run_key else shlex.join(
+        [sys_executable(), '-m', 'canary.coverage_runtime'])
     workspace.mkdir(parents=True, exist_ok=True)
     if any(workspace.iterdir()):
         raise ValueError("A new research run requires an empty workspace; use tools only to resume acquisition within a run")
@@ -820,8 +829,11 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
     (workspace / "AGENTS.md").write_text("Read repository AGENTS.md first.\n" + protocol.SCIENTIFIC_RULES +
         "Use only this new research workspace's sources and current question. Never inspect saved experiments or previous answers.\n")
     try:
+        if os.environ.get('CANARY_CANCEL_MARKER') and Path(os.environ['CANARY_CANCEL_MARKER']).exists():
+            raise RunCancelled('Research cancelled before inference started')
         scientific_session(workspace, "research", protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT,
             protocol.research_prompt(question, command, minimum_papers), protocol.investigation_schema(), executable=executable)
+        wait_for_tools(run_key)
         payload = bind_payload(workspace)
         manifest.update(status="auditing", research_finished_at=now(), accounting=payload["accounting"])
         write(workspace / "run.json", manifest)
@@ -829,6 +841,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
         audit, _ = scientific_session(workspace, "audit", protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT,
             protocol.audit_prompt(question, command, audit_seconds), protocol.audit_schema(), executable=executable,
             audit_timeout=audit_seconds)
+        wait_for_tools(run_key)
         checked = {r["claim_id"] for r in audit.get("claim_checks", [])}
         for claim in payload["claims"]:
             if claim["id"] not in checked:
@@ -847,7 +860,8 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
                         audit_complete=audit.get("audit_complete", False), answered=bool(payload.get("claims")),
                         scientific_acceptance="See individual independent claim checks and audit limitations")
     except Exception as error:
-        manifest.update(status="failed", failure=type(error).__name__ + ": " + str(error))
+        cancelled = isinstance(error, RunCancelled) or (os.environ.get('CANARY_CANCEL_MARKER') and Path(os.environ['CANARY_CANCEL_MARKER']).exists())
+        manifest.update(status="cancelled" if cancelled else "failed", failure=type(error).__name__ + ": " + str(error))
         raise
     finally:
         manifest.update(ended_at=now(), seconds=round(time.monotonic() - before, 3))
@@ -858,6 +872,13 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
 def sys_executable():
     import sys
     return sys.executable
+
+
+def wait_for_tools(run_key):
+    while run_key and tool_receipts(data_root(), run_key):
+        if os.environ.get('CANARY_CANCEL_MARKER') and Path(os.environ['CANARY_CANCEL_MARKER']).exists():
+            raise RunCancelled('Research cancelled during source work')
+        time.sleep(.05)
 
 
 def main(argv=None):
@@ -875,24 +896,35 @@ def main(argv=None):
     p = commands.add_parser("finalize"); p.add_argument("--workspace", type=Path, required=True)
     p = commands.add_parser("usage"); p.add_argument("thread_id")
     args = parser.parse_args(argv)
-    if args.action == "run":
-        result = run(args.question, args.workspace, minimum_papers=args.minimum_papers, audit_seconds=args.audit_seconds, executable=args.codex)
-        print(json.dumps({"payload": str(args.workspace / "payload.json"), "claims": len(result["claims"]), "accounting": result["accounting"]}, ensure_ascii=False))
-    elif args.action == "discover":
-        print(json.dumps(discover(args.workspace, args.plan, pages=args.pages), ensure_ascii=False))
-    elif args.action == "acquire":
-        result = acquire(args.workspace, args.ids, workers=args.workers, retry_failed=args.retry_failed)
-        print(json.dumps({"attempted": len(result), "sources_available": len(catalog(args.workspace))}))
-    elif args.action == "catalog":
-        print(json.dumps(catalog(args.workspace), ensure_ascii=False, indent=2))
-    elif args.action == "source":
-        print(json.dumps(source(args.workspace, args.reference_id, match=args.match, page=args.page, context=args.context, limit=args.limit), ensure_ascii=False, indent=2))
-    elif args.action == "finalize":
-        result = bind_payload(args.workspace)
-        print(json.dumps({"accounting": result["accounting"], "mechanical_audit": result["mechanical_audit"]}, ensure_ascii=False))
-    elif args.action == "usage":
-        print(json.dumps(native_usage(args.thread_id), ensure_ascii=False, indent=2))
-    return 0
+    import sys
+    port = int(os.environ.get('CANARY_RUNS_PORT', '8789'))
+    if args.action == 'run':
+        if args.codex:
+            print('Codex is configured by the service, not the client.', file=sys.stderr);return 2
+        from .cli import main as cli_main
+        return cli_main(['ask',args.question,'--minimum-papers',str(args.minimum_papers),
+                         '--audit-seconds',str(args.audit_seconds),'--port',str(port)])
+    if args.action == 'usage':
+        from urllib.parse import quote
+        try:
+            response = httpx.get(f'http://127.0.0.1:{port}/api/usage/threads/'+quote(args.thread_id,safe=''),timeout=30,trust_env=False)
+            response.raise_for_status();print(json.dumps(response.json(),ensure_ascii=False,indent=2));return 0
+        except (httpx.HTTPError,ValueError) as error:
+            print('Research API usage failed: '+str(error),file=sys.stderr);return 1
+    from urllib.parse import quote
+    try:
+        with httpx.Client(base_url=f'http://127.0.0.1:{port}', timeout=None, trust_env=False) as client:
+            response = client.post('/api/runs/import', json={'server_path':str(args.workspace)})
+            response.raise_for_status()
+            key = response.json()['key']
+            body = {k:v for k,v in vars(args).items() if k not in ('action','workspace')}
+            if args.action == 'discover': body['plan'] = read(args.plan)
+            response = client.post('/api/runs/'+quote(key,safe='')+'/tools/'+args.action,json=body)
+            value = response.json()
+            if response.is_error: raise ValueError(value.get('error','Research tool failed'))
+            print(json.dumps(value,ensure_ascii=False,indent=2));return 0
+    except (OSError,ValueError,httpx.HTTPError) as error:
+        print('Research API tool failed: '+str(error),file=sys.stderr);return 1
 
 
 if __name__ == '__main__':

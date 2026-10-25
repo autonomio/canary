@@ -89,7 +89,10 @@ Freshness policies are `scheduled`, `event_driven`, `historical`, `unknown`. `as
 
 Invalid declarations return HTTP 400 with `code: invalid_research_spec` and located field issues. Compile/submit declarations require JSON; foreign browser origins/hosts are refused. Existing research/source endpoints remain usable. The frontend now loads the bundle endpoint and renders the API's projection, original/resolved settings, repeat action, artifact links and export actions. It never reads local run files directly.
 
-This slice does not complete packaging, native cancellation, general OpenAPI/MCP, migration of every retained CLI command or the deferred login-free GUI. The existing direct `ask` operator path remains a migration item; `run` and `bundle` are HTTP clients. The primary README remains the final delivery step in [the API-first map](API_FIRST.md).
+Packaging and [run lifecycle](RUN_LIFECYCLE.md) now cover installation, native cancellation
+and public CLI migration. OpenAPI/MCP and the login-free local-footprint dashboard
+remain subsequent slices. The primary README remains the final delivery step in
+[the API-first map](API_FIRST.md).
 
 ## Resolvent pilot and further consumers
 

@@ -106,7 +106,7 @@ def review(spec: RunSpec, assess: bool = False) -> str:
     return str(path / "review.md")
 
 
-def main(argv: list[str] | None = None) -> int:
+def argument_parser():
     ap = argparse.ArgumentParser(prog="canary", description="Canary research toolkit.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     bundle = sub.add_parser("bundle", help="read a research bundle or connector handoff through the API")
@@ -127,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--json", action="store_true")
     ask = sub.add_parser("ask", help="coverage-guided full-paper research with independent audit")
     ask.add_argument("question", help="research question in plain words")
-    ask.add_argument("--out", default="./out/question", help="new empty research workspace")
+    ask.add_argument("--out", default="./out/question", help="deprecated; the API allocates research storage")
     ask.add_argument("--minimum-papers", type=int, default=50)
     ask.add_argument("--audit-seconds", type=int, default=600)
     r = sub.add_parser("review", help="run a cited literature review")
@@ -140,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--assess", action="store_true",
                    help="persist a post-completion assessment (never revises code)")
     a = sub.add_parser("analyze", help="test a hypothesis against a CSV file")
-    a.add_argument("csv", help="path to CSV data file")
+    a.add_argument("csv", help="local CSV input uploaded to the service")
     a.add_argument("--target", required=True, help="target column to predict")
     a.add_argument("--question", default="", help="research question in plain words")
     a.add_argument("--out", default="./out")
@@ -188,9 +188,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="eval-gate command for revision (default: pytest -q)")
     im.add_argument("--out", default=None, help="optional dir for assessment.md")
     ins = sub.add_parser("inspect", help="report a bundle's status without executing anything")
-    ins.add_argument("bundle", help="bundle directory to inspect")
+    ins.add_argument("bundle", help="registered run key or bundle directory on the service host")
     rs = sub.add_parser("resume", help="continue an interrupted cycle bundle")
-    rs.add_argument("bundle", help="bundle directory to resume")
+    rs.add_argument("bundle", help="registered run key or bundle directory on the service host")
     rs.add_argument("--fork", default=None, help="continue into a new dir (must not exist)")
     rs.add_argument("--expect-revision", default=None,
                     help="continue a restart_required leg research-only on this accepted revision")
@@ -224,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     st.add_argument("--port", type=int, default=None)
     st.add_argument("argv", nargs=argparse.REMAINDER,
                     help="launcher args after -- (must start with the launcher)")
-    for verb in ("pause", "unpause"):
+    for verb in ("pause", "unpause", "cancel"):
         pv = rnsub.add_parser(verb, help=f"{verb} a live run's container")
         pv.add_argument("key", help="registry key")
         pv.add_argument("--port", type=int, default=None)
@@ -234,10 +234,20 @@ def main(argv: list[str] | None = None) -> int:
     rr.add_argument("--brief", default="")
     rr.add_argument("--port", type=int, default=None)
     ad = rnsub.add_parser("adopt", help="register an existing bundle dir")
-    ad.add_argument("--bundle", required=True)
+    ad.add_argument("--bundle", required=True, help="bundle directory on the service host")
     ad.add_argument("--name", default="")
     ad.add_argument("--brief", default="")
-    args = ap.parse_args(argv)
+    for command_parser in list(sub.choices.values()) + list(rnsub.choices.values()):
+        if command_parser not in (rn, auth) and not any(action.dest == 'port' for action in command_parser._actions):
+            command_parser.add_argument('--port', type=int, default=None)
+    return ap
+
+
+def _main(argv: list[str] | None = None, *, service_owned=False) -> int:
+    args = argument_parser().parse_args(argv)
+    if not service_owned and args.cmd not in ('auth', 'run', 'bundle') and not (args.cmd == 'runs' and args.runs_cmd == 'serve'):
+        from .command_client import run
+        return run(args, _runs_port(args))
     if args.cmd == "bundle":
         from .research_cli import fetch_bundle
         return fetch_bundle(args, _runs_port(args))
@@ -602,7 +612,7 @@ def runs_cmd(args) -> int:
             return 1
         print(f"launched {data['key']}")
         return 0
-    if cmd in ("pause", "unpause"):
+    if cmd in ("pause", "unpause", "cancel"):
         data, err = _runs_post(port, f"/api/runs/{args.key}/{cmd}", {})
         if err:
             print(f"canary: error: {err}", file=sys.stderr)
@@ -670,6 +680,15 @@ def revise(run_dir: str, repo: str, rounds: int, out: str | None,
          "export is a separate maintainer action: run `canary publish` explicitly")
     jr.save(dest / "journal.jsonl")
     return str(dest / "assessment.md")
+
+
+def main(argv=None) -> int:
+    return _main(argv)
+
+
+def engine_main(argv=None) -> int:
+    """Internal API-owned legacy worker adapter; never a public CLI entry point."""
+    return _main(argv, service_owned=True)
 
 
 if __name__ == "__main__":

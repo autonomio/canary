@@ -111,12 +111,12 @@ Translate the question into concepts/synonyms, outcomes, comparators, conditions
 Queries must use OpenAlex full-text-inclusive search=; abstract/title-only filters are prohibited. Collapse genuinely shared root queries while preserving question relevance.
 Understand: discovery searches indexed full text plus abstracts/titles; relevance triage then reads candidate abstracts, not full papers.
 Discovery alone commits the validated question-plan.json; never overwrite that canonical file directly.
-2. Run {command} discover --workspace . --plan question-plan-draft.json. Read search-progress.json and candidates.jsonl.
+2. Run {command} discover --plan question-plan-draft.json. Read search-progress.json and candidates.jsonl.
 Choose batches by coverage-guided marginal information gain: direct comparisons, contrasting/adverse/null findings, condition/outcome differences, methods, then needed context.
 Record selection.json as {{method:'coverage', approach, assessed_candidate_ids, decisions:[{{work_id,decision:'include|exclude|defer',evidence_role:'core|supporting|unknown',reason,criterion_matches,unknowns,supporting_abstract_text,priority_rank,coverage_contribution}}], selected_for_review_ids, stopping_reason, selection_limitations}}.
 Exact abstract support or null; missing abstracts are uncertainty, not automatic exclusion. All omitted candidates remain unassessed.
-3. Run {command} acquire --workspace . --ids W... W... for only your selected batch. Launch acquisition in the background if useful;
-read committed sources using {command} catalog --workspace . and {command} source --workspace . WORK_ID --match REGEX --context 2 --limit 8.
+3. Run {command} acquire --ids W... W... for only your selected batch. Launch acquisition in the background if useful;
+read committed sources using {command} catalog and {command} source WORK_ID --match REGEX --context 2 --limit 8.
 Do useful screening, reading or synthesis while downloads proceed; never wait idly for an unavailable paper.
 Originals are papers/, full extracted texts texts/, immutable source spans passages/, per-paper receipts download-receipts/.
 Every retrieved source still requires identity, completeness and question relevance verification; source status is not scientific certification.
@@ -141,7 +141,7 @@ def audit_prompt(question, command, budget_seconds=600):
 {SCIENTIFIC_RULES}
 Inspect audit-input.json, question-plan.json, selection.json, reviewed-papers.json and the current fresh source corpus.
 Never inspect researcher reasoning transcripts, CLI events/stderr/prompts, previous research workspaces or previous audits.
-Use {command} source --workspace . WORK_ID --match REGEX --context 3 --limit 10 for source rereading; originals are available for table/figure checks.
+Use {command} source WORK_ID --match REGEX --context 3 --limit 10 for source rereading; originals are available for table/figure checks.
 Audit the actual claim/result scope, exact source meaning, arithmetic, experiment attribution, selection/coverage and paper-role/family counts.
 Do not reward paper quantity or confidence; identify irrelevant padding, preview inclusion, important adverse alternatives and unsupported claims.
 Budget {budget_seconds} seconds. Track your own elapsed time. Persist audit.json as you go; if unfinished, explicitly label every remaining claim not_checked.
