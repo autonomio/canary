@@ -44,6 +44,16 @@ def main():
                 assert b'Research' in response.read()
             assert 'signed_out' in docker('exec', name, 'canary', 'auth', 'status', '--json')
             if attempt == 0:
+                for user in ('canary','root'):
+                    print(docker('exec','--user',user,name,'python','-c',"""
+import json, os, pathlib, shutil, subprocess
+command = ['bwrap','--unshare-user','--ro-bind','/','/','--proc','/proc','--dev','/dev','/bin/true']
+result = subprocess.run(command,text=True,capture_output=True)
+print(json.dumps({'namespace_probe_uid':os.getuid(),'bwrap':shutil.which('bwrap'),
+                  'mode':oct(pathlib.Path('/usr/bin/bwrap').stat().st_mode),
+                  'exit':result.returncode,'stderr':result.stderr,
+                  'uid_map':pathlib.Path('/proc/self/uid_map').read_text()}))
+"""),flush=True)
                 # Exercise the installed CLI parser with the production invocation.
                 # Invalid JSON must stop before authentication or inference.
                 docker('exec', name, 'python', '-c', """
