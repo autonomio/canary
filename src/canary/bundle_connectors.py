@@ -8,7 +8,9 @@ from functools import lru_cache
 from . import research_bundle
 from .claim_freshness import unknown as unknown_freshness
 
-RESOLVENT_REVISION = '4b5a056b7686bcf1031fa48a3bde14dd58873834'
+RESOLVENT_REVISION = '7d7e2da29b97814a70b42bd7bf442ee455b3da09'
+UNCERTAINTY_POLICY = ('Resolvent candidate uncertainty is at least medium because this adapter does not '
+                      'establish independent evidence. Original Canary uncertainty remains in claim_metadata.')
 
 
 def resolvent(workspace):
@@ -76,7 +78,7 @@ def resolvent(workspace):
             'source_ids': list(dict.fromkeys(links)), 'independent': False,
             'limitations': ['Source independence is not established by this adapter.',
                            'Recorded evidence relation: ' + item.get('relation', 'unknown')], 'premise_claim_ids': []})
-    uncertainty = {'low': 'low', 'moderate': 'medium', 'high': 'high'}
+    uncertainty = {'low': 'medium', 'moderate': 'medium', 'high': 'high'}
     for index, item in enumerate(payload.get('claims', []), 1):
         identifier = item['id']
         if identifier in id_map['claims']:
@@ -99,6 +101,7 @@ def resolvent(workspace):
         'Candidate claim classes require Resolvent admission; this adapter assigns derived_inference without promoting canonical claims.',
         'Freshness, gaps, residue, evidence relations and audit scope are retained in the full research artifact and metadata.',
         'Preserve the accompanying neutral bundle archive for original materials; public source URLs alone do not preserve its bytes.']))
+    limitations.append(UNCERTAINTY_POLICY)
     return {'schema_version': '1.0', 'id': 'RUN-' + bundle['id'].removeprefix('RB-'),
         'input_method': 'source_material', 'created_at': bundle['created_at'], 'researcher': 'Canary',
         'title': scope[:200], 'scope': scope, 'origin': {'mode': 'retrospective', 'coverage': 'partial',
@@ -113,7 +116,8 @@ def resolvent(workspace):
             'no_claims_reason': None if claims else 'No finalized claims were present in the retained research payload.',
             'suggested_follow_up': list(dict.fromkeys(q['question'] for q in payload.get('next_questions', []) if q.get('question')))},
         'method_metadata': {'producer': 'canary', 'bundle_id': bundle['id'], 'bundle_version': bundle['version'],
-            'spec_sha256': bundle['specification']['spec_sha256'], 'connector': 'resolvent', 'connector_version': 1,
+            'spec_sha256': bundle['specification']['spec_sha256'], 'connector': 'resolvent', 'connector_version': 2,
+            'uncertainty_policy': UNCERTAINTY_POLICY,
             'destination_contract_revision': RESOLVENT_REVISION, 'id_map': id_map,
             'claim_metadata': {id_map['claims'][c['id']]: {'original_kind': c.get('kind'),
                 'uncertainty': c.get('uncertainty'), 'freshness': c.get('freshness') or unknown_freshness()} for c in payload.get('claims', [])},

@@ -2,7 +2,10 @@
   "type": "object",
   "properties": {
     "schema_version": {
-      "const": "1.0"
+      "enum": [
+        "1.0",
+        "1.1"
+      ]
     },
     "id": {
       "type": "string",
@@ -390,6 +393,9 @@
               "minLength": 1
             },
             "minItems": 1
+          },
+          "valid_time": {
+            "$ref": "#/$defs/valid_time"
           }
         },
         "required": [
@@ -550,6 +556,135 @@
   ],
   "additionalProperties": false,
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Resolvent contribution: proposal, not canonical state"
+  "title": "Resolvent contribution: proposal, not canonical state",
+  "$defs": {
+    "time_bound": {
+      "type": "object",
+      "properties": {
+        "precision": {
+          "enum": [
+            "year",
+            "month",
+            "day",
+            "instant"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "precision",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "time_interval": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/time_bound"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "end": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/time_bound"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "start_inclusive": {
+          "type": "boolean"
+        },
+        "end_inclusive": {
+          "type": "boolean"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "start_inclusive",
+        "end_inclusive",
+        "evidence_ids"
+      ],
+      "additionalProperties": false
+    },
+    "valid_time": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "specified",
+            "unknown",
+            "disputed"
+          ]
+        },
+        "intervals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/time_interval"
+          },
+          "uniqueItems": true
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "status",
+        "intervals",
+        "notes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$comment": "Schema 1.1: optional, evidence-linked claim valid time. Legacy records remain valid.",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.0"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "claims": {
+            "items": {
+              "not": {
+                "required": [
+                  "valid_time"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
-
