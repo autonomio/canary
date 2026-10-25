@@ -265,6 +265,13 @@ class Supervisor:
                     row.update(finished or {})
                 elif alive and row.get('status') != 'cancelling':
                     row.update({k:v for k,v in runs.parse_bundle(row['bundle']).items() if v not in (None,'?',{})})
+                elif not alive:
+                    # A restart observer may have registered an older completion
+                    # using observation time. The recorded run remains authoritative.
+                    parsed = runs.parse_bundle(row['bundle'])
+                    if parsed.get('ended_at') and not parsed.get('ended_at_estimated'):
+                        for field in ('started_at','ended_at','duration_seconds','timing_source','ended_at_estimated'):
+                            row[field] = parsed.get(field)
                 row.update(live=alive, can_cancel=alive and row.get('status') in runs._ACTIVE_STATUS and row.get('status') != 'cancelling')
                 continue
             container = row.get("container") or ""
@@ -828,7 +835,12 @@ def question_research_bundle(bundle: Path, run: dict) -> dict:
     except OSError:
         markdown = None
     parsed = runs.parse_bundle(bundle)
+    receipt = load('research-receipt.json', {})
+    startup_error = None
+    if receipt.get('exit_code') and not receipt.get('thread_id'):
+        startup_error, _ = _read_capped(bundle/'research-stderr.log', 3000)
     return {"kind": "question", "answer": graph, "run": run, "peer_review": review,
+            'startup_error': startup_error,
             "query_net": load("query-net.json", {}), "access": access,
             "source_recovery": load("source-recovery.json", {}),
             "coverage": load("coverage.json", {}), "paper_selection": load("paper-selection.json", {}),
@@ -838,7 +850,7 @@ def question_research_bundle(bundle: Path, run: dict) -> dict:
             "usage": parsed.get("usage", {}), "unanswered": graph.get("unanswered", []),
             "synthesis_md": markdown, "synthesis_truncated": False,
             "papers": papers, "papers_total": run.get("discovered", len(papers)), "papers_truncated": False,
-            "iterations": [], "assessments": [], "decisions": runs.journal_events(bundle)}
+            "iterations": [], "assessments": [], "decisions": merged_timeline(bundle)}
 
 
 def _saved_source_path(bundle: Path, value) -> Path | None:
@@ -1046,6 +1058,19 @@ def merged_timeline(bundle: str | Path, tail: int = 0) -> list[dict]:
         text = f"op={op} kind={kind} event={event}".strip()
         items.append({"t": ev.get("at", ""), "seq": 0, "source": "ops",
                       "phase": kind or "ops", "event": event, "detail": text})
+    try:
+        lines = (Path(bundle) / 'runtime-progress.jsonl').read_text(encoding='utf-8').splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(ev, dict):
+            items.append({'t': ev.get('at', ''), 'seq': 0, 'source': 'runtime',
+                          'phase': ev.get('role', 'research'), 'event': ev.get('event', ''),
+                          'detail': str(ev.get('text') or ev.get('event', ''))[:1600]})
     items.sort(key=lambda i: (i["t"] or "9", i["seq"]))
     return items[-tail:] if tail > 0 else items
 
@@ -1419,6 +1444,8 @@ class Handler(BaseHTTPRequestHandler):
         stream = query.get("stream", ["all"])[0]
         bundle = row.get("bundle", "")
         payload: dict = {"key": key, "live": False}
+        if isinstance(row.get('worker'), dict):
+            payload['live'] = processes.live(row['worker'])
         if row.get("status") in ("running", "paused") and row.get("container"):
             payload["live"] = self.supervisor.inspect(row["container"])["live"]
         if stream in ("all", "timeline"):

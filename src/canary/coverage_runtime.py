@@ -666,7 +666,7 @@ def command_line(executable, model, effort, workspace, shape, output):
             "-c", 'cli_auth_credentials_store="file"', "--disable", "multi_agent", "--disable", "multi_agent_v2",
         "-m", model, "-c", f'model_reasoning_effort="{effort}"', "-c", "agents.enabled=false",
         "-c", "features.memories=false", "-c", "features.plugins=false", "-c", "features.apps=false",
-        "-c", 'web_search="disabled"', "--skip-git-repo-check", "--sandbox", "workspace-write", "--json",
+        "-c", 'web_search="disabled"', "--skip-git-repo-check", "--json",
         "-c", 'sandbox_workspace_write.network_access=true',
         "--approve-for-me", "--output-schema", str(shape), "-o", str(output), "-"]
 
