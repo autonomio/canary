@@ -121,3 +121,15 @@ python scripts/verify_resolvent_receiver.py --api http://127.0.0.1:8789 \
 The verifier downloads the sealed manifest, handoff and original archive through Canary's API. It verifies every artifact hash and reconstructs every handed-off verbatim from its exact canonical text slice. It then invokes the receiving repository's actual dry run, apply, closure compiler and idempotent retry. It retains the original ZIP, supplied decisions and command receipts. It never generates review decisions, starts research, submits a PR or certifies scientific quality.
 
 The synthetic receiving proof on revision `7d7e2da29b97814a70b42bd7bf442ee455b3da09` exercised one explicitly synthetic low-uncertainty claim, preserved its original uncertainty and exact passage, and passed all four receiving operations. This establishes the integration path; a live bundle proof is recorded separately from fixtures.
+
+The [live receiving receipt](../validation/resolvent-receiver-20261025.json) uses the
+new 50-paper PLA bundle: 16 candidates and 141 exact verbatims were transported
+through HTTP with all inventoried bytes verified. In the disposable empty model,
+one bounded historical claim (C02, the Rismalia tensile table) was admitted after
+its exact table and surrounding page were inspected; 15 candidates were explicitly
+deferred for later receiving-side admission. They remain in the original contribution,
+research artifact and retained ZIP. Actual dry run, apply, closure compiler and
+idempotent retry passed. The canonical record retained the submitted statement,
+class and consumer uncertainty. This proves ingestion without inventing independent
+semantic approval or publishing data into the template repository. The producer's
+scientific audit was partial at its time budget and remains part of the handoff.

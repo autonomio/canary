@@ -1,0 +1,27 @@
+{
+  "run_key": "clean-install-proof-pla-infill-and-tensi-202610251354",
+  "bundle_id": "RB-217f0ce55ad742e2923a8f5d936812e8",
+  "receiver_revision": "7d7e2da29b97814a70b42bd7bf442ee455b3da09",
+  "bundle_archive_sha256": "6933a8d2f8f97e1071d5196e15b0bdfa78e20e3b00f030765a556abc39f2c335",
+  "handoff_sha256": "9e3f895166ffae3da0861c380a5bb1eb0ad651862a3e37484bc6ec0dfbf9c91d",
+  "claims_submitted": 16,
+  "verbatims_reconstructed": 141,
+  "dry_run": true,
+  "apply": true,
+  "compiler_require_closure": true,
+  "idempotent_retry": true,
+  "semantic_review": "Not performed by this verifier; decisions are supplied separately.",
+  "canonical_publication": false,
+  "disposable_receiver": true,
+  "claims_created": 1,
+  "claims_deferred": 15,
+  "created": [
+    {
+      "candidate_id": "c2",
+      "disposition": "created",
+      "claim_id": "C-97fe05c36d855139a8c283926f236fec",
+      "reason": "Bounded receiving proof: source table and surrounding PDF page inspected through Canary API; scoped historical numbers and uncertainty preserved."
+    }
+  ],
+  "original_canary_claim_id": "C02"
+}
