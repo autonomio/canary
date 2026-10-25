@@ -130,6 +130,29 @@ def test_resolvent_handoff_satisfies_pinned_consumer_contract_without_losing_fin
     with pytest.raises(ValueError):bundle_connectors.export(tmp_path,'unimplemented')
 
 
+def test_resolvent_does_not_assert_independence_to_export_low_uncertainty(tmp_path):
+    _,payload=completed(tmp_path)
+    payload['claims'][0]['uncertainty']={'class':'low','score':1,'rationale':'Synthetic judgment.'}
+    research_bundle.write_json(tmp_path/'payload.json',payload)
+    research_bundle.seal(tmp_path)
+    result=bundle_connectors.export(tmp_path,'resolvent')
+    assert result['claims'][0]['uncertainty']=='medium'
+    assert result['evidence'][0]['independent'] is False
+    assert result['method_metadata']['claim_metadata']['c1']['uncertainty']==payload['claims'][0]['uncertainty']
+    assert 'independent evidence' in result['method_metadata']['uncertainty_policy']
+
+
+def test_receiver_proof_checks_transported_hashes_and_exact_verbatim(tmp_path):
+    from scripts.verify_resolvent_receiver import verify_archive
+    completed(tmp_path)
+    handoff=bundle_connectors.export(tmp_path,'resolvent')
+    archive=io.BytesIO();research_bundle.archive(tmp_path,archive)
+    manifest=research_bundle.read(tmp_path)
+    assert verify_archive(manifest,archive.getvalue(),handoff)==1
+    handoff['sources'][0]['excerpt']='A substituted quotation'
+    with pytest.raises(AssertionError):verify_archive(manifest,archive.getvalue(),handoff)
+
+
 def test_compiled_worker_commits_inputs_before_native_execution_and_keeps_failure(tmp_path,monkeypatch):
     staged=tmp_path/'staged.json'
     packet=research_spec.compile_research(DECLARATION)
