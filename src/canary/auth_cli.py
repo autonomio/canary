@@ -9,10 +9,16 @@ import webbrowser
 
 import httpx
 
+from .api_client import endpoint
+
 
 def run(args, port: int) -> int:
     login_id = None
-    with httpx.Client(base_url=f'http://127.0.0.1:{port}', timeout=35, trust_env=False) as client:
+    try:
+        origin = endpoint(port)
+    except ValueError as error:
+        print(str(error),file=sys.stderr);return 1
+    with httpx.Client(base_url=origin, timeout=35, trust_env=False) as client:
         def request(method, path, body=None):
             response = client.request(method, path, **({'json': body} if body is not None else {}))
             data = response.json()

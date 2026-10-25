@@ -8,6 +8,8 @@ from urllib.parse import quote
 
 import httpx
 
+from .api_client import endpoint
+
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
@@ -27,11 +29,13 @@ def main(argv=None):
         for name in ('plan', 'investigation'):
             if name in body:
                 body[name] = json.loads(Path(body[name]).read_text(encoding='utf-8'))
-        with httpx.Client(base_url=f'http://127.0.0.1:{args.port}', timeout=None, trust_env=False) as client:
+        with httpx.Client(base_url=endpoint(args.port), timeout=None, trust_env=False) as client:
             response = client.post('/api/runs/'+quote(args.run, safe='')+'/tools/'+args.action, json=body)
         result = response.json()
         if response.is_error:
             print(result.get('error', 'Tool failed'), file=sys.stderr);return 1
+        if args.action == 'acquire':
+            result = {name:result[name] for name in ('attempted','sources_available')}
         print(json.dumps(result, ensure_ascii=False, indent=2));return 0
     except (OSError, ValueError, httpx.HTTPError) as error:
         print('Research tool failed: '+str(error), file=sys.stderr);return 1

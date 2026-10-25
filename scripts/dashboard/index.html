@@ -2177,7 +2177,7 @@
         const el = document.getElementById('service-status');
         try {
           const s = await api('/api/status');
-          el.innerHTML = `<small>Storage <code>${esc(s.data_directory)}</code><br>Codex ${esc(s.codex.version || 'unavailable')}<br>PDF extraction ${esc(s.pdf_extraction.engine)}<br>${esc(s.readiness_note)}</small>`;
+          el.innerHTML = `<small>Storage <code>${esc(s.data_directory)}</code><br>Codex ${esc(s.codex.version || 'unavailable')}<br>PDF extraction ${esc(s.pdf_extraction.engine)}<br>${esc(s.readiness_note)}<br><a href="/openapi.json" target="_blank" rel="noopener">API contract ↗</a> · Agent tools: <code>canary mcp</code></small>`;
         } catch (error) { el.textContent = error.message; }
       }
       function authHtml(status) {

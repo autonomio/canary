@@ -5,12 +5,14 @@ import sys
 
 import httpx
 
+from .api_client import endpoint
+
 
 def run(args, port):
     try:
         source = Path(args.declaration).read_text(encoding='utf-8')
         path = '/api/runs/compile' if args.dry_run else '/api/runs'
-        with httpx.Client(base_url=f'http://127.0.0.1:{port}', timeout=30, trust_env=False) as client:
+        with httpx.Client(base_url=endpoint(port), timeout=30, trust_env=False) as client:
             response = client.post(path, json={'yaml': source})
         data = response.json()
         if response.is_error:
@@ -31,7 +33,7 @@ def fetch_bundle(args, port):
     from urllib.parse import quote
     suffix = '/exports/' + args.connector if args.connector else '/bundle'
     try:
-        with httpx.Client(base_url=f'http://127.0.0.1:{port}', timeout=30, trust_env=False) as client:
+        with httpx.Client(base_url=endpoint(port), timeout=30, trust_env=False) as client:
             response = client.get('/api/runs/' + quote(args.key, safe='') + suffix)
         value = response.json()
         if response.is_error:

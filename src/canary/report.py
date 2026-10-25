@@ -11,16 +11,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .analysis import Findings
-from .data import Prepared
 from .journal import Journal
-from .modeling import Results
 from .papers import Paper
 from .redact import redact_text
 from .spec import ResearchSpec, StopReason
-from .synthesize import Synthesis
 
 if TYPE_CHECKING:
+    from .analysis import Findings
+    from .data import Prepared
+    from .modeling import Results
+    from .synthesize import Synthesis
     from .cycle import CycleResult, Iteration
     from .spec import RunSpec
 

@@ -61,7 +61,7 @@ def initialize(workspace, packet):
         name: file_hash(Path(__file__).parent / name) for name in
         ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'claim_freshness.py',
          'research_spec.py', 'research_bundle.py', 'bundle_connectors.py',
-         'processes.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py')}}
+         'processes.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py', 'api_client.py')}}
     lock = resource_root() / 'uv.lock'
     report['engine']['dependency_lock_sha256'] = file_hash(lock) if lock.is_file() else None
     write_json(workspace / 'compile-report.json', report)

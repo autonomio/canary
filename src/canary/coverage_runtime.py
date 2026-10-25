@@ -28,6 +28,8 @@ import uuid
 
 import httpx
 
+from .api_client import endpoint
+
 from . import coverage_protocol as protocol
 from .runtime_paths import data_root
 from .processes import RunCancelled, stop_tree, identity, tool_receipts
@@ -907,13 +909,13 @@ def main(argv=None):
     if args.action == 'usage':
         from urllib.parse import quote
         try:
-            response = httpx.get(f'http://127.0.0.1:{port}/api/usage/threads/'+quote(args.thread_id,safe=''),timeout=30,trust_env=False)
+            response = httpx.get(endpoint(port)+'/api/usage/threads/'+quote(args.thread_id,safe=''),timeout=30,trust_env=False)
             response.raise_for_status();print(json.dumps(response.json(),ensure_ascii=False,indent=2));return 0
         except (httpx.HTTPError,ValueError) as error:
             print('Research API usage failed: '+str(error),file=sys.stderr);return 1
     from urllib.parse import quote
     try:
-        with httpx.Client(base_url=f'http://127.0.0.1:{port}', timeout=None, trust_env=False) as client:
+        with httpx.Client(base_url=endpoint(port), timeout=None, trust_env=False) as client:
             response = client.post('/api/runs/import', json={'server_path':str(args.workspace)})
             response.raise_for_status()
             key = response.json()['key']

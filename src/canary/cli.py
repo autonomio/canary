@@ -109,6 +109,8 @@ def review(spec: RunSpec, assess: bool = False) -> str:
 def argument_parser():
     ap = argparse.ArgumentParser(prog="canary", description="Canary research toolkit.")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser('api',help='print the live OpenAPI contract')
+    sub.add_parser('mcp',help='serve stdio agent tools over the same HTTP API')
     bundle = sub.add_parser("bundle", help="read a research bundle or connector handoff through the API")
     bundle.add_argument("key")
     bundle.add_argument("--connector", choices=['resolvent'])
@@ -245,6 +247,9 @@ def argument_parser():
 
 def _main(argv: list[str] | None = None, *, service_owned=False) -> int:
     args = argument_parser().parse_args(argv)
+    if args.cmd == 'mcp':
+        from .mcp_server import main as mcp_main
+        return mcp_main(_runs_port(args))
     if not service_owned and args.cmd not in ('auth', 'run', 'bundle') and not (args.cmd == 'runs' and args.runs_cmd == 'serve'):
         from .command_client import run
         return run(args, _runs_port(args))

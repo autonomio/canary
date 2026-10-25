@@ -147,6 +147,7 @@ class Supervisor:
                    RUN_NAME=name, RUN_BRIEF=brief,
                    CANARY_DATA_DIR=str(self.root.resolve()),
                    CANARY_RUNS_PORT=str(self.port),
+                   CANARY_API_URL=f'http://127.0.0.1:{self.port}',
                    CANARY_RUNS_REGISTRY=str(self.registry))
         env.update(extra)
         if native or action:
@@ -1093,6 +1094,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         for name, value in (headers or {}).items():
             self.send_header(name, value)
+        self._cors_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -1102,6 +1104,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(path.stat().st_size))
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Cache-Control', 'no-store')
+        self._cors_headers()
         self.end_headers()
         with path.open('rb') as stream:
             shutil.copyfileobj(stream, self.wfile, length=1024 * 1024)
@@ -1145,6 +1148,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if parsed.path.startswith("/api/auth/"):
                 self._auth_request(parsed.path, "GET")
+            elif parsed.path == '/openapi.json':
+                from .api_contract import document
+                self._send(200, document())
             elif parsed.path == '/api/status':
                 from .service_status import service_status
                 self._send(200, service_status(self.supervisor.root, self.dashboard_enabled))
@@ -1328,9 +1334,28 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, RuntimeError) as e:
             self._send(400, {"error": str(e)[:300]})
 
+    def _browser_origin(self):
+        if urlparse(self.path).path.startswith('/api/auth/'): return None
+        origin = self.headers.get('Origin')
+        allowed = {value.strip().rstrip('/') for value in os.environ.get('CANARY_ALLOWED_ORIGINS','').split(',') if value.strip()}
+        return origin if origin in allowed else None
+
+    def _cors_headers(self):
+        origin = self._browser_origin()
+        if origin:
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
+
+    def do_OPTIONS(self):  # noqa: N802
+        if not self._browser_origin() or not self._local_origin():
+            self._send(403, {'error':'Browser origin is not configured for this API action.'});return
+        self._send(204, b'', headers={'Access-Control-Allow-Methods':'GET, POST, OPTIONS',
+                                     'Access-Control-Allow-Headers':'Content-Type'})
+
     def _local_origin(self) -> bool:
         host = self.headers.get("Host", "")
         allowed_hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
+        allowed_hosts.update(value.strip() for value in os.environ.get('CANARY_ALLOWED_HOSTS','').split(',') if value.strip())
         allowed_origins = {f"http://{host}"}
         if self.server.server_port == 80:
             allowed_hosts.update({"127.0.0.1", "localhost"})
@@ -1338,8 +1363,8 @@ class Handler(BaseHTTPRequestHandler):
             allowed_origins = {f"http://{hostname}", f"http://{hostname}:80"}
         origin = self.headers.get("Origin")
         return not (host not in allowed_hosts or
-                (origin is not None and origin not in allowed_origins) or
-                self.headers.get("Sec-Fetch-Site") == "cross-site")
+                (origin is not None and origin not in allowed_origins and not self._browser_origin()) or
+                self.headers.get("Sec-Fetch-Site") == "cross-site" and not self._browser_origin())
 
     def _auth_request(self, path: str, method: str) -> None:
         # This service is owner-operated and loopback-only. Reject browser-origin
@@ -1443,8 +1468,8 @@ class Handler(BaseHTTPRequestHandler):
             usage = row.get("usage", {}) or {}
             rows.append({"key": row.get("key"), "name": row.get("name"),
                          "status": row.get("status"),
-                         "model_calls": usage.get("model_calls", 0),
-                         "tokens": usage.get("tokens", 0)})
+                         "model_calls": usage.get("model_calls"),
+                         "tokens": usage.get("tokens")})
         return rows
 
 
