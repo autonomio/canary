@@ -73,3 +73,7 @@ assets, worker tools and separation of state/resources. The service-container ch
 exercises startup, native Codex discovery, signed-out auth, extraction and persistent
 data/auth roots across replacement containers. These are operational fixtures, not
 a live scientific run or model-access certification.
+
+The dashboard is local and has no provider-login controls. Authenticate with the
+API-backed CLI. See [local research footprint](LOCAL_FOOTPRINT.md) to include old
+research directories without moving or rewriting their files.

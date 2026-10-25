@@ -79,6 +79,7 @@ def schemas():
         'access':O,'profile':O,'coverage':O,'paper_selection':O,'usage':O,'synthesis_md':nullable(S),
         'seed':S,'stopped':S,'model':nullable(S),'papers':arr(O),'iterations':arr(O)},closed=False)
     run = obj({'key':S,'name':S,'brief':S,'kind':S,'status':nullable(S),'live':B,'can_cancel':B,
+        'recorded_status':nullable(S),'bundle_missing':B,
         'started_at':nullable(S),'ended_at':nullable(S),'duration_seconds':nullable({'type':'number'}),
         'answered':nullable(B),'papers_covered':nullable(I),'input_tokens':nullable(I),
         'output_tokens':nullable(I),'cached_tokens':nullable(I),'usage':O,'research_summary':O},['key'],closed=False)
@@ -100,6 +101,12 @@ def schemas():
             obj({'name':S,'brief':S,'argv':arr(S),'env':obj({name:S for name in ('CANARY_STAGE','CANARY_TIMEOUT_S','CANARY_WHEELS')})},['name','argv'],closed=False)]},
         'CompiledResearch':compiled,'BundleManifest':manifest,'AuthStatus':typed(AuthStatus),'Login':typed(Login),
         'ServiceStatus':typed(ServiceStatus),'Run':run,'Runs':obj({'runs':arr(ref('Run'))},['runs']),
+        'Footprint':obj({'roots':arr(obj({'path':S,'exists':B},['path','exists'])),
+            'registered_runs':I,'missing_bundles':I,'scope':S,
+            'last_scan':nullable(obj({'started_at':S,'finished_at':S,'seconds':{'type':'number'},
+                'added_keys':arr(S),'errors':arr(obj({'path':S,'error':S},['path','error']))},
+                ['started_at','finished_at','seconds','added_keys','errors']))},
+            ['roots','registered_runs','missing_bundles','scope','last_scan']),
         'RunStarted':obj({'key':S,'bundle':S,'spec_sha256':S,'bundle_url':S},['key'],closed=False),
         'RunControl':obj({'key':S,'status':nullable(S)},['key','status'],closed=False),
         'Research':research,'ResearchResponse':obj({'key':S,'live':B,'research':ref('Research')},['key','live','research']),
@@ -141,6 +148,8 @@ def document():
     key = ('key','path',S,True)
     source = ('source_id','path',S,True)
     op('status','get','/api/status','Inspect service, storage and extraction; not a model-access certificate','ServiceStatus',mcp=True)
+    op('footprint','get','/api/footprint','Read configured local research footprint and last scan','Footprint',mcp=True)
+    op('refresh_footprint','post','/api/footprint/refresh','Index existing research without modifying sources','Footprint',body='Object',mcp=True)
     op('auth_status','get','/api/auth/status','Inspect the service-owned Codex login','AuthStatus',mcp=True)
     op('auth_login','post','/api/auth/login','Start native Codex login; a human completes the challenge','Login',body='LoginRequest',mcp=True)
     op('auth_progress','get','/api/auth/login/{id}','Read pending native login','Login',params=[('id','path',S,True)],mcp=True)

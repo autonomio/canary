@@ -94,6 +94,11 @@ class Supervisor:
         self._inspect_cache: dict[str, tuple[float, dict]] = {}
         self.findings_cache: dict = {"at": 0.0, "data": None}
 
+    def footprint(self, *, refresh=False):
+        from . import footprint
+        with self.lock:
+            return (footprint.refresh if refresh else footprint.status)(self.root,self.registry)
+
     # -- spawning --
 
     def start(self, name: str, brief: str, argv: list[str],
@@ -255,6 +260,9 @@ class Supervisor:
         """Fold live truth over registry rows; finish stale launch rows."""
         rows = runs.load(self.registry)
         for row in rows:
+            if row.get('bundle'):
+                location = Path(row['bundle'])
+                row['bundle_missing'] = not (location if location.is_absolute() else self.root/location).is_dir()
             if isinstance(row.get('worker'), dict):
                 alive = processes.live(row['worker'])
                 if not alive and row.get('status') in runs._ACTIVE_STATUS:
@@ -273,10 +281,7 @@ class Supervisor:
                 if not bundle.is_absolute():
                     bundle = self.root / bundle
                 native = _load_json_file(bundle / "run.json", {})
-                if isinstance(native, dict) and native.get("kind") == "question" and (
-                        native.get("execution_mode") in ("saved full-paper Codex CLI research", "coverage-guided full-paper research")
-                        or type(native.get("cli_invocations")) is int and native["cli_invocations"] > 0
-                        or isinstance(native.get("cli_thread_id"), str) and native["cli_thread_id"].strip()):
+                if isinstance(native, dict) and native.get("kind") == "question":
                     # External CLI runs publish their own state and timing; a
                     # missing Docker container does not mean they have stopped.
                     parsed = runs.parse_bundle(bundle)
@@ -284,6 +289,8 @@ class Supervisor:
                         parsed.update(status=row["status"], ended_at=row.get("ended_at"))
                     row.update(parsed)
                     row["live"] = False
+                    if parsed.get('status') in runs._ACTIVE_STATUS:
+                        row.update(recorded_status=parsed['status'],status='activity_unverified',can_cancel=False)
                     continue
             if row.get("status") in ("starting", "running", "paused") and container:
                 row["live"] = self.inspect(container)["live"]
@@ -1154,6 +1161,8 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path == '/api/status':
                 from .service_status import service_status
                 self._send(200, service_status(self.supervisor.root, self.dashboard_enabled))
+            elif parsed.path == '/api/footprint':
+                self._send(200,self.supervisor.footprint())
             elif not self.dashboard_enabled and (parsed.path == '/' or parsed.path.startswith('/assets/')):
                 self._send(404, {'error': 'Dashboard disabled; the research API is available.'})
             elif parsed.path == "/":
@@ -1280,6 +1289,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Expected a JSON object")
             if parsed.path == '/api/actions':
                 self._send(200 if body.get('command') == 'inspect' else 201, self.supervisor.start_action(body))
+            elif parsed.path == '/api/footprint/refresh':
+                if body: raise ValueError('Footprint refresh uses the configured server roots; expected an empty object')
+                self._send(200,self.supervisor.footprint(refresh=True))
             elif parsed.path == '/api/runs/import':
                 if set(body) - {'server_path','name','brief'} or not isinstance(body.get('server_path'), str):
                     raise ValueError('Expected a server-side bundle path')
@@ -1496,6 +1508,7 @@ def serve(port: int = DEFAULT_PORT, registry: str | Path = runs.REGISTRY,
           dashboard_enabled: bool = True) -> None:
     """Bind loopback and serve forever. Runs outlive this process by design."""
     server = make_server(port, registry, root, host=host, dashboard_enabled=dashboard_enabled)
+    server.RequestHandlerClass.supervisor.footprint(refresh=True)
     print(f"Canary serving at http://{host}:{server.server_port}/; data: {Path(root).resolve()}", flush=True)
     try:
         server.serve_forever()

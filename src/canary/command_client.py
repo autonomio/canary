@@ -36,6 +36,8 @@ def run(args, port):
                 elif verb == 'adopt':
                     value = request(client, 'POST', '/api/runs/import', json={
                         'server_path': args.bundle, 'name': args.name, 'brief': args.brief})
+                elif verb in ('footprint','discover'):
+                    value = request(client,'GET','/api/footprint') if verb=='footprint' else request(client,'POST','/api/footprint/refresh',json={})
                 elif verb == 'start':
                     from .runs import ambient_launch_env
                     argv = list(args.argv)
