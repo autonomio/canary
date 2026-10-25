@@ -1088,9 +1088,14 @@ class Handler(BaseHTTPRequestHandler):
         # mutations and DNS rebinding; no cross-origin credential controls.
         host = self.headers.get("Host", "")
         allowed_hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
+        allowed_origins = {f"http://{host}"}
+        if self.server.server_port == 80:
+            allowed_hosts.update({"127.0.0.1", "localhost"})
+            hostname = host.removesuffix(":80")
+            allowed_origins = {f"http://{hostname}", f"http://{hostname}:80"}
         origin = self.headers.get("Origin")
         if (host not in allowed_hosts or
-                (origin is not None and origin != f"http://{host}") or
+                (origin is not None and origin not in allowed_origins) or
                 self.headers.get("Sec-Fetch-Site") == "cross-site"):
             self._send(403, {"error": "Authentication requires the local service origin.", "code": "forbidden"})
             return

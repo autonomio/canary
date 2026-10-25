@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import signal
 import sys
 import time
 import webbrowser
@@ -30,8 +31,21 @@ def run(args, port: int) -> int:
                     if data['error']:
                         print(data['error'], file=sys.stderr)
                 return 0 if data['available'] else 1
-            data = request('POST', '/api/auth/login', {'method': 'device' if args.device else 'browser'})
-            login_id = data['id']
+            # Keep the create request alive long enough to receive the ID needed
+            # to cancel it. SIGINT belongs to the main CLI process, not the API.
+            interrupted = False
+            def interrupt_startup(*_):
+                nonlocal interrupted
+                interrupted = True
+            previous = signal.signal(signal.SIGINT, interrupt_startup)
+            try:
+                data = request('POST', '/api/auth/login', {'method': 'device' if args.device else 'browser'})
+                login_id = data['id']
+            finally:
+                signal.signal(signal.SIGINT, previous)
+                if interrupted:
+                    raise KeyboardInterrupt
+
             if data['state'] == 'pending':
                 print(data['url'], flush=True)
                 if data['user_code']:
@@ -50,11 +64,14 @@ def run(args, port: int) -> int:
             print('Codex: signed in. Model access is checked when research starts.')
             return 0
         except KeyboardInterrupt:
-            if login_id:
-                try:
+            try:
+                if not login_id:
+                    pending = request('GET', '/api/auth/status').get('login')
+                    login_id = pending['id'] if pending and pending['state'] == 'pending' else None
+                if login_id:
                     request('POST', f'/api/auth/login/{login_id}/cancel', {})
-                except (httpx.HTTPError, RuntimeError, ValueError):
-                    pass
+            except (httpx.HTTPError, RuntimeError, ValueError):
+                print('Cancellation could not be confirmed; check the dashboard login status.', file=sys.stderr)
             print('Stopped waiting for login.', file=sys.stderr)
             return 130
         except httpx.HTTPError:

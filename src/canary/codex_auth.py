@@ -184,12 +184,16 @@ class CodexAuth:
     def status(self) -> AuthStatus:
         with self.lock:
             try:
+                was_pending = self.login and self.login['state'] == 'pending'
                 result = self._call('account/read', {'refreshToken': False})
                 while not self.messages.empty():
                     message = self.messages.get_nowait()
                     if message is None:
                         raise AuthError('Codex authentication connection closed.')
                     self._event(message)
+                if was_pending and self.login['state'] == 'complete':
+                    # The completion event can follow the read's old snapshot.
+                    result = self._call('account/read', {'refreshToken': False})
                 account = result.get('account') or {}
                 mode = account.get('type')
                 authenticated = mode in ('chatgpt', 'apiKey')

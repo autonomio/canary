@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 import subprocess
 import threading
+import signal
+import sys
+import time
 
 import httpx
 import pytest
@@ -37,6 +40,8 @@ for line in sys.stdin:
             send({'method':'account/login/completed','params':{'loginId':login_id,'success':True}})
         result={'account':{'type':'chatgpt','email':'private@example.com','accessToken':'DO-NOT-EXPOSE'} if credential.exists() else None,'requiresOpenaiAuth':True}
     elif method=='account/login/start':
+        (home/'login-started').touch()
+        while (home/'delay-start').exists(): time.sleep(.01)
         counter+=1; login_id='login-'+str(counter); sent=False
         if (home/'rpc-fail').exists():
             send({'id':m['id'],'error':{'message':'DO-NOT-EXPOSE'}});continue
@@ -209,3 +214,57 @@ def test_missing_credential_directory_is_created_privately(auth_server):
     home.rmdir()
     assert client.get('/api/auth/status').json()['state']=='signed_out'
     assert home.is_dir() and home.stat().st_mode & 0o777 == 0o700
+
+
+def test_sigint_during_initial_http_post_cancels_the_created_flow(auth_server):
+    server, client, home = auth_server
+    (home/'delay-start').touch()
+    process=subprocess.Popen([sys.executable, '-m', 'canary.cli', 'auth', 'login', '--device',
+                              '--port', str(server.server_port)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        deadline=time.monotonic()+15
+        while not (home/'login-started').exists():
+            assert process.poll() is None
+            assert time.monotonic()<deadline
+            time.sleep(.01)
+        process.send_signal(signal.SIGINT)
+        (home/'delay-start').unlink()
+        stdout,stderr=process.communicate(timeout=10)
+        assert process.returncode==130, (stdout,stderr)
+        assert client.get('/api/auth/status').json()['login']['state']=='cancelled'
+        assert 'could not be confirmed' not in stderr
+    finally:
+        if process.poll() is None:
+            process.kill();process.wait()
+
+
+def test_completion_after_account_snapshot_refreshes_the_dashboard_state(auth_server, monkeypatch):
+    server, client, home = auth_server
+    login=client.post('/api/auth/login', json={}).json()
+    auth=server.RequestHandlerClass.supervisor.auth
+    rpc=auth._rpc
+    def snapshot_then_completion(method, params=None):
+        result=rpc(method,params)
+        if method=='account/read' and result['account'] is None:
+            (home/'fixture-account').write_text('fixture')
+            auth.messages.put({'method':'account/login/completed','params':{'loginId':login['id'],'success':True}})
+        return result
+    monkeypatch.setattr(auth,'_rpc',snapshot_then_completion)
+    status=client.get('/api/auth/status').json()
+    assert status['state']=='signed_in' and status['authenticated']
+    assert status['login']['state']=='complete'
+
+
+def test_default_http_port_accepts_browser_normalization_without_other_origins(auth_server):
+    server, client, _ = auth_server
+    actual_port=server.server_port
+    server.server_port=80
+    try:
+        for host in ('localhost','localhost:80','127.0.0.1','127.0.0.1:80'):
+            origin='http://'+host.removesuffix(':80')
+            assert client.get('/api/auth/status',headers={'Host':host,'Origin':origin}).status_code==200
+            assert client.get('/api/auth/status',headers={'Host':host,'Origin':origin+':80'}).status_code==200
+        for origin in ('http://localhost:81','https://localhost','http://attacker.test'):
+            assert client.post('/api/auth/login',json={},headers={'Host':'localhost','Origin':origin}).status_code==403
+    finally:
+        server.server_port=actual_port
