@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, urlparse, quote, unquote
 from xml.etree import ElementTree
 
 from . import runs
+from .codex_auth import AuthError, CodexAuth
 
 QUESTION_ENGINE_ROOT = Path(os.environ.get("CANARY_QUESTION_ENGINE_ROOT", runs.ROOT)).resolve()
 DEFAULT_PORT = 8789
@@ -77,6 +78,7 @@ class Supervisor:
 
     def __init__(self, registry: str | Path = runs.REGISTRY,
                  root: str | Path = runs.ROOT):
+        self.auth = CodexAuth()
         self.registry = Path(registry)
         self.root = Path(root)
         self.owned: dict[str, subprocess.Popen] = {}
@@ -113,6 +115,8 @@ class Supervisor:
                    RUN_NAME=name, RUN_BRIEF=brief,
                    CANARY_RUNS_REGISTRY=str(self.registry))
         env.update(extra)
+        if native:
+            env["CODEX_HOME"] = self.auth.home
         launcher_log = self.root / "container-out" / f"{key}.launcher.log"
         launcher_log.parent.mkdir(parents=True, exist_ok=True)
         logfh = open(launcher_log, "a", encoding="utf-8", errors="replace")
@@ -973,7 +977,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
         try:
-            if parsed.path == "/":
+            if parsed.path.startswith("/api/auth/"):
+                self._auth_request(parsed.path, "GET")
+            elif parsed.path == "/":
                 self._send(200, UI_PATH.read_bytes(), "text/html; charset=utf-8")
             elif parsed.path == "/assets/InterVariable.woff2":
                 self._send(200, INTER_FONT_PATH.read_bytes(), "font/woff2")
@@ -1046,6 +1052,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/auth/"):
+            self._auth_request(parsed.path, "POST")
+            return
         body = self._read_json()
         try:
             if parsed.path == "/api/runs":
@@ -1073,6 +1082,52 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": f"unknown run {e}"})
         except (ValueError, RuntimeError) as e:
             self._send(400, {"error": str(e)[:300]})
+
+    def _auth_request(self, path: str, method: str) -> None:
+        # This service is owner-operated and loopback-only. Reject browser-origin
+        # mutations and DNS rebinding; no cross-origin credential controls.
+        host = self.headers.get("Host", "")
+        allowed_hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
+        origin = self.headers.get("Origin")
+        if (host not in allowed_hosts or
+                (origin is not None and origin != f"http://{host}") or
+                self.headers.get("Sec-Fetch-Site") == "cross-site"):
+            self._send(403, {"error": "Authentication requires the local service origin.", "code": "forbidden"})
+            return
+        auth = self.supervisor.auth
+        try:
+            if method == "GET" and path == "/api/auth/status":
+                result = auth.status()
+            elif method == "GET" and re.fullmatch(r"/api/auth/login/[^/]+", path):
+                result = auth.progress(unquote(path.rsplit("/", 1)[1]))
+            elif method == "POST":
+                if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                    raise AuthError("Authentication actions require application/json.", "invalid_request", 415)
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= MAX_BODY:
+                        raise ValueError
+                    body = json.loads(self.rfile.read(length))
+                    if not isinstance(body, dict):
+                        raise ValueError
+                except (ValueError, UnicodeError):
+                    raise AuthError("Expected a JSON object.", "invalid_request", 400) from None
+                if path == "/api/auth/login":
+                    if set(body) - {"method"}:
+                        raise AuthError("Only method is accepted.", "invalid_request", 400)
+                    result = auth.start_login(body.get("method", "browser"))
+                elif path == "/api/auth/logout" and not body:
+                    result = auth.logout()
+                elif re.fullmatch(r"/api/auth/login/[^/]+/cancel", path) and not body:
+                    result = auth.cancel(unquote(path.split("/")[-2]))
+                else:
+                    raise AuthError("Unknown authentication action.", "not_found", 404)
+            else:
+                raise AuthError("Unknown authentication action.", "not_found", 404)
+            self._send(200, result, headers={"Cache-Control": "no-store"})
+        except AuthError as error:
+            self._send(error.status, {"error": str(error), "code": error.code},
+                       headers={"Cache-Control": "no-store"})
 
     def _serve_log(self, key, query) -> None:
         row = runs.get(key, self.supervisor.registry)
@@ -1145,7 +1200,12 @@ def make_server(port: int = DEFAULT_PORT, registry: str | Path = runs.REGISTRY,
     """Loopback-bound server (port 0 picks an ephemeral port for tests)."""
     handler = type("RunsHandler", (Handler,), {})
     handler.supervisor = Supervisor(registry, root)
-    server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    class AuthServer(ThreadingHTTPServer):
+        def server_close(self):
+            handler.supervisor.auth.close()
+            super().server_close()
+
+    server = AuthServer(("127.0.0.1", port), handler)
     server.daemon_threads = True
     return server
 

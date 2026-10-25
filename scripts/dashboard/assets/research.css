@@ -473,6 +473,10 @@ dialog::backdrop { background: var(--paper); opacity: .8; }
 .workspace-menu > summary::-webkit-details-marker { display: none; }
 .workspace-menu svg { display: block; width: 20px; height: 20px; }
 .workspace-menu nav { position: absolute; right: 0; min-width: 120px; padding: 6px 12px; border: 1px solid var(--line); background: var(--paper); }
+#codex-auth { width: 230px; border-top: 1px solid var(--line); margin-top: 4px; padding: 10px 0 4px; font-size: 12px; }
+#codex-auth strong { font-weight: 500; }
+#codex-auth p, #codex-auth small { display: block; margin: 6px 0; line-height: 1.4; }
+#codex-auth .btn { margin: 6px 4px 0 0; }
 .workspace-menu nav a { display: block; padding: 5px 0; text-decoration: none; }
 @media (min-width: 961px) {
   .inspector-header { padding-right: 48px; }
