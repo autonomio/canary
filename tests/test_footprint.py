@@ -60,3 +60,14 @@ def test_http_cli_and_agent_contract_expose_same_scan_and_unknown_activity(tmp_p
             assert client.get('/').status_code==200
     finally:
         server.shutdown();server.server_close();thread.join()
+
+
+def test_refresh_never_replaces_an_unreadable_registry(tmp_path):
+    registry=tmp_path/'registry.json';original=b'[{"key":"truncated-history"'
+    registry.write_bytes(original)
+    bundle=tmp_path/'out/existing';bundle.mkdir(parents=True)
+    (bundle/'run.json').write_text('{"kind":"question"}')
+    result=footprint.refresh(tmp_path,registry)
+    assert registry.read_bytes()==original
+    assert result['registered_runs'] is None and result['registry_error']
+    assert result['last_scan']['errors'] and result['last_scan']['added_keys']==[]

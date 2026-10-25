@@ -4,11 +4,22 @@ import json
 import os
 from pathlib import Path
 import re
+import tempfile
 import time
 
 from . import runs
 
 SKIP = {'.git', '.venv', 'venv', 'node_modules', '__pycache__', 'papers', 'texts', 'passages'}
+
+
+def _registry_rows(registry):
+    path = Path(registry)
+    if not path.exists():
+        return []
+    value = json.loads(path.read_text())
+    if not isinstance(value,list) or not all(isinstance(row,dict) for row in value):
+        raise ValueError('Registry must be an array of run records')
+    return value
 
 
 def roots(root):
@@ -18,10 +29,14 @@ def roots(root):
 
 
 def status(root, registry):
-    rows = runs.load(registry)
+    try:
+        rows, registry_error = _registry_rows(registry), None
+    except (OSError,ValueError) as exc:
+        rows, registry_error = None, str(exc)
     return {'roots': [{'path':str(p), 'exists':p.is_dir()} for p in roots(root)],
-            'registered_runs':len(rows),
-            'missing_bundles':sum(bool(r.get('bundle')) and not Path(r['bundle']).is_dir() for r in rows),
+            'registered_runs':len(rows) if rows is not None else None,
+            'missing_bundles':sum(bool(r.get('bundle')) and not Path(r['bundle']).is_dir() for r in rows) if rows is not None else None,
+            'registry_error':registry_error,
             'last_scan':runs._load_json(Path(registry).with_name('footprint.json'), None),
             'scope':'Configured server-side roots and registered runs. No whole-computer scan. Missing files and unknown activity remain explicit.'}
 
@@ -47,10 +62,14 @@ def refresh(root, registry):
                 dirs[:] = []  # Inner paper/analysis artifacts belong to this run.
     added = []
     with runs._registry_lock(registry):
-        rows = runs.load(registry)
-        known = {str(Path(r['bundle']).resolve()) for r in rows if r.get('bundle')}
-        keys = {r.get('key') for r in rows}
-        for path in sorted(found):
+        try:
+            rows = _registry_rows(registry)
+        except (OSError,ValueError) as exc:
+            errors.append({'path':str(registry),'error':str(exc)})
+            rows = None
+        known = {str(Path(r['bundle']).resolve()) for r in rows or [] if r.get('bundle')}
+        keys = {r.get('key') for r in rows or []}
+        for path in sorted(found) if rows is not None else []:
             if str(path) in known:
                 continue
             try:
@@ -70,7 +89,7 @@ def refresh(root, registry):
                'added_keys':added,'errors':errors}
     target = Path(registry).with_name('footprint.json')
     target.parent.mkdir(parents=True,exist_ok=True)
-    temporary = target.with_suffix('.tmp')
-    temporary.write_text(json.dumps(receipt,indent=2)+'\n')
-    temporary.replace(target)
+    with tempfile.NamedTemporaryFile(mode='w',dir=target.parent,delete=False) as stream:
+        stream.write(json.dumps(receipt,indent=2)+'\n')
+    Path(stream.name).replace(target)
     return status(root,registry)

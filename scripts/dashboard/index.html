@@ -2185,7 +2185,7 @@
         const el=document.getElementById('local-footprint');
         try {
           const f=await api('/api/footprint'+(rescan?'/refresh':''),rescan?{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}:undefined);
-          el.innerHTML=`<small>${esc(f.registered_runs)} indexed runs · ${esc(f.missing_bundles)} missing folders<br>${f.roots.map(r=>`<code>${esc(r.path)}</code>${r.exists?'':' · absent'}`).join('<br>')}<br>${esc(f.scope)}${f.last_scan?`<br>Last scan ${esc(dateText(f.last_scan.finished_at,true))} · ${esc(f.last_scan.seconds)}s · ${esc(f.last_scan.added_keys.length)} added`:''}</small>${(f.last_scan?.errors || []).map(e=>`<p role="alert">${esc(e.path)}: ${esc(e.error)}</p>`).join('')}`;
+          el.innerHTML=`<small>${esc(f.registered_runs ?? "Unknown")} indexed runs · ${esc(f.missing_bundles ?? "unknown")} missing folders<br>${f.roots.map(r=>`<code>${esc(r.path)}</code>${r.exists?'':' · absent'}`).join('<br>')}<br>${esc(f.scope)}${f.last_scan?`<br>Last scan ${esc(dateText(f.last_scan.finished_at,true))} · ${esc(f.last_scan.seconds)}s · ${esc(f.last_scan.added_keys.length)} added`:''}</small>${f.registry_error?`<p role="alert">Registry unavailable: ${esc(f.registry_error)}</p>`:""}${(f.last_scan?.errors || []).map(e=>`<p role="alert">${esc(e.path)}: ${esc(e.error)}</p>`).join('')}`;
           if(rescan) { await loadRuns(); toast(`${f.last_scan.added_keys.length} local runs added`); }
         } catch(error) {el.textContent=error.message;}
       }
