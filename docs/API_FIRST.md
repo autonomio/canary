@@ -47,9 +47,9 @@ The paths below reuse existing routes or name proposed additions. New paths rema
 
 ## Ordered delivery
 
-Each item is open. Complete its API behavior, client integration and meaningful acceptance evidence together; do not defer the frontend or agent view to a later cleanup.
+Complete each item’s API behavior, client integration and meaningful acceptance evidence together; do not defer the frontend or agent view to a later cleanup.
 
-1. [ ] **Service and authentication.** Establish one API-owned runtime and authentication context. Add `canary auth login`, `--device` and `status` as API clients around native Codex authentication. Handle unavailable CLI and signed-out state clearly. Choose the minimal client access boundary for the deployment; provider login and access to Canary are separate concerns.
+1. [x] **Service and authentication.** API-owned native Codex browser/device login, status, progress, cancellation and logout; HTTP-only CLI and dashboard clients; one persistent credential context shared with native workers. The current access boundary is the owner-operated loopback service with same-origin authentication controls. See [the auth contract and workflow](AUTH.md); provider login and access to Canary remain separate concerns.
 2. [ ] **Installable execution.** Package required Python entry points/resources, the supported CLI runtime and extraction dependencies. Remove source-checkout path assumptions. Supply a container for the current pipeline with persistent auth and research storage. Keep the dashboard optional for headless use and include its assets when installed.
 3. [ ] **Research and run lifecycle.** Make `canary ask` and retained application commands thin API clients. Route scientific acquisition/source/finalization tools through the service. Add native cancellation and any explicitly requested run limits without silently changing coverage or reasoning. Persist enough ownership/state for honest status after service restarts.
 4. [ ] **Canonical contract.** Publish OpenAPI and runnable examples for submission, polling, cancellation, results, exports, usage and source/evidence access. Reuse the existing research schemas and diagnostics. Verify that another application can render the findings using only API responses.

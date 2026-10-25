@@ -654,7 +654,8 @@ def _native_usage(thread_id, codex_home=None):
 
 
 def command_line(executable, model, effort, workspace, shape, output):
-    return [executable, "exec", "--ignore-user-config", "--disable", "multi_agent", "--disable", "multi_agent_v2",
+    return [executable, "exec", "--ignore-user-config",
+            "-c", 'cli_auth_credentials_store="file"', "--disable", "multi_agent", "--disable", "multi_agent_v2",
         "-m", model, "-c", f'model_reasoning_effort="{effort}"', "-c", "agents.enabled=false",
         "-c", "features.memories=false", "-c", "features.plugins=false", "-c", "features.apps=false",
         "-c", 'web_search="disabled"', "--skip-git-repo-check", "--sandbox", "workspace-write", "--json",

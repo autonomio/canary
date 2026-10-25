@@ -1471,7 +1471,7 @@
     <main id="main">
       <details class="workspace-menu" id="workspace-menu">
         <summary aria-label="Menu" role="button" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></summary>
-        <nav aria-label="Workspace menu"><a href="#log">Log</a></nav>
+        <nav aria-label="Workspace menu"><a href="#log">Log</a><div id="codex-auth" aria-live="polite">Codex · checking</div></nav>
       </details>
       <div class="topbar">
         <span id="breadcrumb">Workspace / Research</span
@@ -2169,6 +2169,57 @@
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error || `Request failed (${r.status})`);
         return d;
+      }
+      let authTimer = null, authBusy = false;
+      function authHtml(status) {
+        const login = status.login;
+        const label = status.state === "signed_in" ? "Signed in" : status.state === "signed_out" ? "Signed out" : "Unavailable";
+        let html = `<strong>Codex · ${label}</strong>`;
+        if (status.error) html += `<p>${esc(status.error)}</p>`;
+        if (login?.state === "pending") {
+          html += `<p><a href="${esc(login.url)}" target="_blank" rel="noopener noreferrer">Open ChatGPT sign-in ↗</a></p>`;
+          if (login.user_code) html += `<p>Device code <code>${esc(login.user_code)}</code></p>`;
+          return html + '<button class="btn small" data-auth="cancel">Cancel login</button>';
+        }
+        if (login?.error) html += `<p>${esc(login.error)}</p>`;
+        if (status.authenticated) return html + '<small>Model access is checked when research starts.</small><button class="btn small" data-auth="logout">Sign out</button>';
+        if (!status.available) return html + '<button class="btn small" data-auth="refresh">Retry status</button>';
+        return html + '<button class="btn small" data-auth="browser">Sign in with ChatGPT</button><button class="btn small" data-auth="device">Use device code</button>';
+      }
+      async function refreshAuth() {
+        clearTimeout(authTimer);
+        const el = document.getElementById("codex-auth");
+        try {
+          const status = await api("/api/auth/status");
+          el.innerHTML = authHtml(status);
+          if (status.login?.state === "pending") authTimer = setTimeout(refreshAuth, 1500);
+        } catch (error) {
+          el.innerHTML = `<strong>Codex · status unavailable</strong><p>${esc(error.message)}</p><button class="btn small" data-auth="refresh">Retry status</button>`;
+        }
+      }
+      async function authAction(action) {
+        if (authBusy) return;
+        authBusy = true;
+        const el = document.getElementById("codex-auth");
+        el.querySelectorAll("button").forEach(b => b.disabled = true);
+        try {
+          if (action === "browser" || action === "device") {
+            const login = await api("/api/auth/login", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({method:action})});
+            el.innerHTML = authHtml({state:"signed_out",available:true,authenticated:false,login});
+          } else if (action === "cancel") {
+            const status = await api("/api/auth/status");
+            if (status.login?.state === "pending") await api(`/api/auth/login/${encodeURIComponent(status.login.id)}/cancel`, {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+          } else if (action === "logout") {
+            await api("/api/auth/logout", {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+          }
+          await refreshAuth();
+        } catch (error) {
+          toast(error.message, true);
+          await refreshAuth();
+        } finally {
+          authBusy = false;
+          el.querySelectorAll("button").forEach(b => b.disabled = false);
+        }
       }
       function toast(message, error = false) {
         const el = document.getElementById("toast");
@@ -3560,12 +3611,17 @@
           }
         } catch {}
         updateComposer();
+        refreshAuth();
+        document.getElementById("workspace-menu").addEventListener("toggle", e => {
+          if (e.target.open && !authBusy) refreshAuth();
+        });
         document.addEventListener("click", (e) => {
           const menu=document.getElementById("workspace-menu");
           if(!menu.contains(e.target) || e.target.closest('a[href="#log"]')) menu.open=false;
           if(e.target.closest('a[href="#log"]') && location.hash === "#log") navigate("log");
           const b = e.target.closest("button");
           if (!b || b.disabled) return;
+          if (b.dataset.auth) {authAction(b.dataset.auth);return;}
           const qaKinds={qaClaim:"claim",qaStudy:"study",qaPassage:"passage",qaParagraphContext:"paragraphContext",qaEvidence:"evidence",qaContext:"context",qaSource:"source",qaPaper:"paper"};
           if(b.dataset.qaClose) {closeInspector();return;}
           for(const [attr,kind] of Object.entries(qaKinds)) if(b.dataset[attr] !== undefined) {

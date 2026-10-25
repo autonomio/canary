@@ -109,6 +109,14 @@ def review(spec: RunSpec, assess: bool = False) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="canary", description="Canary research toolkit.")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    auth = sub.add_parser("auth", help="Codex authentication through the local API")
+    auth_sub = auth.add_subparsers(dest="auth_cmd", required=True)
+    login = auth_sub.add_parser("login", help="sign in on the service host")
+    login.add_argument("--device", action="store_true", help="use a device code (headless service)")
+    for command in (login, auth_sub.add_parser("status"), auth_sub.add_parser("logout")):
+        command.add_argument("--port", type=int, default=None)
+        if command is not login:
+            command.add_argument("--json", action="store_true")
     ask = sub.add_parser("ask", help="coverage-guided full-paper research with independent audit")
     ask.add_argument("question", help="research question in plain words")
     ask.add_argument("--out", default="./out/question", help="new empty research workspace")
@@ -218,6 +226,9 @@ def main(argv: list[str] | None = None) -> int:
     ad.add_argument("--name", default="")
     ad.add_argument("--brief", default="")
     args = ap.parse_args(argv)
+    if args.cmd == "auth":
+        from .auth_cli import run as auth_run
+        return auth_run(args, _runs_port(args))
     if args.cmd == "ask":
         from .coverage_runtime import run as coverage_run
         from .coverage_export import export_bundle as coverage_export
