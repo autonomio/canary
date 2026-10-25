@@ -15,7 +15,8 @@ CANARY_RESEARCH_ROOTS="/path/to/old-checkout/out:/path/to/other/container-out" \
 canary runs serve
 ```
 
-These are server-side locations. They are not client upload paths. The index
+These are server-side locations. They are not client upload paths. For a container,
+mount historical directories explicitly and configure their paths inside the container. The index
 includes native and historical runs, incomplete runs and failures, without copying
 or editing their scientific files. It preserves existing names, keys, timestamps,
 worker ownership and compiled settings. Same-named run folders receive distinct,
