@@ -26,6 +26,7 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --locked
+      - run: uv build --wheel && uv run --no-sync python scripts/verify_install.py dist/canary-0.1.0-py3-none-any.whl
       - run: |
           uv run --no-sync python -c "import sys, platform; print(sys.version); print(platform.platform())"
           uv run --no-sync pytest -q -m "not live" --durations=10
@@ -71,6 +72,15 @@ jobs:
         env:
           IMG: canary:ci
           CANARY_PREBUILT: "1"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.service
+          tags: canary-service:ci
+          load: true
+          cache-from: type=gha,scope=canary-service
+          cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,mode=max,scope=canary-service' || '' }}
+      - run: python3 scripts/verify_service_container.py canary-service:ci
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'schedule'
         with:

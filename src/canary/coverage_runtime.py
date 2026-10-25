@@ -29,6 +29,7 @@ import uuid
 import httpx
 
 from . import coverage_protocol as protocol
+from .runtime_paths import data_root
 
 WORK_ID = re.compile(r"W[1-9][0-9]{0,19}\Z")
 _LOCK = threading.Lock()
@@ -203,7 +204,7 @@ def _commit_discovery(workspace, works, progress, plan):
 def discover(workspace, plan_path, *, root=None, pages=5, client=None):
     """Fresh indexed search, saving each page and exposing declared truncation."""
     workspace = Path(workspace).resolve()
-    root = Path(root or Path(__file__).resolve().parents[2])
+    root = Path(root) if root is not None else data_root()
     plan = validate_plan(read(Path(plan_path)))
     if pages < 1:
         raise ValueError("Search page limit must be positive")
@@ -794,9 +795,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
     executable = executable or shutil.which("codex")
     if not executable:
         raise RuntimeError("Native Codex CLI is required; no provider/model fallback is configured")
-    root = Path(__file__).resolve().parents[2]
-    script = root / "scripts" / "run_coverage_research.py"
-    command = shlex.join([sys_executable(), str(script)])
+    command = shlex.join([sys_executable(), '-m', 'canary.coverage_runtime'])
     workspace.mkdir(parents=True, exist_ok=True)
     if any(workspace.iterdir()):
         raise ValueError("A new research run requires an empty workspace; use tools only to resume acquisition within a run")
@@ -894,3 +893,7 @@ def main(argv=None):
     elif args.action == "usage":
         print(json.dumps(native_usage(args.thread_id), ensure_ascii=False, indent=2))
     return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

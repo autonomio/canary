@@ -13,8 +13,6 @@ from pathlib import Path
 
 import httpx
 
-from . import analysis, data as datamod, cycle as cyclemod, fulltext, modeling, rank, report, retrieval, synthesize
-from .cycle import ResumeError
 from . import runs as runsmod
 from .revise import revise_from_journal
 from .journal import Journal, emit
@@ -26,6 +24,7 @@ from .spec import Cancelled, InvalidSpec, RunBudget, RunSpec
 def _post_assess(journal: Journal, out_dir: str, enabled: bool, outcome: str,
                  client: MuseClient) -> None:
     """Auxiliary post-completion assessment: never fails completed research."""
+    from . import report
     if not enabled:
         return
     try:
@@ -61,6 +60,7 @@ def _journal_failure(out_dir: str | None, cmd: str, error: BaseException) -> Non
 
 
 def review(spec: RunSpec, assess: bool = False) -> str:
+    from . import fulltext, rank, report, retrieval, synthesize
     run_id = report.begin_run(spec.out_dir, spec, "review")
     j = Journal(Path(spec.out_dir) / "journal.jsonl", run_id=run_id)
     emit(j, "review", "start", spec.question[:200])
@@ -206,6 +206,8 @@ def main(argv: list[str] | None = None) -> int:
     rn = sub.add_parser("runs", help="named runs: list, inspect, serve, control")
     rnsub = rn.add_subparsers(dest="runs_cmd", required=True)
     rnsub.add_parser("list", help="table of registered runs")
+    rs = rnsub.add_parser("status", help="API runtime, storage and extraction status")
+    rs.add_argument("--port", type=int, default=None)
     sh = rnsub.add_parser("show", help="full record for one run")
     sh.add_argument("key", help="registry key")
     lg = rnsub.add_parser("log", help="print a run's raw log")
@@ -214,6 +216,8 @@ def main(argv: list[str] | None = None) -> int:
     lg.add_argument("--stream", default="all", choices=["all", "timeline", "console"])
     sv = rnsub.add_parser("serve", help="serve the dashboard + control API (foreground)")
     sv.add_argument("--port", type=int, default=None)
+    sv.add_argument("--host", default="127.0.0.1", help="bind address; keep published API access private")
+    sv.add_argument("--no-dashboard", action="store_true", help="serve the API without browser assets")
     st = rnsub.add_parser("start", help="launch a named run via the daemon")
     st.add_argument("--name", required=True)
     st.add_argument("--brief", default="")
@@ -266,9 +270,11 @@ def main(argv: list[str] | None = None) -> int:
         print(str(Path(args.out).resolve() / "answer.json"))
         return 0
     if args.cmd == "inspect":
+        from . import report
         print(json.dumps(report.read_bundle(args.bundle), indent=2, default=str))
         return 0
     if args.cmd == "resume":
+        from .cycle import ResumeError
         try:
             path = resume_bundle(args)
         except ResumeError as e:
@@ -382,6 +388,7 @@ def build_bandit(args):
 
 def cycle(spec: RunSpec, repo: str = ".", assess: bool = False, bandit=None,
           check_cmd: list[str] | None = None) -> str:
+    from . import cycle as cyclemod, report
     run_id = report.begin_run(spec.out_dir, spec, "cycle")
     j = Journal(Path(spec.out_dir) / "journal.jsonl", run_id=run_id)
     outbox: dict = {}
@@ -416,6 +423,8 @@ def cycle(spec: RunSpec, repo: str = ".", assess: bool = False, bandit=None,
 
 
 def resume_bundle(args) -> str:
+    from . import cycle as cyclemod, report
+    from .cycle import ResumeError
     if getattr(args, "fork", None) and getattr(args, "expect_revision", None):
         raise ResumeError("--fork and --expect-revision are exclusive")
     if getattr(args, "expect_revision", None):
@@ -434,6 +443,7 @@ def assess_only(run_dir: str, out: str | None) -> str:
     Never calls require_revision_trust: there is nothing to authorize, because
     no patch, subprocess, or tree mutation can happen on this path.
     """
+    from . import report
     from .assess import assess_journal
     from .memory import Memory
 
@@ -528,8 +538,17 @@ def runs_cmd(args) -> int:
 
     cmd = args.runs_cmd
     if cmd == "serve":
-        dashboardmod.serve(_runs_port(args))
+        dashboardmod.serve(_runs_port(args), host=args.host, dashboard_enabled=not args.no_dashboard)
         return 0
+    if cmd == 'status':
+        try:
+            response = httpx.get(f'http://127.0.0.1:{_runs_port(args)}/api/status', timeout=10, trust_env=False)
+            response.raise_for_status()
+            print(json.dumps(response.json(), indent=2))
+            return 0
+        except (httpx.HTTPError, ValueError):
+            print('Canary API unavailable; start it with: canary runs serve', file=sys.stderr)
+            return 1
     if cmd == "list":
         rows = runsmod.load(_runs_registry())
         print(f"{'KEY':28} {'STATUS':12} {'KIND':8} NAME")
@@ -603,6 +622,7 @@ def runs_cmd(args) -> int:
 
 
 def analyze(spec: RunSpec, assess: bool = False) -> str:
+    from . import analysis, data as datamod, cycle as cyclemod, modeling, report
     run_id = report.begin_run(spec.out_dir, spec, "analyze")
     j = Journal(Path(spec.out_dir) / "journal.jsonl", run_id=run_id)
     emit(j, "analyze", "start", f"{spec.csv} target={spec.target}")
