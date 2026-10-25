@@ -9,7 +9,10 @@ import uuid
 
 
 def docker(*args):
-    return subprocess.check_output(['docker', *args], text=True, stderr=subprocess.STDOUT).strip()
+    result = subprocess.run(['docker', *args], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if result.returncode:
+        raise RuntimeError(result.stdout.strip())
+    return result.stdout.strip()
 
 
 def main():
@@ -19,6 +22,7 @@ def main():
     try:
         for attempt in range(2):
             docker('run', '-d', '--name', name, '-p', '127.0.0.1::8789',
+                   '--security-opt', 'seccomp=unconfined', '--security-opt', 'apparmor=unconfined',
                    '-v', data + ':/data', '-v', auth + ':/auth', image)
             address = docker('port', name, '8789/tcp').splitlines()[0]
             url = 'http://' + address
@@ -39,6 +43,58 @@ def main():
                 assert b'Research' in response.read()
             assert 'signed_out' in docker('exec', name, 'canary', 'auth', 'status', '--json')
             if attempt == 0:
+                for user in ('canary','root'):
+                    print(docker('exec','--user',user,name,'python','-c',"""
+import json, os, pathlib, shutil, subprocess
+command = ['bwrap','--unshare-user','--ro-bind','/','/','--proc','/proc','--dev','/dev','/bin/true']
+result = subprocess.run(command,text=True,capture_output=True)
+print(json.dumps({'namespace_probe_uid':os.getuid(),'bwrap':shutil.which('bwrap'),
+                  'mode':oct(pathlib.Path('/usr/bin/bwrap').stat().st_mode),
+                  'exit':result.returncode,'stderr':result.stderr,
+                  'uid_map':pathlib.Path('/proc/self/uid_map').read_text()}))
+"""),flush=True)
+                # Exercise the installed CLI parser with the production invocation.
+                # Invalid JSON must stop before authentication or inference.
+                docker('exec', name, 'python', '-c', """
+import subprocess, tempfile
+from pathlib import Path
+from canary.coverage_runtime import command_line
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    shape = root / 'invalid.json'
+    shape.write_text('{')
+    result = subprocess.run(command_line('codex', 'gpt-6.1-sol', 'xhigh', root,
+                                         shape, root / 'output.json'),
+                            input='Invalid schema parser probe.', text=True,
+                            capture_output=True, cwd=root, timeout=20)
+    assert result.returncode != 0, result.stdout
+    assert 'is not valid JSON' in result.stderr, result.stderr
+""")
+                docker('exec', name, 'codex', 'sandbox', '-c', 'sandbox_mode="workspace-write"',
+                       '-c', 'sandbox_workspace_write.network_access=true', '--', 'python', '-c',
+                       "import json,urllib.request; from pathlib import Path; "
+                       "assert json.load(urllib.request.urlopen('http://127.0.0.1:8789/api/status'))['service']=='available'; "
+                       "Path('/data/native-sandbox-proof').write_text('executed')")
+                docker('exec', name, 'python', '-c', """
+import subprocess
+from canary.processes import identity, stop_tree, live
+command = ['codex','sandbox','-c','sandbox_mode="workspace-write"',
+           '-c','sandbox_workspace_write.network_access=true','--','python','-c',
+           'import time; print("sandbox-ready",flush=True); time.sleep(60)']
+process = subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+try:
+    line = process.stdout.readline().strip()
+    assert line == 'sandbox-ready', line
+    receipt = {'pid':process.pid,'identity':identity(process.pid)}
+    assert stop_tree(receipt)
+    process.wait(timeout=5)
+    assert not live(receipt)
+finally:
+    if process.poll() is None:
+        process.kill()
+        process.wait()
+""")
+            if attempt == 0:
                 docker('exec', name, 'python', '-c',
                        "from pathlib import Path; assert not Path('/build').exists(); "
                        "Path('/data/persistence-proof').write_text('research-marker'); "
@@ -50,6 +106,9 @@ def main():
             docker('rm', '-f', name)
         print(json.dumps({'image': image, 'api': True, 'dashboard': True, 'codex': True,
                           'pdftotext': True, 'persistent_data_and_auth_roots': True,
+                          'native_invocation_parser': True,
+                          'native_sandbox_execution_and_api': True,
+                          'native_sandbox_cancellation': True,
                           'provider_inference': False}))
     finally:
         subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -9,7 +9,7 @@ COPY --from=codex /usr/local/lib/node_modules/@openai /usr/local/lib/node_module
 ENV LANG=C.UTF-8 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
     CANARY_DATA_DIR=/data CODEX_HOME=/auth
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git curl ripgrep poppler-utils \
+    && apt-get install -y --no-install-recommends git curl ripgrep poppler-utils bubblewrap procps \
     && ln -s /usr/local/lib/node_modules/@openai/codex/bin/codex.js /usr/local/bin/codex \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build

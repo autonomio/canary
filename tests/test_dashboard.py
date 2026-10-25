@@ -31,6 +31,58 @@ def test_slugify():
     assert len(dashboard.slugify("x" * 200)) == 40
 
 
+def test_native_startup_failure_retains_actual_cli_diagnostic(tmp_path):
+    (tmp_path / 'research-receipt.json').write_text(json.dumps({
+        'exit_code': 2, 'thread_id': None}))
+    diagnostic = "error: conflicting native CLI arguments"
+    (tmp_path / 'research-stderr.log').write_text(diagnostic)
+    result = dashboard.question_research_bundle(tmp_path, {'status': 'failed'})
+    assert result['startup_error'] == diagnostic
+    assert result['answer'] == {}
+    # A scientific-session failure belongs to its recorded thread, not startup.
+    (tmp_path / 'research-receipt.json').write_text(json.dumps({
+        'exit_code': 1, 'thread_id': 'recorded-thread'}))
+    assert dashboard.question_research_bundle(tmp_path, {})['startup_error'] is None
+
+
+def test_native_operational_progress_is_visible_without_private_events(server):
+    from canary import processes
+    bundle = server['root'] / 'native'
+    bundle.mkdir()
+    progress = {'at': '2026-10-25T12:00:00Z', 'event': 'research_message',
+                'text': 'Reading selected source methods.'}
+    (bundle/'runtime-progress.jsonl').write_text(json.dumps(progress)+'\n{partial')
+    # Raw native events can contain reasoning; they are never a log source.
+    (bundle/'research-events.jsonl').write_text('PRIVATE-NATIVE-EVENT')
+    runs.register_start('native', 'Native', '', bundle=str(bundle),
+                        path=server['registry'], status='running')
+    row = runs.get('native',server['registry'])
+    row['worker'] = {'pid': os.getpid(), 'identity': processes.identity(os.getpid())}
+    runs.upsert(row,server['registry'])
+    log = server['client'].get('/api/runs/native/log').json()
+    assert log['live'] is True
+    assert log['timeline'][0]['detail'] == progress['text']
+    assert 'PRIVATE-NATIVE-EVENT' not in json.dumps(log)
+    assert dashboard.question_research_bundle(bundle,{})['decisions'] == log['timeline']
+
+
+def test_restart_observer_keeps_actual_native_completion_time(server):
+    bundle=server['root']/'finished-native';bundle.mkdir()
+    start,end='2026-10-25T12:00:00+00:00','2026-10-25T12:01:00+00:00'
+    (bundle/'run.json').write_text(json.dumps({'kind':'question','status':'answered',
+        'execution_mode':'coverage-guided full-paper research','started_at':start,
+        'generated_at':start,'ended_at':end}))
+    runs.register_start('finished-native','Native','',bundle=str(bundle),path=server['registry'],
+                        worker={'pid':99999999,'identity':'not-live'})
+    row=server['client'].get('/api/runs/finished-native').json()
+    assert row['ended_at']==end and row['duration_seconds']==60
+    assert runs.get('finished-native',server['registry'])['ended_at']==end
+    # Old observer-time records remain correct in the API view without rewriting history.
+    saved=runs.get('finished-native',server['registry']);saved['ended_at']='2026-10-25T12:02:00+00:00'
+    runs.upsert(saved,server['registry'])
+    assert server['client'].get('/api/runs/finished-native').json()['ended_at']==end
+
+
 @pytest.fixture()
 def server(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)

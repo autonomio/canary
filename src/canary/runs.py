@@ -140,14 +140,17 @@ def register_finish(key: str, status: str = "done", bundle: str = "",
         if current.get("status") not in _ACTIVE_STATUS:
             return current  # terminal rows are immutable; late writers no-op
         target = Path(bundle or current.get("bundle", ""))
+        recorded_end = None
         if target.is_dir():
             parsed = parse_bundle(target)
+            if not parsed.get('ended_at_estimated') and _timestamp(parsed.get('ended_at')):
+                recorded_end = parsed['ended_at']
             current.update({k: v for k, v in parsed.items()
                             if k != "bundle" and v not in (None, "?", {})})
             current["bundle"] = str(target)
         if status != "done" or current.get("status") in _ACTIVE_STATUS:
             current["status"] = status  # failed/interrupted win; done defers to bundle
-        current["ended_at"] = utcnow()
+        current["ended_at"] = recorded_end or utcnow()
         current["ended_at_estimated"] = False
         if container:
             current["container"] = container

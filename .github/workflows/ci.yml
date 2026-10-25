@@ -80,6 +80,11 @@ jobs:
           load: true
           cache-from: type=gha,scope=canary-service
           cache-to: ${{ github.ref == 'refs/heads/main' && 'type=gha,mode=max,scope=canary-service' || '' }}
+      - name: Provision nested sandbox support on the disposable runner
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - run: python3 scripts/verify_service_container.py canary-service:ci
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'schedule'
