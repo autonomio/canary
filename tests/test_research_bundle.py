@@ -167,6 +167,7 @@ research_bundle.run_compiled(os.environ['CANARY_RUN_SPEC'],os.environ['OUT'])
     real=subprocess.Popen
     calls=[]
     def launch(argv,**kwargs):
+        if 'env' not in kwargs: return real(argv, **kwargs)
         calls.append((argv,kwargs['env']))
         kwargs['env']=dict(kwargs['env'],PYTHONPATH=str(Path(__file__).parent)+os.pathsep+str(Path(dashboard.__file__).parents[1]))
         return real([sys.executable,str(worker)],**kwargs)

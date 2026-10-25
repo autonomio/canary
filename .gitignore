@@ -7,6 +7,8 @@ container-out/
 containment-report.json
 runs/
 run-inputs/
+run-tools/
+inputs/
 .DS_Store
 
 # Credentials and development caches

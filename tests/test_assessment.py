@@ -276,7 +276,7 @@ def test_cli_assess_runs_without_trust_or_mutation(tmp_path, monkeypatch, capsys
             return assessment_md("Reviewed: nothing worth changing.")
 
     monkeypatch.setattr(cli, "MuseClient", Muse)
-    assert cli.main(["assess", "--run-dir", str(run_dir)]) == 0  # no trust patch active
+    assert cli.engine_main(["assess", "--run-dir", str(run_dir)]) == 0  # no trust patch active
     out = capsys.readouterr().out
     assert "status=complete" in out
     assert list((run_dir / "assessments").glob("*.md"))

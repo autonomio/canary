@@ -31,6 +31,7 @@ def main():
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]
+        env['CANARY_RUNS_PORT'] = str(port)
         with (base / 'service.log').open('w+') as log:
             process = subprocess.Popen([canary, 'runs', 'serve', '--port', str(port)], cwd=base,
                                        env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -62,6 +63,7 @@ def main():
                     headers={'Content-Type': 'application/json'})
                 with urllib.request.urlopen(request) as response:
                     assert json.load(response)['resolved']['research']['effort'] == 'xhigh'
+                (base/'empty').mkdir()
                 output = subprocess.check_output([python, '-m', 'canary.coverage_runtime', 'catalog',
                                                   '--workspace', str(base / 'empty')], cwd=base, env=env)
                 assert json.loads(output) == []

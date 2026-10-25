@@ -314,7 +314,7 @@ def test_cli_resume_end_to_end(tmp_path, monkeypatch, capsys):
     real_client = httpx.Client  # the CLI builds its own client: keep it offline
     monkeypatch.setattr(httpx, "Client",
                         lambda *a, **k: real_client(transport=httpx.MockTransport(mock_http_handler)))
-    assert cli.main(["resume", str(out)]) == 0
+    assert cli.engine_main(["resume", str(out)]) == 0
     printed = capsys.readouterr().out.strip()
     assert printed.endswith("synthesis.md")
     assert manifest(out)["status"] == "converged"
@@ -328,7 +328,7 @@ def test_cli_resume_refusal_is_exit_2(tmp_path, monkeypatch, capsys):
     (legacy / "journal.jsonl").write_text('{"kind": "x", "event": "y", "detail": "z"}\n',
                                           encoding="utf-8")
     monkeypatch.setattr(cli, "MuseClient", lambda *a, **k: resume_muse())
-    assert cli.main(["resume", str(legacy)]) == 2
+    assert cli.engine_main(["resume", str(legacy)]) == 2
     assert "cannot resume" in capsys.readouterr().err
 
 
