@@ -9,7 +9,10 @@ import uuid
 
 
 def docker(*args):
-    return subprocess.check_output(['docker', *args], text=True, stderr=subprocess.STDOUT).strip()
+    result = subprocess.run(['docker', *args], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if result.returncode:
+        raise RuntimeError(result.stdout.strip())
+    return result.stdout.strip()
 
 
 def main():
