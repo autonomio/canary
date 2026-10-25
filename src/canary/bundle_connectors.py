@@ -19,7 +19,7 @@ def resolvent(workspace):
     inventory = {a['path']: a for a in bundle['artifacts']}
     payload_path = workspace / 'payload.json'
     if payload_path.is_file():
-        payload = json.loads(research_bundle.verified_artifact(workspace, inventory['payload.json']).read_text())
+        payload = json.loads(research_bundle.verified_artifact(workspace, inventory['payload.json']).read_text(encoding='utf-8'))
     else:
         payload = {}
     refs = {r['id']: r for r in payload.get('references', [])}
@@ -77,6 +77,8 @@ def resolvent(workspace):
         identifier = item['id']
         if identifier in id_map['claims']:
             raise ValueError('Duplicate claim ID in bundle')
+        if not isinstance(item.get('text'), str) or not item['text'].strip():
+            raise ValueError('Claim has no statement: ' + identifier)
         links = item.get('evidence_ids', [])
         if not links or any(x not in evidence_map for x in links):
             raise ValueError('Claim lacks resolvable evidence: ' + identifier)

@@ -272,3 +272,20 @@ def test_connector_rejects_wrong_verbatim_even_inside_an_intact_snapshot(tmp_pat
     research_bundle.seal(tmp_path)
     with pytest.raises(ValueError,match='Verbatim slice mismatch'):
         bundle_connectors.export(tmp_path,'resolvent')
+
+
+def test_bundle_preserves_auxiliary_research_files_and_unicode_without_credentials(tmp_path):
+    packet=research_spec.compile_research('question: How does Δ affect yield?')
+    research_bundle.initialize(tmp_path,packet)
+    (tmp_path/'analysis').mkdir()
+    (tmp_path/'analysis/table.csv').write_bytes('condition,μ\nA,2\n'.encode())
+    (tmp_path/'figure.svg').write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg"/>')
+    (tmp_path/'auth.json').write_text('{"token":"synthetic-secret"}')
+    (tmp_path/'.env').write_text('SYNTHETIC_SECRET=value')
+    research_bundle.seal(tmp_path)
+    output=io.BytesIO();research_bundle.archive(tmp_path,output)
+    with zipfile.ZipFile(output) as z:
+        assert 'Δ' in z.read('research.yaml').decode('utf-8')
+        assert z.read('analysis/table.csv').decode('utf-8')=='condition,μ\nA,2\n'
+        assert 'figure.svg' in z.namelist()
+        assert 'auth.json' not in z.namelist() and '.env' not in z.namelist()

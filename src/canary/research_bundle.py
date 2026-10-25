@@ -7,6 +7,7 @@ import uuid
 import sys
 import datetime
 import zipfile
+import os
 from pathlib import Path
 from typing import TypedDict
 
@@ -31,7 +32,7 @@ class ResearchBundle(TypedDict):
 def write_json(path, value):
     path = Path(path)
     temporary = path.with_suffix(path.suffix + '.tmp')
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
+    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     temporary.replace(path)
 
 
@@ -49,7 +50,7 @@ def initialize(workspace, packet):
     for name in INPUT_FILES:
         if (workspace / name).exists():
             raise ValueError('Research input already exists: ' + name)
-    (workspace / 'research.yaml').write_text(packet['source_yaml'])
+    (workspace / 'research.yaml').write_text(packet['source_yaml'], encoding='utf-8')
     write_json(workspace / 'run-spec.json', packet['resolved'])
     report = {k: v for k, v in packet.items() if k not in ('source_yaml', 'resolved')}
     report['bundle_id'] = 'RB-' + uuid.uuid4().hex
@@ -65,32 +66,36 @@ def initialize(workspace, packet):
 
 
 def _artifact_paths(workspace):
-    for path in sorted(workspace.iterdir()):
-        if path.is_symlink() or path.name.startswith('.') or path.name in {'bundle.json', 'auth.json', 'credentials.json', 'config.json'}:
-            continue
-        if path.is_file() and path.suffix in ('.json', '.jsonl', '.yaml', '.txt', '.md', '.log', '.py'):
-            yield path
-        elif path.is_dir() and path.name in ARTIFACT_DIRS:
-            for child in sorted(path.rglob('*')):
-                if child.is_file() and not child.is_symlink() and not any(p.startswith('.') for p in child.relative_to(workspace).parts):
-                    yield child
+    excluded_dirs = {'__pycache__', 'node_modules', 'venv'}
+    excluded_files = {'auth.json', 'credentials.json'}
+    for directory, dirs, names in os.walk(workspace, followlinks=False):
+        base = Path(directory)
+        dirs[:] = sorted(name for name in dirs if not name.startswith('.') and name not in excluded_dirs
+                         and not (base / name).is_symlink())
+        for name in sorted(names):
+            path = base / name
+            if (name.startswith('.') or name in excluded_files or name.endswith(('.tmp', '.pyc'))
+                    or path == workspace / 'bundle.json' or path.is_symlink()):
+                continue
+            if path.is_file():
+                yield path
 
 
 def seal(workspace, *, state='finished') -> ResearchBundle:
     workspace = Path(workspace).resolve()
-    report = json.loads((workspace / 'compile-report.json').read_text())
+    report = json.loads((workspace / 'compile-report.json').read_text(encoding='utf-8'))
     artifacts = []
     for path in _artifact_paths(workspace):
         if not path.resolve().is_relative_to(workspace):
             continue
         artifacts.append({'path': path.relative_to(workspace).as_posix(), 'bytes': path.stat().st_size,
                           'sha256': file_hash(path)})
-    spec = json.loads((workspace / 'run-spec.json').read_text())
-    run = json.loads((workspace / 'run.json').read_text()) if (workspace / 'run.json').is_file() else {}
+    spec = json.loads((workspace / 'run-spec.json').read_text(encoding='utf-8'))
+    run = json.loads((workspace / 'run.json').read_text(encoding='utf-8')) if (workspace / 'run.json').is_file() else {}
     result = {'format': 'canary.research-bundle', 'version': BUNDLE_VERSION,
               'id': report['bundle_id'], 'created_at': report['created_at'],
               'state': state, 'execution': {'status': run.get('status'), 'answered': run.get('answered'),
-                  'audit_complete': run.get('audit_complete')}, 'specification': {'source_yaml': (workspace / 'research.yaml').read_text(),
+                  'audit_complete': run.get('audit_complete')}, 'specification': {'source_yaml': (workspace / 'research.yaml').read_text(encoding='utf-8'),
                   'resolved': spec, 'spec_sha256': report['spec_sha256'], 'compiler_version': report['compiler_version'],
                   'checks': report['checks'], 'engine': report['engine']},
               'artifacts': artifacts,
@@ -106,7 +111,7 @@ def read(workspace) -> ResearchBundle:
         return {'format': 'canary.research-bundle', 'version': BUNDLE_VERSION, 'id': '', 'created_at': None, 'execution': {'status': None, 'answered': None, 'audit_complete': None}, 'state': 'legacy_unversioned',
                 'specification': None, 'artifacts': [],
                 'limitations': ['No compiled bundle manifest was recorded for this run. Existing research remains available.']}
-    value = json.loads(path.read_text())
+    value = json.loads(path.read_text(encoding='utf-8'))
     if not isinstance(value, dict):
         raise ValueError('Bundle manifest must be an object')
     if value.get('format') != 'canary.research-bundle' or value.get('version') != BUNDLE_VERSION:
@@ -126,9 +131,9 @@ def read(workspace) -> ResearchBundle:
             target = Path(workspace) / name
             if name not in records or not target.is_file() or file_hash(target) != records[name]['sha256']:
                 raise ValueError('Compiled bundle input changed: ' + name)
-        actual = json.loads((Path(workspace) / 'run-spec.json').read_text())
+        actual = json.loads((Path(workspace) / 'run-spec.json').read_text(encoding='utf-8'))
         if (digest(actual) != spec['spec_sha256'] or actual != spec['resolved'] or
-                (Path(workspace) / 'research.yaml').read_text() != spec['source_yaml']):
+                (Path(workspace) / 'research.yaml').read_text(encoding='utf-8') != spec['source_yaml']):
             raise ValueError('Bundle specification disagrees with the saved inputs')
     return value
 
@@ -165,7 +170,7 @@ def artifact(workspace, name):
 
 def run_compiled(staged, workspace):
     from . import coverage_runtime, coverage_export
-    packet = verify_compiled(json.loads(Path(staged).read_text()))
+    packet = verify_compiled(json.loads(Path(staged).read_text(encoding='utf-8')))
     spec = packet['resolved']
     workspace = Path(workspace)
     reserved = False
