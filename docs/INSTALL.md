@@ -77,7 +77,7 @@ a live scientific run or model-access certification.
 The service Compose profile allows the namespace setup required by Codex's inner
 Linux sandbox (`seccomp=unconfined`, `apparmor=unconfined` on the outer container).
 Codex still runs tools with its workspace-write bubblewrap/seccomp sandbox and
-native approval policy. This follows the [official nested-container setup](https://github.com/openai/codex/blob/main/.devcontainer/README.md).
+native approval policy. This follows the [official nested-container setup](https://learn.chatgpt.com/docs/agent-approvals-security).
 A plain `docker run` with Docker's default profile can start the API but fail to
 execute native tools; use the Compose profile or the same explicit runtime options.
 CI executes a sandboxed command and a local API request, in addition to boot checks.
