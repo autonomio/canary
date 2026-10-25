@@ -7,6 +7,8 @@ services:
       - "127.0.0.1:8789:8789"
     environment:
       OPENALEX_API_KEY: ${OPENALEX_API_KEY:-}
+      CANARY_ALLOWED_HOSTS: ${CANARY_ALLOWED_HOSTS:-}
+      CANARY_ALLOWED_ORIGINS: ${CANARY_ALLOWED_ORIGINS:-}
     volumes:
       - research:/data
       - codex-auth:/auth

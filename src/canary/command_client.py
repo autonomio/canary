@@ -6,6 +6,8 @@ from urllib.parse import quote
 
 import httpx
 
+from .api_client import endpoint
+
 
 def run(args, port):
     def request(client, method, path, **kwargs):
@@ -15,8 +17,10 @@ def run(args, port):
             raise ValueError(value.get('error', f'HTTP {response.status_code}'))
         return value
     try:
-        with httpx.Client(base_url=f'http://127.0.0.1:{port}', timeout=30, trust_env=False) as client:
-            if args.cmd == 'ask':
+        with httpx.Client(base_url=endpoint(port), timeout=30, trust_env=False) as client:
+            if args.cmd == 'api':
+                value = request(client,'GET','/openapi.json')
+            elif args.cmd == 'ask':
                 if args.out != './out/question':
                     raise ValueError('--out is replaced by API-owned storage; retrieve the returned run with canary bundle RUN_KEY')
                 value = request(client, 'POST', '/api/runs', json={'spec': {'question': args.question,
