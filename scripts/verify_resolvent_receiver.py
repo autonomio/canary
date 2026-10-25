@@ -70,6 +70,13 @@ def verify(api_url, run, receiver, decisions, output):
     assert retry['already_processed'] and retry['files'] == [], retry
     (output/'consumer-checks.json').write_text(json.dumps(results, indent=2)+'\n')
     closure = yaml.safe_load((receiver/'briefs/closed'/(handoff['id'].replace('RUN-', 'BC-')+'.yaml')).read_text())
+    candidates = {c['id']:c for c in handoff['claims']}
+    for disposition in closure['claim_dispositions']:
+        if disposition['disposition'] == 'created':
+            candidate = candidates[disposition['candidate_id']]
+            canonical = yaml.safe_load((receiver/'claims'/(disposition['claim_id']+'.yaml')).read_text())
+            for field in ('statement', 'class', 'uncertainty'):
+                assert canonical[field] == candidate[field], (candidate['id'],field)
     canonical_sources = [yaml.safe_load(p.read_text()) for p in (receiver/'sources').glob('S-*.yaml')]
     for source in handoff['sources']:
         assert any(s['excerpt'] == source['excerpt'] and s['locator'] == source['locator']
