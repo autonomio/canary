@@ -843,7 +843,7 @@ def question_research_bundle(bundle: Path, run: dict) -> dict:
             "usage": parsed.get("usage", {}), "unanswered": graph.get("unanswered", []),
             "synthesis_md": markdown, "synthesis_truncated": False,
             "papers": papers, "papers_total": run.get("discovered", len(papers)), "papers_truncated": False,
-            "iterations": [], "assessments": [], "decisions": runs.journal_events(bundle)}
+            "iterations": [], "assessments": [], "decisions": merged_timeline(bundle)}
 
 
 def _saved_source_path(bundle: Path, value) -> Path | None:
@@ -1051,6 +1051,19 @@ def merged_timeline(bundle: str | Path, tail: int = 0) -> list[dict]:
         text = f"op={op} kind={kind} event={event}".strip()
         items.append({"t": ev.get("at", ""), "seq": 0, "source": "ops",
                       "phase": kind or "ops", "event": event, "detail": text})
+    try:
+        lines = (Path(bundle) / 'runtime-progress.jsonl').read_text(encoding='utf-8').splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(ev, dict):
+            items.append({'t': ev.get('at', ''), 'seq': 0, 'source': 'runtime',
+                          'phase': ev.get('role', 'research'), 'event': ev.get('event', ''),
+                          'detail': str(ev.get('text') or ev.get('event', ''))[:1600]})
     items.sort(key=lambda i: (i["t"] or "9", i["seq"]))
     return items[-tail:] if tail > 0 else items
 
@@ -1424,6 +1437,8 @@ class Handler(BaseHTTPRequestHandler):
         stream = query.get("stream", ["all"])[0]
         bundle = row.get("bundle", "")
         payload: dict = {"key": key, "live": False}
+        if isinstance(row.get('worker'), dict):
+            payload['live'] = processes.live(row['worker'])
         if row.get("status") in ("running", "paused") and row.get("container"):
             payload["live"] = self.supervisor.inspect(row["container"])["live"]
         if stream in ("all", "timeline"):

@@ -45,6 +45,27 @@ def test_native_startup_failure_retains_actual_cli_diagnostic(tmp_path):
     assert dashboard.question_research_bundle(tmp_path, {})['startup_error'] is None
 
 
+def test_native_operational_progress_is_visible_without_private_events(server):
+    from canary import processes
+    bundle = server['root'] / 'native'
+    bundle.mkdir()
+    progress = {'at': '2026-10-25T12:00:00Z', 'event': 'research_message',
+                'text': 'Reading selected source methods.'}
+    (bundle/'runtime-progress.jsonl').write_text(json.dumps(progress)+'\n{partial')
+    # Raw native events can contain reasoning; they are never a log source.
+    (bundle/'research-events.jsonl').write_text('PRIVATE-NATIVE-EVENT')
+    runs.register_start('native', 'Native', '', bundle=str(bundle),
+                        path=server['registry'], status='running')
+    row = runs.get('native',server['registry'])
+    row['worker'] = {'pid': os.getpid(), 'identity': processes.identity(os.getpid())}
+    runs.upsert(row,server['registry'])
+    log = server['client'].get('/api/runs/native/log').json()
+    assert log['live'] is True
+    assert log['timeline'][0]['detail'] == progress['text']
+    assert 'PRIVATE-NATIVE-EVENT' not in json.dumps(log)
+    assert dashboard.question_research_bundle(bundle,{})['decisions'] == log['timeline']
+
+
 @pytest.fixture()
 def server(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
