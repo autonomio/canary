@@ -828,7 +828,12 @@ def question_research_bundle(bundle: Path, run: dict) -> dict:
     except OSError:
         markdown = None
     parsed = runs.parse_bundle(bundle)
+    receipt = load('research-receipt.json', {})
+    startup_error = None
+    if receipt.get('exit_code') and not receipt.get('thread_id'):
+        startup_error, _ = _read_capped(bundle/'research-stderr.log', 3000)
     return {"kind": "question", "answer": graph, "run": run, "peer_review": review,
+            'startup_error': startup_error,
             "query_net": load("query-net.json", {}), "access": access,
             "source_recovery": load("source-recovery.json", {}),
             "coverage": load("coverage.json", {}), "paper_selection": load("paper-selection.json", {}),

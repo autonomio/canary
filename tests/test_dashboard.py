@@ -31,6 +31,20 @@ def test_slugify():
     assert len(dashboard.slugify("x" * 200)) == 40
 
 
+def test_native_startup_failure_retains_actual_cli_diagnostic(tmp_path):
+    (tmp_path / 'research-receipt.json').write_text(json.dumps({
+        'exit_code': 2, 'thread_id': None}))
+    diagnostic = "error: conflicting native CLI arguments"
+    (tmp_path / 'research-stderr.log').write_text(diagnostic)
+    result = dashboard.question_research_bundle(tmp_path, {'status': 'failed'})
+    assert result['startup_error'] == diagnostic
+    assert result['answer'] == {}
+    # A scientific-session failure belongs to its recorded thread, not startup.
+    (tmp_path / 'research-receipt.json').write_text(json.dumps({
+        'exit_code': 1, 'thread_id': 'recorded-thread'}))
+    assert dashboard.question_research_bundle(tmp_path, {})['startup_error'] is None
+
+
 @pytest.fixture()
 def server(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)

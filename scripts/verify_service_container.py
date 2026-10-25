@@ -39,6 +39,24 @@ def main():
                 assert b'Research' in response.read()
             assert 'signed_out' in docker('exec', name, 'canary', 'auth', 'status', '--json')
             if attempt == 0:
+                # Exercise the installed CLI parser with the production invocation.
+                # Invalid JSON must stop before authentication or inference.
+                docker('exec', name, 'python', '-c', """
+import subprocess, tempfile
+from pathlib import Path
+from canary.coverage_runtime import command_line
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    shape = root / 'invalid.json'
+    shape.write_text('{')
+    result = subprocess.run(command_line('codex', 'gpt-6.1-sol', 'xhigh', root,
+                                         shape, root / 'output.json'),
+                            input='Invalid schema parser probe.', text=True,
+                            capture_output=True, cwd=root, timeout=20)
+    assert result.returncode != 0, result.stdout
+    assert 'is not valid JSON' in result.stderr, result.stderr
+""")
+            if attempt == 0:
                 docker('exec', name, 'python', '-c',
                        "from pathlib import Path; assert not Path('/build').exists(); "
                        "Path('/data/persistence-proof').write_text('research-marker'); "
@@ -50,6 +68,7 @@ def main():
             docker('rm', '-f', name)
         print(json.dumps({'image': image, 'api': True, 'dashboard': True, 'codex': True,
                           'pdftotext': True, 'persistent_data_and_auth_roots': True,
+                          'native_invocation_parser': True,
                           'provider_inference': False}))
     finally:
         subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

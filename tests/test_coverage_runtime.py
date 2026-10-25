@@ -299,6 +299,7 @@ def test_scientific_invocation_keeps_authorized_models_and_approval_review(tmp_p
     assert command[command.index("-m") + 1] == "gpt-6.1-sol"
     assert 'model_reasoning_effort="xhigh"' in command
     assert "--approve-for-me" in command and "agents.enabled=false" in command
+    assert '--sandbox' not in command  # approve-for-me already selects workspace-write
     assert "--dangerously-bypass-approvals-and-sandbox" not in command
     assert protocol.AUDIT_MODEL == "gpt-6-astra" and protocol.AUDIT_EFFORT == "ultra"
 
