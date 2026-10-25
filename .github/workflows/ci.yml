@@ -1,13 +1,12 @@
 # Budgets (enforced by timeout-minutes, measured 2026-09-27):
 #   smoke ~21s -> 3 min; matrix ~22s -> 5 min; docker cold ~2.5min / warm ~90s -> 8 min
 # smoke runs on every push; matrix + docker run only on pull_request.
-# Docs-only changes skip CI entirely (no test reads docs content; verified 2026-09-27).
+# Docs-only pushes skip CI; every PR runs the checks required by branch protection.
 name: ci
 on:
   push:
     paths-ignore: ['docs/**', 'validation/**', '**/*.md']
-  pull_request:
-    paths-ignore: ['docs/**', 'validation/**', '**/*.md']
+  pull_request: {}
   schedule:
     - cron: "17 6 * * 1"  # weekly containment proof on main (Build 04)
 permissions:
