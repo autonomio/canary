@@ -65,6 +65,25 @@ with tempfile.TemporaryDirectory() as directory:
                        "import json,urllib.request; from pathlib import Path; "
                        "assert json.load(urllib.request.urlopen('http://127.0.0.1:8789/api/status'))['service']=='available'; "
                        "Path('/data/native-sandbox-proof').write_text('executed')")
+                docker('exec', name, 'python', '-c', """
+import subprocess
+from canary.processes import identity, stop_tree, live
+command = ['codex','sandbox','-c','sandbox_mode="workspace-write"',
+           '-c','sandbox_workspace_write.network_access=true','--','python','-c',
+           'import time; print("sandbox-ready",flush=True); time.sleep(60)']
+process = subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+try:
+    line = process.stdout.readline().strip()
+    assert line == 'sandbox-ready', line
+    receipt = {'pid':process.pid,'identity':identity(process.pid)}
+    assert stop_tree(receipt)
+    process.wait(timeout=5)
+    assert not live(receipt)
+finally:
+    if process.poll() is None:
+        process.kill()
+        process.wait()
+""")
             if attempt == 0:
                 docker('exec', name, 'python', '-c',
                        "from pathlib import Path; assert not Path('/build').exists(); "
@@ -79,6 +98,7 @@ with tempfile.TemporaryDirectory() as directory:
                           'pdftotext': True, 'persistent_data_and_auth_roots': True,
                           'native_invocation_parser': True,
                           'native_sandbox_execution_and_api': True,
+                          'native_sandbox_cancellation': True,
                           'provider_inference': False}))
     finally:
         subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

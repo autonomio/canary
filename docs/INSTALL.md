@@ -81,3 +81,8 @@ native approval policy. This follows the [official nested-container setup](https
 A plain `docker run` with Docker's default profile can start the API but fail to
 execute native tools; use the Compose profile or the same explicit runtime options.
 CI executes a sandboxed command and a local API request, in addition to boot checks.
+
+The image installs distribution bubblewrap with its setuid launcher so the
+non-root service user can construct the inner sandbox on hosts that reject
+unprivileged UID mapping. It also includes procps for native process-tree control.
+The container proof cancels a real sandboxed child process without model inference.
