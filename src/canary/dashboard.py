@@ -265,6 +265,13 @@ class Supervisor:
                     row.update(finished or {})
                 elif alive and row.get('status') != 'cancelling':
                     row.update({k:v for k,v in runs.parse_bundle(row['bundle']).items() if v not in (None,'?',{})})
+                elif not alive:
+                    # A restart observer may have registered an older completion
+                    # using observation time. The recorded run remains authoritative.
+                    parsed = runs.parse_bundle(row['bundle'])
+                    if parsed.get('ended_at') and not parsed.get('ended_at_estimated'):
+                        for field in ('started_at','ended_at','duration_seconds','timing_source','ended_at_estimated'):
+                            row[field] = parsed.get(field)
                 row.update(live=alive, can_cancel=alive and row.get('status') in runs._ACTIVE_STATUS and row.get('status') != 'cancelling')
                 continue
             container = row.get("container") or ""

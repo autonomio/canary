@@ -86,3 +86,6 @@ The image installs distribution bubblewrap with its setuid launcher so the
 non-root service user can construct the inner sandbox on hosts that reject
 unprivileged UID mapping. It also includes procps for native process-tree control.
 The container proof cancels a real sandboxed child process without model inference.
+`SYS_ADMIN` is available to the setuid sandbox launcher for nested namespace setup;
+the service continues to run as the non-root `canary` user. The same explicit
+runtime configuration is exercised by the container check on Linux CI.

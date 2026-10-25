@@ -14,8 +14,10 @@ printed PLA, and which printing conditions limit comparisons between studies?**
 | Sol 6.1 xhigh research | 1,551.676 | 12,132,293 | 11,891,072 | 65,984 | 12,810 |
 | Astra 6 ultra audit | 600.080 | 2,206,159 | 2,039,680 | 14,625 | 4,707 |
 
-Wall time was **2,213.630 seconds (36m 54s)**. The difference from stage totals is
-orchestration/finalization, not additional uncounted model work. Native receipts
+Wall time from the recorded run timestamps was **2,153.841 seconds (35m 54s)**.
+About two seconds cover orchestration/finalization. The restart observer initially
+reported completion about 60 seconds late; API completion now preserves the run
+timestamp instead of using observation time. Native receipts
 reported zero cache-write input in both stages. Cached input and reasoning output
 are subsets, never extra tokens. Both scientific threads verified no subagents.
 The CLI recorded an initial rate-limit retry; its time remains in the measurement.

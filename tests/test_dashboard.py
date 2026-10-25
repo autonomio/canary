@@ -66,6 +66,23 @@ def test_native_operational_progress_is_visible_without_private_events(server):
     assert dashboard.question_research_bundle(bundle,{})['decisions'] == log['timeline']
 
 
+def test_restart_observer_keeps_actual_native_completion_time(server):
+    bundle=server['root']/'finished-native';bundle.mkdir()
+    start,end='2026-10-25T12:00:00+00:00','2026-10-25T12:01:00+00:00'
+    (bundle/'run.json').write_text(json.dumps({'kind':'question','status':'answered',
+        'execution_mode':'coverage-guided full-paper research','started_at':start,
+        'generated_at':start,'ended_at':end}))
+    runs.register_start('finished-native','Native','',bundle=str(bundle),path=server['registry'],
+                        worker={'pid':99999999,'identity':'not-live'})
+    row=server['client'].get('/api/runs/finished-native').json()
+    assert row['ended_at']==end and row['duration_seconds']==60
+    assert runs.get('finished-native',server['registry'])['ended_at']==end
+    # Old observer-time records remain correct in the API view without rewriting history.
+    saved=runs.get('finished-native',server['registry']);saved['ended_at']='2026-10-25T12:02:00+00:00'
+    runs.upsert(saved,server['registry'])
+    assert server['client'].get('/api/runs/finished-native').json()['ended_at']==end
+
+
 @pytest.fixture()
 def server(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)

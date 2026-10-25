@@ -2,7 +2,7 @@
   "run_key": "clean-install-proof-pla-infill-and-tensi-202610251354",
   "bundle_id": "RB-217f0ce55ad742e2923a8f5d936812e8",
   "status": "answered",
-  "wall_seconds": 2213.630127,
+  "wall_seconds": 2153.840893,
   "reviewed_papers": 50,
   "acquired_papers": 55,
   "claims": 16,
@@ -131,5 +131,7 @@
     "original_bytes": 771840,
     "original_sha256": "c47c5501b398e46c0f4af9a9530ca0503eecf97bc04655b3987bc985daa0e9b3",
     "http_only": true
-  }
+  },
+  "wall_time_source": "Recorded run.json start/end; observer latency excluded",
+  "observed_registry_wall_seconds": 2213.630127
 }
