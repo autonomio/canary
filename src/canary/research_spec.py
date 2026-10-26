@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import TypedDict
+from pathlib import Path
 
 import yaml
 
@@ -72,18 +73,30 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
         raise CompileError('question', 'Expected a question of 1–20,000 characters.')
     research = block(draft.get('research', {}), {'model', 'effort'}, 'research')
     audit = block(draft.get('audit', {}), {'model', 'effort', 'budget_seconds'}, 'audit')
-    retrieval = block(draft.get('retrieval', {}), {'selection', 'target_papers', 'corpus', 'access'}, 'retrieval')
+    retrieval = block(draft.get('retrieval', {}), {'selection', 'target_papers', 'corpus', 'access', 'local_text'}, 'retrieval')
     for path, value, expected in (
         ('research.model', research.get('model', protocol.RESEARCH_MODEL), protocol.RESEARCH_MODEL),
         ('research.effort', research.get('effort', protocol.RESEARCH_EFFORT), protocol.RESEARCH_EFFORT),
         ('audit.model', audit.get('model', protocol.AUDIT_MODEL), protocol.AUDIT_MODEL),
         ('audit.effort', audit.get('effort', protocol.AUDIT_EFFORT), protocol.AUDIT_EFFORT),
         ('retrieval.selection', retrieval.get('selection', 'coverage'), 'coverage'),
-        ('retrieval.corpus', retrieval.get('corpus', 'fresh'), 'fresh'),
         ('retrieval.access', retrieval.get('access', 'open_full_text'), 'open_full_text'),
     ):
         if value != expected:
             raise CompileError(path, f'This engine supports {expected}; no fallback is applied.')
+    corpus = retrieval.get('corpus', 'fresh')
+    if corpus not in ('fresh', 'local_text'):
+        raise CompileError('retrieval.corpus', 'Supported corpora: fresh, local_text.')
+    local = None
+    if corpus == 'local_text':
+        local = block(retrieval.get('local_text'), {'directory', 'metadata'}, 'retrieval.local_text')
+        if 'directory' not in local:
+            raise CompileError('retrieval.local_text.directory', 'An absolute server-side directory is required.')
+        for field, value in local.items():
+            if not isinstance(value, str) or not value or len(value) > 4096 or '\x00' in value or not Path(value).is_absolute():
+                raise CompileError('retrieval.local_text.' + field, 'Expected an absolute server-side path.')
+    elif 'local_text' in retrieval:
+        raise CompileError('retrieval.local_text', 'Local text settings require corpus: local_text.')
     if draft.get('subagents', False) is not False:
         raise CompileError('subagents', 'Subagents are disabled for research and audit.')
     target, seconds = retrieval.get('target_papers', 50), audit.get('budget_seconds', 600)
@@ -93,7 +106,8 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
     resolved = {'version': 1, 'question': question.strip(),
                 'research': {'model': protocol.RESEARCH_MODEL, 'effort': protocol.RESEARCH_EFFORT},
                 'audit': {'model': protocol.AUDIT_MODEL, 'effort': protocol.AUDIT_EFFORT, 'budget_seconds': seconds},
-                'retrieval': {'selection': 'coverage', 'target_papers': target, 'corpus': 'fresh', 'access': 'open_full_text'},
+                'retrieval': {'selection': 'coverage', 'target_papers': target, 'corpus': corpus, 'access': 'open_full_text',
+                              **({'local_text': dict(local)} if local is not None else {})},
                 'subagents': False}
     return {'source_yaml': source if source is not None else yaml.safe_dump(draft, sort_keys=False),
             'resolved': resolved, 'spec_sha256': digest(resolved), 'compiler_version': 1,

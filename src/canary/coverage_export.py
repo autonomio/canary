@@ -631,8 +631,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
             _copy(text_path, bundle / local_text)
         paper = {"ref": sid, "title": ref.get("title", c.get("title", sid)), "doi": ref.get("doi", c.get("doi")),
                  "authors": ref.get("authors", []), "year": ref.get("year", c.get("year")),
-                 "url": "https://openalex.org/" + sid, "abstract": c.get("abstract", ""),
-                 "extra": {"local_file": local_file, "text_sha256": ref.get("text_sha256"), "body_sha256": ref.get("body_sha256")}}
+                 "url": (ref.get("openalex_id") or ref.get("url")) if ref.get("adapter") == "local_text" else "https://openalex.org/" + sid, "abstract": c.get("abstract", ""),
+                 "extra": {**({"adapter": "local_text", "local_source": ref.get("local_source"), "full_text_status": ref.get("full_text_status")} if ref.get("adapter") == "local_text" else {}), "local_file": local_file, "text_sha256": ref.get("text_sha256"), "body_sha256": ref.get("body_sha256")}}
         graph["references"].append({"id": sid, "kind": "fulltext", "paper": paper, "text_url": ref.get("url"),
                                     "text_chars": ref.get("text_chars"), "review": admitted.get(sid),
                                     "role": admitted.get(sid, {}).get("eligibility", "cited_context")})
@@ -664,6 +664,12 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     search_progress = _load(source / "search-progress.json", _load(bundle / "search-progress.json", None))
     if isinstance(search_progress, dict):
         coverage["search_progress"] = search_progress
+    corpus = _load(source / 'local-corpus.json', _load(bundle / 'local-corpus.json', {}))
+    if corpus:
+        coverage['local_corpus'] = {k: v for k, v in corpus.items() if k not in ('files', 'excluded_files')}
+        coverage['local_corpus']['excluded_files_count'] = len(corpus.get('excluded_files', []))
+    if run.get('local_text'):
+        coverage['local_corpus_progress'] = _load(bundle / 'local-corpus-progress.json', {})
     graph["coverage"] = coverage
     profile = _load(bundle / "profile.json", {})
     profile = profile if isinstance(profile, dict) else {}
@@ -708,6 +714,11 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                search_scope="OpenAlex search across titles, abstracts, keywords and indexed full text; abstract relevance assessment followed by full-paper review.")
     access = {"accepted": accepted, "excluded": [r for r in receipts if r.get("status") not in ("downloaded_full_paper", "source_retrieved")],
               "scope_note": "Public full-paper copies; successful downloads alone do not establish full review."}
+    if run.get('local_text'):
+        from .local_text import SCOPE
+        run.update(search_scope='Local UTF-8 text corpus; lexical FTS5 search across titles, metadata abstracts and saved text.', keyword_requests=0)
+        access['scope_note'] = SCOPE
+        graph['caveats'] = list(dict.fromkeys([*graph.get('caveats', []), SCOPE]))
     _save_markdown(bundle / "answer.md", graph)
     _save(bundle / "answer.json", graph)
     _save(bundle / "access.json", access)

@@ -47,12 +47,17 @@ def typed(annotation):
 
 def schemas():
     fixed = lambda value: {'type':'string','const':value}
+    retrieval_fields = {'selection':fixed('coverage'),'target_papers':dict(I,minimum=1,default=50),
+                        'access':fixed('open_full_text')}
+    local_config = obj({'directory':dict(S,pattern='^/',maxLength=4096),
+                        'metadata':dict(S,pattern='^/',maxLength=4096)}, ['directory'])
+    retrieval = {'oneOf': [obj(dict(retrieval_fields, corpus=fixed('fresh'))),
+        obj(dict(retrieval_fields, corpus=fixed('local_text'), local_text=local_config), ['corpus','local_text'])]}
     declaration = obj({'version':{'type':'integer','const':1},'question':dict(S,minLength=1,maxLength=20000),
         'research':obj({'model':fixed(protocol.RESEARCH_MODEL),'effort':fixed(protocol.RESEARCH_EFFORT)}),
         'audit':obj({'model':fixed(protocol.AUDIT_MODEL),'effort':fixed(protocol.AUDIT_EFFORT),
                      'budget_seconds':dict(I,minimum=1,default=600)}),
-        'retrieval':obj({'selection':fixed('coverage'),'target_papers':dict(I,minimum=1,default=50),
-                         'corpus':fixed('fresh'),'access':fixed('open_full_text')}),
+        'retrieval':retrieval,
         'subagents':{'type':'boolean','const':False}}, ['question'])
     native = obj({'yaml':dict(S,minLength=1),'spec':ref('ResearchDeclaration'),'name':S,'brief':S})
     native['oneOf'] = [{'required':['yaml']},{'required':['spec']}]

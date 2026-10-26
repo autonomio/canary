@@ -1,0 +1,8 @@
+version: 1
+question: How do formulation conditions affect VLP solubility and assembly in this library?
+retrieval:
+  corpus: local_text
+  target_papers: 50
+  local_text:
+    directory: /srv/library/papers/fulltext
+    metadata: /srv/library/data/library.jsonl

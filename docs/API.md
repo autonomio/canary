@@ -22,6 +22,14 @@ the question was answered, coverage was complete, or every claim passed its audi
 The bundle includes original/resolved settings and limitations. See
 [run lifecycle](RUN_LIFECYCLE.md) and [bundle storage/ontology](RESEARCH_BUNDLE.md).
 
+## Local text input
+
+Set `retrieval.corpus: local_text` and `retrieval.local_text.directory` in the same
+submission. Optional `retrieval.local_text.metadata` binds JSONL bibliographic
+records. The service requires an explicit `CANARY_LOCAL_TEXT_ROOTS` allowlist.
+See [local input, provenance and retrieval limits](LOCAL_TEXT.md). The live
+OpenAPI declaration and MCP submission schema publish these fields.
+
 ## Findings and exact source reconstruction
 
 `research.answer` is the researcher-facing graph. Follow these IDs:

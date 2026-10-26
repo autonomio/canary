@@ -44,8 +44,8 @@ def execute(row, action: str, body: ToolRequest, root: Path):
         return engine.discover(workspace, path, root=root, pages=body.get('pages', 5))
     if action == 'acquire':
         ids = body.get('ids')
-        if not isinstance(ids, list) or not ids or not all(isinstance(v, str) and engine.WORK_ID.fullmatch(v) for v in ids):
-            raise ValueError('ids must be a nonempty list of OpenAlex work IDs')
+        if not isinstance(ids, list) or not ids or not all(isinstance(v, str) and engine.SOURCE_ID.fullmatch(v) for v in ids):
+            raise ValueError('ids must be a nonempty list of source IDs')
         if type(body.get('retry_failed', False)) is not bool:
             raise ValueError('retry_failed must be boolean')
         receipts = engine.acquire(workspace, ids, workers=body.get('workers', 12), retry_failed=body.get('retry_failed', False))

@@ -60,7 +60,7 @@ def initialize(workspace, packet):
     report['engine'] = {'python': sys.version.split()[0], 'sources': {
         name: file_hash(Path(__file__).parent / name) for name in
         ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'claim_freshness.py',
-         'research_spec.py', 'research_bundle.py', 'bundle_connectors.py',
+         'research_spec.py', 'research_bundle.py', 'bundle_connectors.py', 'local_text.py',
          'processes.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py', 'api_client.py')}}
     lock = resource_root() / 'uv.lock'
     report['engine']['dependency_lock_sha256'] = file_hash(lock) if lock.is_file() else None
@@ -189,7 +189,8 @@ def run_compiled(staged, workspace):
     try:
         return coverage_runtime.run(spec['question'], workspace,
             minimum_papers=spec['retrieval']['target_papers'], audit_seconds=spec['audit']['budget_seconds'],
-            on_reserved=begin)
+            on_reserved=begin, **({'local_text': spec['retrieval']['local_text']}
+                                if spec['retrieval']['corpus'] == 'local_text' else {}))
     finally:
         if reserved:
             try:

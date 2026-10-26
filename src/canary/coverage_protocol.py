@@ -102,20 +102,37 @@ Preserve raw findings; the subsequent independent audit is separate, with checke
 """
 
 
-def research_prompt(question, command, minimum_papers=50):
+LOCAL_TEXT_SCOPE = """
+This run uses a bounded local-text corpus, never public discovery or downloads.
+Read local-corpus.json for the hashed inventory, excluded files, metadata coverage and scope.
+Queries use SQLite FTS5 lexical MATCH syntax: words joined with AND/OR/NOT; quote phrases and hyphenated words.
+No semantic search is performed. Broaden with synonyms where needed. Candidate discovery_excerpt is a text preview,
+not an abstract or proof of full-publication completeness. supporting_abstract_text must use actual metadata abstracts or null.
+Select the returned L-prefixed IDs. Acquire imports only unchanged bytes from the indexed files; no network fallback.
+Saved originals are the supplied text files. Layout, tables, figures, identity and versions may be missing or damaged.
+Verify source identity and substantive methods/results before counting a paper; mark incomplete sources as preview/uncertain.
+Every coverage, scarcity and absence statement is restricted to this indexed corpus and the actual inspected scope.
+New runs rescan the configured directory; repeating settings does not freeze external input files.
+"""
+
+
+def research_prompt(question, command, minimum_papers=50, *, local_text=False):
+    search = (LOCAL_TEXT_SCOPE if local_text else
+        "Queries must use OpenAlex full-text-inclusive search=; abstract/title-only filters are prohibited. "
+        "Collapse genuinely shared root queries while preserving question relevance.\n"
+        "Understand: discovery searches indexed full text plus abstracts/titles; relevance triage then reads candidate abstracts, not full papers.")
     return f"""Read the repository AGENTS.md first, then this workspace AGENTS.md. This is real research.
 Question: {question}
 {SCIENTIFIC_RULES}
 1. Write question-plan-draft.json conforming to question-plan-schema.json. Use 'concepts', never 'entities'.
 Translate the question into concepts/synonyms, outcomes, comparators, conditions, coverage aspects and explicit inclusion/exclusion criteria.
-Queries must use OpenAlex full-text-inclusive search=; abstract/title-only filters are prohibited. Collapse genuinely shared root queries while preserving question relevance.
-Understand: discovery searches indexed full text plus abstracts/titles; relevance triage then reads candidate abstracts, not full papers.
+{search}
 Discovery alone commits the validated question-plan.json; never overwrite that canonical file directly.
 2. Run {command} discover --plan question-plan-draft.json. Read search-progress.json and candidates.jsonl.
 Choose batches by coverage-guided marginal information gain: direct comparisons, contrasting/adverse/null findings, condition/outcome differences, methods, then needed context.
 Record selection.json as {{method:'coverage', approach, assessed_candidate_ids, decisions:[{{work_id,decision:'include|exclude|defer',evidence_role:'core|supporting|unknown',reason,criterion_matches,unknowns,supporting_abstract_text,priority_rank,coverage_contribution}}], selected_for_review_ids, stopping_reason, selection_limitations}}.
 Exact abstract support or null; missing abstracts are uncertainty, not automatic exclusion. All omitted candidates remain unassessed.
-3. Run {command} acquire --ids W... W... for only your selected batch. Launch acquisition in the background if useful;
+3. Run {command} acquire --ids SOURCE_ID SOURCE_ID for only your selected batch. Launch acquisition in the background if useful;
 read committed sources using {command} catalog and {command} source WORK_ID --match REGEX --context 2 --limit 8.
 Do useful screening, reading or synthesis while downloads proceed; never wait idly for an unavailable paper.
 Originals are papers/, full extracted texts texts/, immutable source spans passages/, per-paper receipts download-receipts/.

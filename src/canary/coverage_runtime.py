@@ -35,6 +35,7 @@ from .runtime_paths import data_root
 from .processes import RunCancelled, stop_tree, identity, tool_receipts
 
 WORK_ID = re.compile(r"W[1-9][0-9]{0,19}\Z")
+SOURCE_ID = re.compile(r"(?:W[1-9][0-9]{0,19}|L[0-9a-f]{24})\Z")
 _LOCK = threading.Lock()
 
 
@@ -194,7 +195,8 @@ def _commit_discovery(workspace, works, progress, plan):
         progress.pop("incomplete_reason", None)
     write(workspace / "works.json", list(works.values()))
     candidates = [{"id": ident, "title": w.get("display_name") or w.get("title"), "year": w.get("publication_year"),
-        "doi": w.get("doi"), "abstract": abstract_text(w.get("abstract_inverted_index")),
+        "doi": w.get("doi"), "abstract": w.get("abstract") if "local_text" in w else abstract_text(w.get("abstract_inverted_index")),
+        **({"local_text": w["local_text"], "discovery_excerpt": w.get("discovery_excerpt")} if "local_text" in w else {}),
         "oa_indicated": (w.get("open_access") or {}).get("is_oa"), "query_ids": w["query_ids"], "rank": w["fresh_search_rank"]}
         for ident, w in works.items()]
     temporary = workspace / "candidates.jsonl.tmp"
@@ -212,6 +214,10 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
     if pages < 1:
         raise ValueError("Search page limit must be positive")
     with workspace_lock(workspace, "discovery"):
+        local = read(workspace / 'run.json', {}).get('local_text')
+        if local:
+            from .local_text import discover as local_discover
+            return local_discover(workspace, plan, local, pages)
         previous_plan = read(workspace / "question-plan.json")
         run_question = read(workspace / "run.json", {}).get("question")
         if run_question and run_question != plan["question"]:
@@ -392,6 +398,8 @@ def _extract(raw, kind, work):
         return text, pages, list(blank), "pdf"
     if kind in ("application/xml", "text/xml", "application/tei+xml"):
         return _xml_text(raw), 0, [], "xml"
+    if kind == "text/plain" and "local_text" in work:
+        return raw.decode("utf-8"), 0, [], "source.txt"
     if kind == "text/html":
         return article_text(raw, {"doi": work.get("doi"), "title": work.get("display_name")}), 0, [], "html"
     raise ValueError("Response is not a supported paper body")
@@ -410,13 +418,17 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
     """Only explicitly selected works, concurrent failures contained, receipts committed individually."""
     workspace = Path(workspace).resolve()
     ids = list(dict.fromkeys(ids))
-    if not ids or any(not WORK_ID.fullmatch(identifier) for identifier in ids):
-        raise ValueError("Provide selected OpenAlex work IDs")
+    if not ids or any(not SOURCE_ID.fullmatch(identifier) for identifier in ids):
+        raise ValueError("Provide selected source IDs")
     if not 1 <= workers <= 32:
         raise ValueError("Acquisition workers must be between 1 and 32")
     works = {w["id"].rsplit("/", 1)[-1]: w for w in read(workspace / "works.json", [])}
     if any(identifier not in works for identifier in ids):
-        raise ValueError("Selected ID is absent from this workspace's fresh search")
+        raise ValueError("Selected ID is absent from this workspace's search")
+    local = read(workspace / 'run.json', {}).get('local_text')
+    if local:
+        from .local_text import fetch as local_fetch
+        fetch = lambda work, transport: local_fetch(work, local)
     fetch, extract = fetch or _fetch_public, extract or _extract
     transport = transport or LoggedTransport(workspace)
     with workspace_lock(workspace, "acquisition"):
@@ -427,7 +439,8 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
                 return old
             work, started = works[identifier], time.monotonic()
             receipt = {"work_id": identifier, "title": work.get("display_name"), "started_at": now(),
-                       "fresh_download": True, "previous_run_body_used": False}
+                       "fresh_download": not bool(local), "previous_run_body_used": False,
+                       **({"adapter": "local_text", "local_source": work["local_text"]} if local else {})}
             try:
                 result, timeout_seen = fetch(work, transport)
                 if result is None:
@@ -453,6 +466,10 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
                         "pages": pages, "blank_pages": blank, "text_chars": len(text), "fresh_download_at": now(),
                         "preview_marker_detected": preview,
                         "full_text_status": "preview_suspected" if preview else "requires_source_verification"}
+                    if local:
+                        reference.update(adapter='local_text', local_source=work['local_text'],
+                            openalex_id=work.get('openalex_id'), imported_at=reference.pop('fresh_download_at'),
+                            full_text_status='preview_suspected' if preview else 'local_text_requires_source_verification')
                     receipt.update(status="source_retrieved", reference=reference, url=url, bytes=len(raw))
             except Exception as error:
                 receipt.update(status="retrieval_or_extraction_failed", reason=type(error).__name__ + ": " + str(error))
@@ -476,7 +493,7 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
 
 
 def source(workspace, reference_id, *, match=None, page=None, context=2, limit=8, record_read=True):
-    if not WORK_ID.fullmatch(reference_id):
+    if not SOURCE_ID.fullmatch(reference_id):
         raise ValueError("Invalid source ID")
     if context < 0 or limit < 1:
         raise ValueError("Invalid source window")
@@ -796,7 +813,7 @@ def scientific_session(workspace, role, model, effort, prompt, shape, *, executa
     return result, receipt
 
 
-def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable=None, on_reserved=None):
+def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable=None, on_reserved=None, local_text=None):
     workspace = Path(workspace).resolve()
     if not question.strip() or minimum_papers < 1 or audit_seconds < 1:
         raise ValueError("Question, paper target and audit duration must be nonempty/positive")
@@ -823,7 +840,8 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
         "status": "researching", "started_at": started, "generated_at": started,
         "selection_method": "coverage-guided", "minimum_papers": minimum_papers, "research_model": protocol.RESEARCH_MODEL,
         "research_effort": protocol.RESEARCH_EFFORT, "audit_model": protocol.AUDIT_MODEL, "audit_effort": protocol.AUDIT_EFFORT,
-        "no_subagents": True, "fresh_assets_only": True, "audit_budget_seconds": audit_seconds,
+        "no_subagents": True, "fresh_assets_only": not bool(local_text),
+        **({"local_text": local_text, "corpus": "local_text"} if local_text else {}), "audit_budget_seconds": audit_seconds,
         "accounting_scope": "Native CLI workload; legacy DeepSeek gateway token ledger remains a separate deployment."}
     write(workspace / "run.json", manifest)
     write(workspace / "question-plan-schema.json", protocol.question_plan_schema())
@@ -833,15 +851,22 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
     try:
         if os.environ.get('CANARY_CANCEL_MARKER') and Path(os.environ['CANARY_CANCEL_MARKER']).exists():
             raise RunCancelled('Research cancelled before inference started')
+        if local_text:
+            from .local_text import prepare
+            manifest.update(status='indexing_local_text')
+            write(workspace / 'run.json', manifest)
+            prepare(workspace, local_text)
+            manifest.update(status='researching')
+            write(workspace / 'run.json', manifest)
         scientific_session(workspace, "research", protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT,
-            protocol.research_prompt(question, command, minimum_papers), protocol.investigation_schema(), executable=executable)
+            protocol.research_prompt(question, command, minimum_papers, local_text=bool(local_text)), protocol.investigation_schema(), executable=executable)
         wait_for_tools(run_key)
         payload = bind_payload(workspace)
         manifest.update(status="auditing", research_finished_at=now(), accounting=payload["accounting"])
         write(workspace / "run.json", manifest)
         write(workspace / "audit-input.json", payload)
         audit, _ = scientific_session(workspace, "audit", protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT,
-            protocol.audit_prompt(question, command, audit_seconds), protocol.audit_schema(), executable=executable,
+            protocol.audit_prompt(question, command, audit_seconds) + (protocol.LOCAL_TEXT_SCOPE if local_text else ""), protocol.audit_schema(), executable=executable,
             audit_timeout=audit_seconds)
         wait_for_tools(run_key)
         checked = {r["claim_id"] for r in audit.get("claim_checks", [])}
