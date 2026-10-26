@@ -176,6 +176,7 @@ assert.throws(()=>buildLaunch({q:'Q?',corpus:'local_text',directory:'relative'})
 assert.throws(()=>buildLaunch({q:'Q?',mode:'cycle',corpus:'local_text',directory:'/fixture'}),/question research flow/);
 const d={run:{local_text:{}},coverage:{local_corpus:{indexed_files:12,excluded_files_count:2,matched_metadata_files:10,snapshot_sha256:'hash',search_method:'Lexical FTS5',scope_note:'Only indexed local files.'}}};
 const html=localCorpusHtml(d);
+assert.match(localCorpusHtml({run:{local_text:{}},coverage:{local_corpus_progress:{indexed_files:100}}}),/100 files indexed so far/);
 assert.match(html,/12 indexed files/);assert.match(html,/2 excluded/);assert.match(html,/Snapshot SHA-256/);
 const ref={id:'Lfixture',paper:{title:'Fixture',extra:{adapter:'local_text',local_file:'papers/f.source.txt',local_source:{file:'<unsafe>.txt'},body_sha256:'rawhash',text_sha256:'texthash'}}};
 const source=qaCitation(ref);assert.match(source,/Saved text/);assert.match(source,/rawhash/);assert.match(source,/&lt;unsafe&gt;/);
@@ -240,3 +241,13 @@ def test_runtime_indexes_before_science_and_preserves_local_mode_on_failure(corp
         engine.run(plan()['question'],new,executable='fixture-codex',local_text=config)
     assert engine.read(new/'run.json')['status']=='failed'
     assert engine.read(new/'run.json')['local_text']==config
+
+
+def test_indexing_counts_reach_the_dashboard_before_findings_exist(corpus):
+    workspace,_,_=corpus
+    engine.write(workspace/'local-corpus-progress.json',{'status':'indexing','indexed_files':100,'bytes':12000})
+    result=dashboard.research_bundle(workspace)
+    assert not (workspace/'coverage.json').exists()
+    assert result['coverage']['local_corpus_progress']['indexed_files']==100
+    engine.write(workspace/'local-corpus-progress.json',{'status':'indexing','indexed_files':200,'bytes':24000})
+    assert dashboard.research_bundle(workspace)['coverage']['local_corpus_progress']['indexed_files']==200
