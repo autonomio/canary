@@ -836,6 +836,9 @@ def question_research_bundle(bundle: Path, run: dict) -> dict:
         value = _load_json_file(bundle / name, default)
         return value if isinstance(value, type(default)) else default
     graph, access = load("answer.json", {}), load("access.json", {})
+    coverage = load("coverage.json", {})
+    if run.get("local_text"):
+        coverage["local_corpus_progress"] = load("local-corpus-progress.json", {})
     review = {key: value for key, value in load("peer-review.json", {}).items() if key != "revised_answer"}
     papers = load("abstracts.json", [])
     if not papers:
@@ -853,7 +856,7 @@ def question_research_bundle(bundle: Path, run: dict) -> dict:
             'startup_error': startup_error,
             "query_net": load("query-net.json", {}), "access": access,
             "source_recovery": load("source-recovery.json", {}),
-            "coverage": load("coverage.json", {}), "paper_selection": load("paper-selection.json", {}),
+            "coverage": coverage, "paper_selection": load("paper-selection.json", {}),
             "profile": load("profile.json", {}), "source_efficiency": load("source-efficiency.json", {}),
             "seed": run.get("question", graph.get("question", "?")),
             "stopped": run.get("status", "?"), "model": run.get("model", graph.get("model", "?")),

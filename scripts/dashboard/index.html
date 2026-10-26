@@ -3306,7 +3306,7 @@
   function localCorpusHtml(d) {
     if(!d.run?.local_text && !d.coverage?.local_corpus) return '';
     const c=d.coverage?.local_corpus, progress=d.coverage?.local_corpus_progress;
-    return `<section class="coverage"><h3>Local text corpus</h3>${c ? `<p>${fmt(c.indexed_files)} indexed files · ${fmt(c.excluded_files_count)} excluded · ${fmt(c.matched_metadata_files)} matched metadata records · ${fmt(c.ambiguous_metadata_files?.length || 0)} ambiguous metadata filenames</p><p class="hint">Snapshot SHA-256: <code>${esc(c.snapshot_sha256)}</code></p><p>${esc(c.search_method)}</p><p class="hint">${esc(c.scope_note)}</p>` : `<p>${progress?.indexed_files != null ? `${fmt(progress.indexed_files)} files indexed so far.` : 'Corpus indexing has not completed.'}</p>`}<p class="hint">Only selected unchanged source bytes are imported. Repeating settings rescans the directory.</p></section>`;
+    return `<section class="coverage"><h3>Local text corpus</h3>${c ? `<p>${fmt(c.indexed_files)} indexed files · ${fmt(c.excluded_files_count)} excluded · ${fmt(c.matched_metadata_files)} matched metadata records · ${fmt(c.ambiguous_metadata_files?.length || 0)} ambiguous metadata filenames</p><p class="hint">Snapshot SHA-256: <code>${esc(c.snapshot_sha256)}</code></p><p>${esc(c.search_method)}</p><p class="hint">${esc(c.scope_note)}</p>` : `<p>${progress?.indexed_files != null ? `${fmt(progress.indexed_files)} files indexed so far · preparing the local library.` : 'Corpus indexing has not completed.'}</p>`}<p class="hint">Only selected unchanged source bytes are imported. Repeating settings rescans the directory.</p></section>`;
   }
   function qaCitation(ref) {
     if (!ref) return '<p class="muted">Citation not recorded.</p>';
