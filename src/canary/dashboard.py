@@ -208,6 +208,9 @@ class Supervisor:
 
     def start_compiled(self, packet: dict, name: str = "", brief: str = "") -> dict:
         packet = verify_compiled(packet)
+        if packet['resolved']['retrieval']['corpus'] == 'local_text':
+            from .local_text import validate_access
+            validate_access(packet['resolved']['retrieval']['local_text'])
         question = packet['resolved']['question']
         started = self.start(name or question[:120], brief or question[:2000],
             ["bash", str(QUESTION_ENGINE_ROOT / "scripts/coverage_run.sh"), "ask", question], compiled=packet)
@@ -931,7 +934,7 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
     payload = {"source_id": source_id, "reference": reference, "paragraphs": [], "page": None,
                "local_file_url": f"/api/runs/{quote(key, safe='')}/sources/{quote(source_id, safe='')}/file" if original else None,
                "original_url": reference.get("text_url") or reference.get("paper", {}).get("url"),
-               "requested_scope": scope, "scope": "paper", "context_label": "Full readable paper",
+               "requested_scope": scope, "scope": "paper", "context_label": "Saved source text" if reference.get("paper", {}).get("extra", {}).get("adapter") == "local_text" else "Full readable paper",
                "text_available": False, "text_complete": None, "offset_verified": False, "warning": ""}
     selected = next((p for p in graph.get("passages", []) if isinstance(p, dict) and p.get("id") == paragraph_id
                      and p.get("source_id") == source_id), None)
@@ -987,7 +990,7 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
                 payload.update(scope="section" if structural else "context",
                                context_label=heading[0].strip() if structural else "From " + heading[0].strip() + " onward")
             else:
-                payload["context_label"] = "Full readable paper (section heading unavailable)"
+                payload["context_label"] = "Saved source text (section heading unavailable)" if reference.get("paper", {}).get("extra", {}).get("adapter") == "local_text" else "Full readable paper (section heading unavailable)"
     for match in re.finditer(r"\S[\s\S]*?(?=\n[ \t]*\n|\Z)", text[begin:end]):
         a, z = begin + match.start(), begin + match.end()
         while z > a and text[z - 1].isspace():
@@ -999,6 +1002,8 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
             payload["paragraphs"].append({"id": f"{source_id}-{kind}-{start}-{stop}", "kind": kind, "text": text[start:stop],
                                            "start": start, "end": stop, "page": page_at(start),
                                            "selected": bool(selection and selection[0] <= start < stop <= selection[1])})
+    if reference.get('paper', {}).get('extra', {}).get('adapter') == 'local_text':
+        payload['warning'] = (payload['warning'] + ' Imported local text; publication completeness, tables and figures are not certified.').strip()
     return payload
 
 

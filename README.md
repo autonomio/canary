@@ -109,3 +109,5 @@ fixture does not establish live latency or scientific quality.
 ## Historical material
 
 The pre-migration source and recovery archive remain in Git history at `pre-canary-20260926`. Current issue numbers and dependency relationships are preserved; current wording uses the Canary interfaces.
+
+For saved paper texts, use the [local text adapter](docs/LOCAL_TEXT.md) through the same API, CLI or dashboard.

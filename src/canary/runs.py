@@ -350,7 +350,7 @@ def parse_bundle(bundle: str | Path) -> dict:
     return record
 
 
-_ACTIVE_STATUS = {None, "", "unknown", "started", "starting", "running", "in_progress", "paused", "cancelling", "planning", "researching", "reading", "acquiring", "auditing"}
+_ACTIVE_STATUS = {'indexing_local_text', None, "", "unknown", "started", "starting", "running", "in_progress", "paused", "cancelling", "planning", "researching", "reading", "acquiring", "auditing"}
 _FAILURE_STATUS = {"failed", "interrupted", "cancelled", "provider_blocked", "invalid_input"}
 _LOG_FIELDS = ("started_at", "ended_at", "duration_seconds", "papers_covered", "papers_acquired", "answered",
                "input_tokens", "output_tokens", "cached_tokens", "timing_source",

@@ -15,7 +15,7 @@ canary runs rerun RUN_KEY
 canary bundle RUN_KEY --connector resolvent
 ```
 
-The [example declaration](examples/research.yaml) records question, exact research/audit model and effort, audit budget, coverage selection, paper target, fresh retrieval and accessible full-source policy. Omitted supported fields resolve to those same defaults. Positive targets/budgets are required; scarcity remains a recorded research outcome. Corpus reuse and other model profiles are not implemented, and are rejected explicitly.
+The [example declaration](examples/research.yaml) records question, exact research/audit model and effort, audit budget, coverage selection, paper target, fresh retrieval and accessible full-source policy. Omitted supported fields resolve to those same defaults. Positive targets/budgets are required; scarcity remains a recorded research outcome. A [local-text source adapter](LOCAL_TEXT.md) accepts a server-side directory and optional JSONL metadata through the same declaration. Reusing earlier research and other model profiles remain unsupported.
 
 Compilation rejects duplicate/unknown keys, executable YAML, invalid types, incompatible settings, unsupported versions/models/effort and subagents. It performs no search, extraction or model call. Credentials stay in service configuration/Codex; the declaration has no credential or executable-hook fields. Submission allocates a fresh API-owned workspace. Auth and submission use the owner-operated local-origin boundary; there is no hosted multi-user identity system.
 

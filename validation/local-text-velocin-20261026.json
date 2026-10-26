@@ -1,0 +1,165 @@
+{
+  "kind": "real-local-corpus-adapter-proof",
+  "scientific_inference_performed": false,
+  "scientific_acceptance": false,
+  "source_library": "Velocin-Library",
+  "source_config": {
+    "directory": "/Users/mikkokotila/dev/Velocin-Library/papers/fulltext",
+    "metadata": "/Users/mikkokotila/dev/Velocin-Library/data/library.jsonl"
+  },
+  "workspace": "/var/folders/zg/pwnp530s7m5731gmlbhqyh_r0000gn/T/canary-velocin-adapter-2opldlp_/bundle",
+  "corpus": {
+    "adapter": "local_text",
+    "version": 1,
+    "created_at": "2026-10-26T18:50:01.889290+00:00",
+    "indexed_files": 30847,
+    "bytes": 3159537762,
+    "metadata_sha256": "18a2e5003b4b91f7448c162ea9d858a100d26e8f22a94af4cc852427815b6695",
+    "metadata_records": 51880,
+    "matched_metadata_files": 30847,
+    "ambiguous_metadata_files": [],
+    "scope_note": "Search covers only the indexed local UTF-8 texts. Text identity, completeness, tables, figures and publication versions require researcher verification. Only selected source bytes are retained in the bundle; the derived search index is excluded.",
+    "search_method": "SQLite FTS5 lexical search; BM25 ranking; no semantic expansion",
+    "seconds": 201.635,
+    "snapshot_sha256": "c8e4fa77008c5f14dc4d5bfa5a105e1056370bc40548c2ab3e4c52de20bc123a"
+  },
+  "excluded_files": [],
+  "queries": {
+    "Q1": {
+      "search": "\"virus like\" AND solubility",
+      "pages": 1,
+      "complete": false,
+      "matched": 1192,
+      "returned": 200,
+      "truncated": true
+    },
+    "Q2": {
+      "search": "capsid AND (assembly OR disassembly) AND (pH OR salt)",
+      "pages": 1,
+      "complete": false,
+      "matched": 4143,
+      "returned": 200,
+      "truncated": true
+    },
+    "Q3": {
+      "search": "\"protein aggregation\" AND (arginine OR histidine OR excipient)",
+      "pages": 1,
+      "complete": false,
+      "matched": 1005,
+      "returned": 200,
+      "truncated": true
+    }
+  },
+  "unique_candidates_returned": 578,
+  "search_complete": false,
+  "selected_copies": [
+    {
+      "id": "L10047ccda4a8d75da0be514c",
+      "title": "Generation of a Soluble African Horse Sickness Virus VP7 Protein Capable of Forming Core-like Particles",
+      "doi": "10.3390/v14081624",
+      "source_file": "10_3390_v14081624.txt",
+      "source_sha256": "90176ee624e55fd6368f502c4b686ba6ae67b95c73f3f84710799e081d24d2a8",
+      "text_sha256": "90176ee624e55fd6368f502c4b686ba6ae67b95c73f3f84710799e081d24d2a8",
+      "text_chars": 79492,
+      "passages_verified": 20,
+      "full_text_status": "local_text_requires_source_verification"
+    },
+    {
+      "id": "L13f2b48540d7ff4094d52f5b",
+      "title": "Modular Virus-like Particles for Antigen Presentation: Comparing Genetic Fusion and Click-Chemistry for Purification",
+      "doi": "10.3390/ijms262010036",
+      "source_file": "10_3390_ijms262010036.txt",
+      "source_sha256": "b9e952606ae096125d48330eb124087d8d277f0c250495c1272e147a0cc1a98a",
+      "text_sha256": "b9e952606ae096125d48330eb124087d8d277f0c250495c1272e147a0cc1a98a",
+      "text_chars": 72507,
+      "passages_verified": 19,
+      "full_text_status": "local_text_requires_source_verification"
+    },
+    {
+      "id": "L2297d134a9c1df2ce6af98c0",
+      "title": "Truncation on N-Terminal Hydrophobic Domain of L1 Major Capsid Protein of Human Papillomavirus Type 52 Enhances Its Expression in Hansenula polymorpha",
+      "doi": "10.4308/hjb.32.4.1062-1072",
+      "source_file": "10_4308_hjb_32_4_1062_1072.txt",
+      "source_sha256": "abcc51c33677f4a9d7e9d30b1ab4086addfe222fed2d8809b7d0c351a5df680a",
+      "text_sha256": "abcc51c33677f4a9d7e9d30b1ab4086addfe222fed2d8809b7d0c351a5df680a",
+      "text_chars": 54284,
+      "passages_verified": 33,
+      "full_text_status": "local_text_requires_source_verification"
+    },
+    {
+      "id": "L28021c29c5d7696c5e9b95b8",
+      "title": "Optimization of a Soft Ensemble Vote Classifier for the Prediction of Chimeric Virus-Like Particle Solubility and Other Biophysical Properties",
+      "doi": "10.3389/fbioe.2020.00881",
+      "source_file": "10_3389_fbioe_2020_00881.txt",
+      "source_sha256": "d1485e32296a707d7b9fb8460c37c5c1af88abd3a8a1d14d974683440a11154f",
+      "text_sha256": "d1485e32296a707d7b9fb8460c37c5c1af88abd3a8a1d14d974683440a11154f",
+      "text_chars": 77628,
+      "passages_verified": 20,
+      "full_text_status": "local_text_requires_source_verification"
+    },
+    {
+      "id": "L38dd23983d038b527b4919e2",
+      "title": "Ensembles of Hydrophobicity Scales as Potent Classifiers for Chimeric Virus-Like Particle Solubility – An Amino Acid Sequence-Based Machine Learning Approach",
+      "doi": "10.3389/fbioe.2020.00395",
+      "source_file": "10_3389_fbioe_2020_00395.txt",
+      "source_sha256": "55db1f890fbc76e1c34fc973036210d4933990c0b5de60ab85641d1a4d8563f8",
+      "text_sha256": "55db1f890fbc76e1c34fc973036210d4933990c0b5de60ab85641d1a4d8563f8",
+      "text_chars": 76944,
+      "passages_verified": 20,
+      "full_text_status": "local_text_requires_source_verification"
+    },
+    {
+      "id": "L4a02e6535f5fb670643d459b",
+      "title": "Structural and stability differences among GI norovirus virus-like particles produced in silkworm–baculovirus expression vector system",
+      "doi": "10.3389/fmicb.2025.1739683",
+      "source_file": "10_3389_fmicb_2025_1739683.txt",
+      "source_sha256": "fd476c1ca0b658c710897ca5600013f55e4d6bf89a0548708b2b45fc7df69dfa",
+      "text_sha256": "fd476c1ca0b658c710897ca5600013f55e4d6bf89a0548708b2b45fc7df69dfa",
+      "text_chars": 89352,
+      "passages_verified": 56,
+      "full_text_status": "local_text_requires_source_verification"
+    },
+    {
+      "id": "L58e8cba96cfe7314b7f6e711",
+      "title": "Synthesis and characterization of different immunogenic viral nanoconstructs from rotavirus VP6 inner capsid protein",
+      "doi": "10.2147/ijn.s60014",
+      "source_file": "10_2147_ijn_s60014.txt",
+      "source_sha256": "0d06f6e6bd3e0af0cab00904c79ebd3091eb3bd2128b4fe52dfdb2b519dfa36e",
+      "text_sha256": "0d06f6e6bd3e0af0cab00904c79ebd3091eb3bd2128b4fe52dfdb2b519dfa36e",
+      "text_chars": 55853,
+      "passages_verified": 14,
+      "full_text_status": "local_text_requires_source_verification"
+    },
+    {
+      "id": "L9c57b6351dde8a2bb98144d2",
+      "title": "Production of FMDV virus-like particles by a SUMO fusion protein approach in Escherichia coli",
+      "doi": "10.1186/1423-0127-16-69",
+      "source_file": "10_1186_1423_0127_16_69.txt",
+      "source_sha256": "0d41f1dfd5909f75b9c1b4a25dd68ec428b09392cec71e30b3469d7efb00e324",
+      "text_sha256": "0d41f1dfd5909f75b9c1b4a25dd68ec428b09392cec71e30b3469d7efb00e324",
+      "text_chars": 22391,
+      "passages_verified": 6,
+      "full_text_status": "local_text_requires_source_verification"
+    },
+    {
+      "id": "Lb7028b5e96656cd9478b74c9",
+      "title": "Surface-Functionalization of PP7 Virus-Like Particles with Spytag for Bioconjugation Applications",
+      "doi": "10.1007/s12033-026-01554-5",
+      "source_file": "10_1007_s12033_026_01554_5.txt",
+      "source_sha256": "098aab856d7efa5990d148311d4cea149c7613b1bd52af647f9859e7eca35dd0",
+      "text_sha256": "098aab856d7efa5990d148311d4cea149c7613b1bd52af647f9859e7eca35dd0",
+      "text_chars": 58580,
+      "passages_verified": 30,
+      "full_text_status": "local_text_requires_source_verification"
+    }
+  ],
+  "seconds": 208.093,
+  "keyword_requests": 0,
+  "verification": [
+    "HTTP compile/discover/acquire/catalog/source/context/file",
+    "Selected original-byte SHA-256",
+    "Every returned canonical passage slice",
+    "Unverified completeness remains visible",
+    "No public source lookup or download"
+  ]
+}
