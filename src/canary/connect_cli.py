@@ -69,6 +69,12 @@ def run(args, port):
             print('Execution: Canary service host · one shared account')
             print(receipt['model_access'])
             return 0
+    except httpx.HTTPStatusError as error:
+        if error.response.status_code == 404 and error.request.url.path == '/api/connection':
+            print('Canary connection failed: this service predates canary connect. Update and restart the service when its active runs are finished.', file=sys.stderr)
+        else:
+            print('Canary connection failed: ' + str(error), file=sys.stderr)
+        return 1
     except (OSError, ValueError, KeyError, httpx.HTTPError) as error:
         print('Canary connection failed: ' + str(error), file=sys.stderr)
         return 1

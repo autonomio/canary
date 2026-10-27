@@ -1,5 +1,4 @@
 """Connect starts only the local service; authentication remains an HTTP action."""
-import os
 from pathlib import Path
 import socket
 import subprocess
@@ -59,3 +58,13 @@ def test_missing_codex_has_actionable_error_without_partial_startup(monkeypatch,
     assert cli.main(['connect'])==1
     assert 'Install it on the Canary host' in capsys.readouterr().err
     assert not (tmp_path/'must-not-start').exists()
+
+
+def test_old_service_is_not_replaced_or_misreported_as_connected(monkeypatch,capsys):
+    request=httpx.Request('GET','http://127.0.0.1:8789/api/connection')
+    def old(*args,**kwargs):
+        raise httpx.HTTPStatusError('Old service',request=request,response=httpx.Response(404,request=request))
+    monkeypatch.setattr(connect_cli,'request',old)
+    monkeypatch.setattr(connect_cli.subprocess,'Popen',lambda *a,**k: (_ for _ in ()).throw(AssertionError('Replaced service')))
+    assert cli.main(['connect'])==1
+    assert 'active runs are finished' in capsys.readouterr().err

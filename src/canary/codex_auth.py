@@ -104,6 +104,7 @@ class CodexAuth:
         executable = shutil.which('codex')
         if not executable:
             raise AuthError('Codex CLI is not installed on the service host.')
+        executable = str(Path(executable).resolve())
         self.messages = messages = queue.Queue()
         self.completions.clear()
         try:
