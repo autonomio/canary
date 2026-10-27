@@ -7,7 +7,7 @@ and every client use the same routes; no SDK or filesystem access is needed.
 
 ```sh
 canary runs serve
-canary auth login
+canary connect
 canary api > canary-openapi.json
 curl -s http://127.0.0.1:8789/api/runs \
   -H 'Content-Type: application/json' \
@@ -92,6 +92,11 @@ The API remains an owner-operated private service; this adds no hosted multi-use
 account system. For backend-to-backend traffic using another Host authority, set
 `CANARY_ALLOWED_HOSTS` on the service to the exact authorities, such as
 `canary:8789`. Defaults remain loopback. Compose passes this setting through.
+
+`GET /api/connection` (MCP: `canary_connection`) reports the service-host Codex
+version, authentication method and resolved credential store. Login challenges are
+excluded. `canary connect` reuses an existing login or starts API-owned sign-in;
+only a stopped local service is bootstrapped. See [connection and authentication](AUTH.md).
 
 For a separate browser frontend, set `CANARY_ALLOWED_ORIGINS`, for example
 `http://localhost:3000`. CORS is opt-in, with exact origins and JSON preflight support.

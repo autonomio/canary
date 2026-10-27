@@ -21,7 +21,7 @@ export OPENALEX_API_KEY=your-openalex-key
 canary runs serve
 # Another terminal:
 canary runs status
-canary auth login
+canary connect
 canary auth status --json
 ```
 

@@ -28,6 +28,8 @@ def main():
         subprocess.run(['uv', 'pip', 'install', '--python', python, '--require-hashes', '-r', str(requirements)], check=True)
         subprocess.run(['uv', 'pip', 'install', '--python', python, '--no-deps', str(wheel)], check=True)
         canary = str(base / 'venv/bin/canary')
+        help_text = subprocess.check_output([canary, 'connect', '--help'], cwd=base, env=env, text=True)
+        assert '--device' in help_text and '--port' in help_text
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]
@@ -58,6 +60,10 @@ def main():
                         assert response.read(), route
                 status = json.loads(subprocess.check_output([canary, 'runs', 'status', '--port', str(port)], cwd=base, env=env))
                 assert status['data_directory'] == str(base / 'data')
+                with urllib.request.urlopen(url + '/api/connection') as response:
+                    connection = json.load(response)
+                    assert connection['execution'] == 'service_host'
+                    assert connection['auth']['login'] is None
                 request = urllib.request.Request(url + '/api/runs/compile',
                     data=json.dumps({'spec': {'question': 'Installed wheel verification?'}}).encode(),
                     headers={'Content-Type': 'application/json'})

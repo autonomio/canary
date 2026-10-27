@@ -22,6 +22,8 @@ def auth_server(tmp_path, monkeypatch):
     fake = tmp_path / 'codex'
     fake.write_text('''#!/usr/bin/env python3
 import json, os, pathlib, sys, time
+if '--version' in sys.argv:
+    print('codex-fixture 0.162.0');raise SystemExit()
 home=pathlib.Path(os.environ['CODEX_HOME'])
 credential=home/'fixture-account'
 login_id=None
@@ -32,7 +34,9 @@ def send(v):
 for line in sys.stdin:
     m=json.loads(line); method=m.get('method'); result={}
     if method=='initialize':
-        assert sys.argv[1:]==['app-server','-c','cli_auth_credentials_store="file"']
+        assert sys.argv[1:]==['app-server']
+    elif method=='config/read':
+        result={'config':{'cli_auth_credentials_store':(home/'store').read_text() if (home/'store').exists() else 'file','private':'DO-NOT-EXPOSE'}}
     elif method=='account/read':
         if (home/'stall').exists(): time.sleep(60)
         if login_id and (home/'complete').exists() and not sent:
@@ -190,15 +194,69 @@ def test_worker_uses_api_owned_home_and_native_file_store(auth_server, monkeypat
     captured={}
     real_popen=subprocess.Popen
     def worker(argv, **kwargs):
-        if 'env' not in kwargs: return real_popen(argv, **kwargs)
+        if 'app-server' in argv or 'env' not in kwargs: return real_popen(argv, **kwargs)
         captured.update(kwargs['env'])
         return real_popen(['true'],**kwargs)
     monkeypatch.setattr(dashboard.subprocess,'Popen',worker)
     monkeypatch.setenv('CODEX_HOME', '/must-not-override-service-context')
     sup.start_question('Synthetic question?')
     assert captured['CODEX_HOME']==str(home)
+    assert captured['CANARY_CODEX_CREDENTIALS_STORE']=='file'
+    assert captured['CANARY_CODEX_EXECUTABLE']==str(home.parent/'codex')
     command=coverage_runtime.command_line('codex','sol','xhigh','workspace','schema','output')
     assert 'cli_auth_credentials_store="file"' in command
+
+
+@pytest.mark.parametrize('store', ['file', 'keyring', 'auto'])
+def test_connect_reuses_existing_login_and_pins_store_for_both_roles(auth_server, capsys, monkeypatch, store):
+    server, client, home = auth_server
+    (home/'store').write_text(store)
+    (home/'fixture-account').write_text('fixture')
+    assert cli.main(['connect','--port',str(server.server_port)]) == 0
+    output=capsys.readouterr().out
+    assert 'Connected to Canary' in output and store+' credentials' in output
+    assert 'Checked when research starts' in output
+    assert not (home/'login-started').exists()
+    context=server.RequestHandlerClass.supervisor.auth.worker_environment()
+    assert context['CANARY_CODEX_CREDENTIALS_STORE']==store
+    monkeypatch.setenv('CANARY_CODEX_CREDENTIALS_STORE',context['CANARY_CODEX_CREDENTIALS_STORE'])
+    for model,effort in [('gpt-6.1-sol','xhigh'),('gpt-6-astra','ultra')]:
+        command=coverage_runtime.command_line(context['CANARY_CODEX_EXECUTABLE'],model,effort,'workspace','schema','out')
+        assert 'cli_auth_credentials_store="'+store+'"' in command
+    receipt=client.get('/api/connection')
+    assert receipt.headers['cache-control']=='no-store'
+    assert receipt.json()['credential_store']==store
+    assert receipt.json()['execution']=='service_host'
+    assert 'DO-NOT-EXPOSE' not in receipt.text and 'private@example.com' not in receipt.text
+
+
+def test_connect_signs_in_once_then_reuses_the_same_account(auth_server, monkeypatch, capsys):
+    server, client, home=auth_server
+    from canary import auth_cli
+    from types import SimpleNamespace
+    monkeypatch.setattr(auth_cli, 'time', SimpleNamespace(sleep=lambda _: (home/'complete').touch()))
+    assert cli.main(['connect','--device','--port',str(server.server_port)])==0
+    assert 'ABCD-1234' in capsys.readouterr().out
+    login=server.RequestHandlerClass.supervisor.auth.login
+    assert cli.main(['connect','--port',str(server.server_port)])==0
+    assert 'Code:' not in capsys.readouterr().out
+    assert server.RequestHandlerClass.supervisor.auth.login==login
+
+
+def test_ephemeral_login_cannot_be_misreported_as_a_reusable_connection(auth_server):
+    _,client,home=auth_server
+    (home/'store').write_text('ephemeral')
+    receipt=client.get('/api/connection').json()
+    assert not receipt['auth']['available'] and receipt['credential_store'] is None
+    assert 'ephemeral' in receipt['auth']['error']
+
+
+def test_read_only_connection_never_reveals_a_pending_challenge(auth_server):
+    _,client,_=auth_server
+    assert client.post('/api/auth/login',json={'method':'device'}).json()['user_code']=='ABCD-1234'
+    receipt=client.get('/api/connection')
+    assert receipt.json()['auth']['login'] is None
+    assert 'ABCD-1234' not in receipt.text and 'https://auth.openai.com/' not in receipt.text
 
 
 def test_cancel_racing_completion_does_not_claim_it_cancelled(auth_server):

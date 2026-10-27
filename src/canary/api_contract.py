@@ -9,6 +9,7 @@ from .codex_auth import AuthStatus, Login
 from .research_spec import CompiledResearch
 from .research_bundle import ResearchBundle
 from .service_status import ServiceStatus
+from .connection import ConnectionStatus
 
 S = {'type':'string'}
 I = {'type':'integer'}
@@ -106,7 +107,7 @@ def schemas():
             obj({'kind':fixed('question'),'question':S,'name':S,'brief':S},['kind','question'],closed=False),
             obj({'name':S,'brief':S,'argv':arr(S),'env':obj({name:S for name in ('CANARY_STAGE','CANARY_TIMEOUT_S','CANARY_WHEELS')})},['name','argv'],closed=False)]},
         'CompiledResearch':compiled,'BundleManifest':manifest,'AuthStatus':typed(AuthStatus),'Login':typed(Login),
-        'ServiceStatus':typed(ServiceStatus),'Run':run,'Runs':obj({'runs':arr(ref('Run'))},['runs']),
+        'ServiceStatus':typed(ServiceStatus),'ConnectionStatus':typed(ConnectionStatus),'Run':run,'Runs':obj({'runs':arr(ref('Run'))},['runs']),
         'Footprint':obj({'roots':arr(obj({'path':S,'exists':B},['path','exists'])),
             'registered_runs':nullable(I),'missing_bundles':nullable(I),'registry_error':nullable(S),'scope':S,
             'last_scan':nullable(obj({'started_at':S,'finished_at':S,'seconds':{'type':'number'},
@@ -155,6 +156,7 @@ def document():
     key = ('key','path',S,True)
     source = ('source_id','path',S,True)
     op('status','get','/api/status','Inspect service, storage and extraction; not a model-access certificate','ServiceStatus',mcp=True)
+    op('connection','get','/api/connection','Read the service-host Codex connection; no login or inference','ConnectionStatus',mcp=True)
     op('footprint','get','/api/footprint','Read configured local research footprint and last scan','Footprint',mcp=True)
     op('refresh_footprint','post','/api/footprint/refresh','Index existing research without modifying sources','Footprint',body='FootprintRefreshRequest',mcp=True)
     op('auth_status','get','/api/auth/status','Inspect the service-owned Codex login','AuthStatus',mcp=True)

@@ -111,6 +111,8 @@ def argument_parser():
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser('api',help='print the live OpenAPI contract')
     sub.add_parser('mcp',help='serve stdio agent tools over the same HTTP API')
+    connect = sub.add_parser('connect', help='reuse Codex login or sign in; start the local service if needed')
+    connect.add_argument('--device', action='store_true', help='use a device code (headless service)')
     bundle = sub.add_parser("bundle", help="read a research bundle or connector handoff through the API")
     bundle.add_argument("key")
     bundle.add_argument("--connector", choices=['resolvent'])
@@ -249,6 +251,9 @@ def argument_parser():
 
 def _main(argv: list[str] | None = None, *, service_owned=False) -> int:
     args = argument_parser().parse_args(argv)
+    if args.cmd == 'connect':
+        from .connect_cli import run
+        return run(args, _runs_port(args))
     if args.cmd == 'mcp':
         from .mcp_server import main as mcp_main
         return mcp_main(_runs_port(args))

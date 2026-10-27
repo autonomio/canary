@@ -482,6 +482,7 @@ def test_relative_engine_configuration_launches_from_resolved_checkout(tmp_path)
 import json
 from pathlib import Path
 from canary import dashboard
+dashboard.CodexAuth.worker_environment=lambda self: {'CODEX_HOME':self.home}
 supervisor = dashboard.Supervisor(registry=Path('registry.json').resolve(), root=Path('dashboard').resolve())
 started = supervisor.start_question('A question with spaces?')
 process = supervisor.owned.get(started['key'])
