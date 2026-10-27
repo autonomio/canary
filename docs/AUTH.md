@@ -19,6 +19,8 @@ authentication method, resolved credential store and service-host execution boun
 Sign-in does not certify model access; the first inference request establishes that.
 It performs no research or test inference. Missing Codex requires installation;
 Canary does not install it silently. Every connect command accepts `--port`.
+Service bootstrap retains the caller's working directory, so relative data and
+credential settings resolve exactly as they do for an explicitly started service.
 
 The lower-level commands remain available:
 

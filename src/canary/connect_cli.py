@@ -29,7 +29,7 @@ def start_local_service(client, origin):
     log = root / 'service.log'
     with log.open('a') as output:
         process = subprocess.Popen([sys.executable, '-m', 'canary.cli', 'runs', 'serve',
-                                    '--port', str(parsed.port or 80)], cwd=root,
+                                    '--port', str(parsed.port or 80)],
                                    stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
                                    start_new_session=True)
     deadline = time.monotonic() + 15

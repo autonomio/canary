@@ -4,15 +4,25 @@ import socket
 import subprocess
 
 import httpx
+import pytest
 
-from canary import cli, connect_cli
+from canary import auth_cli, cli, connect_cli
 from test_codex_auth import auth_server
 
 
-def test_connect_bootstraps_a_real_service_and_reuses_it(auth_server, monkeypatch, capsys):
+@pytest.mark.parametrize('relative', [False, True])
+def test_connect_bootstraps_a_real_service_and_reuses_it(auth_server, monkeypatch, capsys, relative):
     _, _, home=auth_server
     (home/'fixture-account').write_text('fixture credential')
-    monkeypatch.setenv('CANARY_DATA_DIR',str(home.parent/'boot-data'))
+    storage=home.parent/'boot-data'
+    monkeypatch.setenv('CANARY_DATA_DIR',str(storage))
+    if relative:
+        monkeypatch.chdir(home.parent)
+        monkeypatch.setenv('CANARY_DATA_DIR','boot-data')
+        monkeypatch.setenv('CODEX_HOME','credentials')
+    def unexpected_login(*args,**kwargs):
+        raise AssertionError('An existing credential context was lost during bootstrap')
+    monkeypatch.setattr(auth_cli,'run',unexpected_login)
     monkeypatch.setenv('PYTHONPATH',str(Path(cli.__file__).resolve().parents[1]))
     for name in ('CANARY_RUNS_REGISTRY','CANARY_RESEARCH_ROOTS','CANARY_API_URL'):
         monkeypatch.delenv(name,raising=False)
@@ -33,7 +43,9 @@ def test_connect_bootstraps_a_real_service_and_reuses_it(auth_server, monkeypatc
         capsys.readouterr()
         assert len(launched)==1
         with httpx.Client(base_url=f'http://127.0.0.1:{port}',trust_env=False) as client:
+            assert client.get('/api/status').json()['data_directory']==str(storage)
             assert client.get('/api/runs').json()=={'runs':[]}
+        assert not (storage/'boot-data').exists()
         assert not (home/'login-started').exists()
     finally:
         for process in launched:
