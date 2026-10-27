@@ -51,6 +51,13 @@ def credential_home() -> str:
     return str(Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex').expanduser().resolve())
 
 
+def credential_store(value: str) -> str:
+    if value not in ('file', 'keyring', 'auto'):
+        raise AuthError('Codex needs persistent credentials (file, keyring or auto); ephemeral credentials cannot be shared with research workers.',
+                        'unsupported_credential_store')
+    return value
+
+
 class CodexAuth:
     """One lazy app-server, serialized RPCs; Codex owns storage and refresh.
 
@@ -66,6 +73,8 @@ class CodexAuth:
         self.login: Login | None = None
         self.completions: dict = {}
         self.timeout = 15.0
+        self.store: str | None = None
+        self.executable: str | None = None
 
     def _stop(self) -> None:
         proc, self.proc = self.proc, None
@@ -99,8 +108,13 @@ class CodexAuth:
         self.completions.clear()
         try:
             Path(self.home).mkdir(parents=True, exist_ok=True, mode=0o700)
+            self.executable = executable
+            command = [executable, 'app-server']
+            override = os.environ.get('CANARY_CODEX_CREDENTIALS_STORE')
+            if override:
+                command += ['-c', 'cli_auth_credentials_store=' + json.dumps(credential_store(override))]
             self.proc = subprocess.Popen(
-                [executable, 'app-server', '-c', 'cli_auth_credentials_store="file"'],
+                command, cwd=self.home,
                 env=dict(os.environ, CODEX_HOME=self.home),
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                 text=True, encoding='utf-8', start_new_session=True)
@@ -122,9 +136,18 @@ class CodexAuth:
         try:
             self._rpc('initialize', {'clientInfo': {'name': 'canary', 'version': '0.1.0'}})
             self._write({'method': 'initialized'})
+            config = self._rpc('config/read', {'includeLayers': False})
+            self.store = credential_store(config.get('config', {}).get('cli_auth_credentials_store'))
         except AuthError:
             self._stop()
             raise
+
+    def worker_environment(self) -> dict[str, str]:
+        """Pin the native runtime and resolved store; never read or move credentials."""
+        with self.lock:
+            self._start()
+            return {'CODEX_HOME': self.home, 'CANARY_CODEX_EXECUTABLE': self.executable,
+                    'CANARY_CODEX_CREDENTIALS_STORE': self.store}
 
     def _write(self, message: dict) -> None:
         try:

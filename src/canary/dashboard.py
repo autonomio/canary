@@ -122,6 +122,7 @@ class Supervisor:
         native = (len(argv) > 2 and argv[2] == "ask" and
                   Path(argv[1]).resolve() in {(QUESTION_ENGINE_ROOT / "scripts/container_run.sh").resolve(),
                                               (QUESTION_ENGINE_ROOT / "scripts/coverage_run.sh").resolve()})
+        native_environment = self.auth.worker_environment() if native else {}
         kind = action['command'] if action else "question" if native else argv[2] if len(argv) > 2 else "?"
         launch_root = QUESTION_ENGINE_ROOT if native else self.root
         packet_path = None
@@ -157,6 +158,7 @@ class Supervisor:
         env.update(extra)
         if native or action:
             env["CODEX_HOME"] = self.auth.home
+            env.update(native_environment)
             env["CANARY_COVERAGE_PYTHON"] = sys.executable
             env['CANARY_CANCEL_MARKER'] = str(packet_path.with_suffix('.cancel'))
             if native:
@@ -1194,6 +1196,9 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path == '/api/status':
                 from .service_status import service_status
                 self._send(200, service_status(self.supervisor.root, self.dashboard_enabled))
+            elif parsed.path == '/api/connection':
+                from .connection import connection_status
+                self._send(200, connection_status(self.supervisor.auth), headers={'Cache-Control': 'no-store'})
             elif parsed.path == '/api/footprint':
                 self._send(200,self.supervisor.footprint())
             elif not self.dashboard_enabled and (parsed.path == '/' or parsed.path.startswith('/assets/')):
@@ -1376,6 +1381,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": f"unknown run {e}"})
         except CompileError as e:
             self._send(400, {'error': str(e), 'code': 'invalid_research_spec', 'issues': e.issues})
+        except AuthError as e:
+            self._send(e.status, {'error': str(e), 'code': e.code})
         except (ValueError, RuntimeError) as e:
             self._send(400, {"error": str(e)[:300]})
 

@@ -4,7 +4,23 @@ The loopback API owns one native Codex authentication process. The CLI is a clie
 
 ## Operator workflow
 
-Install the Codex CLI on the service host and make `codex` available on its `PATH` (verified with 0.162.0). Start the service, then sign in:
+Install the Codex CLI on the service host and make `codex` available on its `PATH` (verified with 0.162.0). Connect:
+
+```sh
+canary connect
+# Headless host:
+canary connect --device
+```
+
+This starts the local service if it is stopped, reuses an existing native login, and
+opens native sign-in only when signed out. Repeating it does not start another
+service or replace a signed-in account. It prints the API origin, CLI version,
+authentication method, resolved credential store and service-host execution boundary.
+Sign-in does not certify model access; the first inference request establishes that.
+It performs no research or test inference. Missing Codex requires installation;
+Canary does not install it silently. Every connect command accepts `--port`.
+
+The lower-level commands remain available:
 
 ```sh
 canary runs serve --port 8789
@@ -20,7 +36,12 @@ The dashboard opens locally without a login flow. Use the CLI for provider statu
 
 ## Shared credential context
 
-Set `CODEX_HOME` **on the service** to a persistent directory before startup, or use the default `~/.codex`. The service captures this location once and passes it to its native research workers. Authentication and research explicitly use Codex's `cli_auth_credentials_store="file"`; Codex owns `auth.json`, token refresh and logout. Canary does not read, copy, return or log those tokens. Existing keyring-only credentials require a login in this file-backed context.
+Set `CODEX_HOME` **on the service** to a persistent directory before startup, or use the default `~/.codex`. The service captures this location once. Native `config/read` resolves Codex's existing credential store; the service pins the same home, executable and store for research and audit workers, including their isolated scientific configuration. Both file and OS-keyring logins can be reused. Codex owns storage, refresh and logout; Canary does not read, copy, return or log tokens. `CANARY_CODEX_CREDENTIALS_STORE=file|keyring|auto` on the service explicitly overrides the native setting when needed for deployment. Ephemeral credentials cannot be shared with separate workers and produce an actionable unavailable status.
+
+`CANARY_API_URL` can select an existing private remote service. Connect never starts
+a local worker as a substitute for that service. Codex and its credentials must be
+on the Canary host; use `--device` for remote/headless sign-in. Each instance uses
+one shared account. Attaching a laptop CLI to a remote instance is not implemented.
 
 Stopping the service ends its pending login but does not log out the account. After restart, status comes from Codex's persistent credentials. Pending login IDs do not survive a service restart: start a new login. Signing out affects this shared Codex context, including other local Codex clients using it; it does not cancel already running research.
 
@@ -29,6 +50,11 @@ This is an owner-operated service bound to `127.0.0.1`, not a multi-user hosted 
 ## HTTP contract
 
 Requests and responses are typed in [`codex_auth.py`](../src/canary/codex_auth.py). No endpoint accepts credentials or a client-side credential path.
+
+`GET /api/connection` returns a typed, read-only connection receipt, also exposed
+as the `canary_connection` MCP tool and in the dashboard's Service menu. It never
+returns a pending login challenge or starts login/inference. The dashboard remains
+login-free; use `canary connect` for sign-in. Its status is refreshed on menu open.
 
 | Method | Path | Body / response |
 | --- | --- | --- |

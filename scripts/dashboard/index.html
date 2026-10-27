@@ -1471,7 +1471,7 @@
     <main id="main">
       <details class="workspace-menu" id="workspace-menu">
         <summary aria-label="Menu" role="button" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></summary>
-        <nav aria-label="Workspace menu"><a href="#log">Log</a><details><summary>Service</summary><div id="service-status">Open menu to inspect runtime</div></details><details><summary>Local footprint</summary><div id="local-footprint"></div><button class="btn small" data-action="refresh-footprint">Refresh local index</button></details></nav>
+        <nav aria-label="Workspace menu"><a href="#log">Log</a><details><summary>Service</summary><div id="codex-connection">Open menu to inspect connection</div><div id="service-status">Open menu to inspect runtime</div></details><details><summary>Local footprint</summary><div id="local-footprint"></div><button class="btn small" data-action="refresh-footprint">Refresh local index</button></details></nav>
       </details>
       <div class="topbar">
         <span id="breadcrumb">Workspace / Research</span
@@ -2187,6 +2187,15 @@
           const s = await api('/api/status');
           el.innerHTML = `<small>Storage <code>${esc(s.data_directory)}</code><br>Codex ${esc(s.codex.version || 'unavailable')}<br>PDF extraction ${esc(s.pdf_extraction.engine)}<br>${esc(s.readiness_note)}<br><a href="/openapi.json" target="_blank" rel="noopener">API contract ↗</a> · Agent tools: <code>canary mcp</code></small>`;
         } catch (error) { el.textContent = error.message; }
+      }
+      function connectionHtml(c) {
+        const a=c.auth, state=a.authenticated?'Connected via '+(a.mode==='chatgpt'?'ChatGPT':a.mode):a.available?'Codex signed out':'Codex unavailable';
+        return `<small><strong>${esc(state)}</strong>${c.cli_version?'<br>'+esc(c.cli_version):''}${c.credential_store?' · '+esc(c.credential_store)+' credentials':''}<br>Research runs on the Canary host.<br>${esc(c.model_access)}${a.error?'<br>'+esc(a.error):''}<br>Connect: <code>canary connect</code></small>`;
+      }
+      async function refreshConnection() {
+        const el=document.getElementById('codex-connection');
+        try { el.innerHTML=connectionHtml(await api('/api/connection')); }
+        catch(error) { el.textContent='Connection unavailable: '+error.message; }
       }
       async function refreshFootprint(rescan=false) {
         const el=document.getElementById('local-footprint');
@@ -3634,7 +3643,7 @@
         } catch {}
         updateComposer();
         document.getElementById("workspace-menu").addEventListener("toggle", e => {
-          if (e.target.open) { refreshService(); refreshFootprint(); }
+          if (e.target.open) { refreshService(); refreshConnection(); refreshFootprint(); }
         });
         document.addEventListener("click", (e) => {
           const menu=document.getElementById("workspace-menu");

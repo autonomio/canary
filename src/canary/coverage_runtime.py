@@ -679,8 +679,10 @@ def _native_usage(thread_id, codex_home=None):
 
 
 def command_line(executable, model, effort, workspace, shape, output):
+    from .codex_auth import credential_store
+    store = credential_store(os.environ.get('CANARY_CODEX_CREDENTIALS_STORE', 'file'))
     return [executable, "exec", "--ignore-user-config",
-            "-c", 'cli_auth_credentials_store="file"', "--disable", "multi_agent", "--disable", "multi_agent_v2",
+            "-c", 'cli_auth_credentials_store=' + json.dumps(store), "--disable", "multi_agent", "--disable", "multi_agent_v2",
         "-m", model, "-c", f'model_reasoning_effort="{effort}"', "-c", "agents.enabled=false",
         "-c", "features.memories=false", "-c", "features.plugins=false", "-c", "features.apps=false",
         "-c", 'web_search="disabled"', "--skip-git-repo-check", "--json",
@@ -817,7 +819,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
     workspace = Path(workspace).resolve()
     if not question.strip() or minimum_papers < 1 or audit_seconds < 1:
         raise ValueError("Question, paper target and audit duration must be nonempty/positive")
-    executable = executable or shutil.which("codex")
+    executable = executable or os.environ.get('CANARY_CODEX_EXECUTABLE') or shutil.which("codex")
     if not executable:
         raise RuntimeError("Native Codex CLI is required; no provider/model fallback is configured")
     run_key = os.environ.get('RUN_KEY')

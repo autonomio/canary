@@ -54,7 +54,7 @@ def test_live_openapi_cli_and_responses_share_the_contract(api,capsys):
     for schema in contract['components']['schemas'].values(): Draft202012Validator.check_schema(schema)
     assert cli.main(['api','--port',str(server.server_port)]) == 0
     assert json.loads(capsys.readouterr().out) == contract
-    for path in ('/api/status','/api/auth/status','/api/runs','/api/log','/api/usage'):
+    for path in ('/api/status','/api/connection','/api/auth/status','/api/runs','/api/log','/api/usage'):
         response=client.get(path);assert response.status_code==200
         validate_response(contract,path,'get',200,response.json())
     compiled=client.post('/api/runs/compile',json={'spec':{'question':'Synthetic schema check?'}})
@@ -82,6 +82,8 @@ def test_mcp_lists_live_schemas_and_navigates_claim_to_original_over_api(api):
                     assert tool.inputSchema==expected[tool.name]['tool'].inputSchema
                 status=await session.call_tool('canary_status',{})
                 assert not status.isError and status.structuredContent['service']=='available'
+                connection=await session.call_tool('canary_connection',{})
+                assert not connection.isError and connection.structuredContent['execution']=='service_host'
                 compiled=await session.call_tool('canary_compile',{'spec':{'question':'Synthetic MCP fixture?'}})
                 assert not compiled.isError
                 assert compiled.structuredContent['resolved']['research']['effort']=='xhigh'

@@ -195,6 +195,7 @@ research_bundle.run_compiled(os.environ['CANARY_RUN_SPEC'],os.environ['OUT'])
         kwargs['env']=dict(kwargs['env'],PYTHONPATH=str(Path(__file__).parent)+os.pathsep+str(Path(dashboard.__file__).parents[1]))
         return real([sys.executable,str(worker)],**kwargs)
     monkeypatch.setattr(dashboard.subprocess,'Popen',launch)
+    monkeypatch.setattr(dashboard.CodexAuth,'worker_environment',lambda self: {'CODEX_HOME':self.home})
     server=dashboard.make_server(0,registry=tmp_path/'registry.json',root=tmp_path)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     with httpx.Client(base_url=f'http://127.0.0.1:{server.server_port}',trust_env=False,timeout=10) as client:
