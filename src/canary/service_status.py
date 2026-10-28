@@ -4,6 +4,8 @@ import shutil
 import subprocess
 from typing import TypedDict
 
+from .codex_execution import ExecutionStatus
+
 
 class ServiceStatus(TypedDict):
     service: str
@@ -11,10 +13,11 @@ class ServiceStatus(TypedDict):
     dashboard_enabled: bool
     codex: dict
     pdf_extraction: dict
+    execution: ExecutionStatus
     readiness_note: str
 
 
-def service_status(root: Path, dashboard_enabled: bool) -> ServiceStatus:
+def service_status(root: Path, dashboard_enabled: bool, *, execution=None) -> ServiceStatus:
     executable = shutil.which('codex')
     version = None
     if executable:
@@ -26,6 +29,8 @@ def service_status(root: Path, dashboard_enabled: bool) -> ServiceStatus:
     return {'service': 'available', 'data_directory': str(Path(root).resolve()),
             'dashboard_enabled': dashboard_enabled,
             'codex': {'available': bool(executable and version), 'version': version},
+            'execution': execution or {'backend': 'shared_codex_app_server', 'running': False,
+                                       'active_shared_sessions': 0, 'active_exec_sessions': 0},
             'pdf_extraction': {'engine': 'pdftotext' if shutil.which('pdftotext') else 'pypdf',
                                'layout_preserved': bool(shutil.which('pdftotext'))},
             'readiness_note': 'Runtime availability only. See /api/auth/status for login; model access and source availability are checked during research.'}

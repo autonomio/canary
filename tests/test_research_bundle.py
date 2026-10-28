@@ -380,3 +380,43 @@ def test_lost_staged_input_does_not_hide_existing_research(api,tmp_path):
     result=response.json()
     assert result['bundle']['state']=='invalid'
     assert result['research']['answer']['claims']
+
+
+def test_cancelled_partial_audit_cannot_seal_as_complete(tmp_path,monkeypatch):
+    monkeypatch.setenv('CANARY_CODEX_EXECUTABLE','synthetic-codex-unused')
+    staged=tmp_path/'staged.json';packet=research_spec.compile_research(DECLARATION)
+    research_bundle.write_json(staged,packet);workspace=tmp_path/'cancelled-audit'
+    marker=tmp_path/'cancel';monkeypatch.setenv('CANARY_CANCEL_MARKER',str(marker))
+    monkeypatch.delenv('RUN_KEY',raising=False)
+    def native(directory,role,*args,**kwargs):
+        if role=='research':
+            payload=seed(directory)
+            payload['accounting']={'minimum_met':True,'scarcity_statement':None}
+            monkeypatch.setattr(coverage_runtime,'bind_payload',lambda _:payload)
+            return payload,{}
+        marker.touch()
+        audit={'audit_complete':False,'claim_checks':[],'limitations':['Partial audit fixture']}
+        research_bundle.write_json(directory/'audit.json',audit)
+        return audit,{}
+    monkeypatch.setattr(coverage_runtime,'scientific_session',native)
+    with pytest.raises(coverage_runtime.RunCancelled):
+        research_bundle.run_compiled(staged,workspace)
+    manifest=research_bundle.read(workspace)
+    assert manifest['state']=='finished' and manifest['execution']['status']=='cancelled'
+    assert json.loads((workspace/'run.json').read_text())['status']=='cancelled'
+    archive=io.BytesIO();research_bundle.archive(workspace,archive)
+    assert archive.getbuffer().nbytes>0
+
+
+def test_unconfirmed_writer_shutdown_preserves_unsealed_work(tmp_path,monkeypatch):
+    monkeypatch.setenv('CANARY_CODEX_EXECUTABLE','synthetic-codex-unused')
+    staged=tmp_path/'staged.json';research_bundle.write_json(staged,research_spec.compile_research(DECLARATION))
+    workspace=tmp_path/'unsealed'
+    def failed(*args,**kwargs):raise RuntimeError('Synthetic execution failure')
+    def unavailable(*args,**kwargs):raise RuntimeError('API could not confirm execution stopped')
+    monkeypatch.setattr(coverage_runtime,'scientific_session',failed)
+    monkeypatch.setattr(coverage_runtime,'finish_execution',unavailable)
+    with pytest.raises(RuntimeError,match='could not confirm'):
+        research_bundle.run_compiled(staged,workspace)
+    assert research_bundle.read(workspace)['state']=='running'
+    assert (workspace/'run.json').exists() and (workspace/'research.yaml').exists()

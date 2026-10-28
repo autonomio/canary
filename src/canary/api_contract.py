@@ -11,6 +11,7 @@ from .research_bundle import ResearchBundle, BundleRetention
 from .service_status import ServiceStatus
 from .connection import ConnectionStatus
 from .candidate_index import CandidateMetadata
+from .codex_execution import ExecutionRequest, ExecutionReceipt, ExecutionFinish, ExecutionFinished
 
 S = {'type':'string'}
 I = {'type':'integer'}
@@ -131,6 +132,8 @@ def schemas():
         'InputReceipt':obj({'id':S,'bytes':I},['id','bytes']),
         'Log':obj({'runs':arr(ref('Run'))},['runs']),
         'LoginRequest':obj({'method':{'type':'string','enum':['browser','device'],'default':'browser'}}),
+        'ExecutionRequest':typed(ExecutionRequest),'ExecutionReceipt':typed(ExecutionReceipt),
+        'ExecutionFinish':typed(ExecutionFinish),'ExecutionFinished':typed(ExecutionFinished),
         'CandidateMetadata':typed(CandidateMetadata),
         'DiscoverResult':obj({'candidate_metadata':ref('CandidateMetadata')},closed=False),
         'DiscoverRequest':obj({'plan':ref('QuestionPlan'),'pages':dict(I,minimum=1,default=5)},['plan']),
@@ -201,6 +204,8 @@ def document():
     source_content = result['paths']['/api/runs/{key}/sources/{source_id}/file']['get']['responses']['200']['content']
     for media in ('application/pdf','application/xml','text/html','text/plain'):
         source_content[media] = deepcopy(source_content['application/octet-stream'])
+    op('finish_execution','post','/api/runs/{key}/execution/finish','Close scientific admission and stop writers before sealing','ExecutionFinished',body='ExecutionFinish',params=[key])
+    op('execute_scientific','post','/api/runs/{key}/execution','Execute the active scientific role through the service-owned native runtime','ExecutionReceipt',body='ExecutionRequest',params=[key])
     for action, body, response in (('discover','DiscoverRequest','DiscoverResult'),('acquire','AcquireRequest','Object'),
                                    ('catalog','Object',None),('source','ReadSourceRequest',None),('finalize','FinalizeRequest','Object')):
         op('tool_'+action,'post','/api/runs/{key}/tools/'+action,'Run-scoped deterministic '+action,response or 'Object',body=body,params=[key])

@@ -15,6 +15,7 @@ from .research_spec import verify_compiled, digest
 from .runtime_paths import resource_root
 
 BUNDLE_VERSION = 1
+_finalizing = False
 INPUT_FILES = ('research.yaml', 'run-spec.json', 'compile-report.json')
 ARTIFACT_DIRS = {'papers', 'texts', 'passages', 'download-receipts', 'download-history', 'search-responses'}
 
@@ -70,7 +71,7 @@ def initialize(workspace, packet):
     report['created_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     report['engine'] = {'python': sys.version.split()[0], 'sources': {
         name: file_hash(Path(__file__).parent / name) for name in
-        ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'candidate_index.py', 'claim_freshness.py',
+        ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'candidate_index.py', 'codex_execution.py', 'codex_auth.py', 'claim_freshness.py',
          'research_spec.py', 'research_bundle.py', 'bundle_connectors.py', 'compact_bundle.py', 'local_text.py',
          'processes.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py', 'api_client.py')}}
     lock = resource_root() / 'uv.lock'
@@ -215,6 +216,15 @@ def run_compiled(staged, workspace):
                                 if spec['retrieval']['corpus'] == 'local_text' else {}))
     finally:
         if reserved:
+            global _finalizing
+            _finalizing = True
+            from .processes import RunCancelled
+            cancelled = isinstance(sys.exc_info()[1], RunCancelled) or coverage_runtime.cancellation_requested()
+            cancelled = coverage_runtime.finish_execution(cancelled)
+            if cancelled:
+                manifest = coverage_runtime.read(workspace/'run.json', {})
+                manifest.update(status='cancelled')
+                coverage_runtime.write(workspace/'run.json', manifest)
             try:
                 coverage_export.export_bundle(workspace)
             finally:
@@ -229,6 +239,8 @@ if __name__ == '__main__':
     import signal
     from .processes import RunCancelled
     def cancel(signum, frame):
+        if _finalizing:
+            return
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         raise RunCancelled('Research cancelled by the service')
     signal.signal(signal.SIGTERM, cancel)

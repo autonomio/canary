@@ -86,6 +86,8 @@ class Supervisor:
     def __init__(self, registry: str | Path = runs.REGISTRY,
                  root: str | Path = runs.ROOT):
         self.auth = CodexAuth()
+        from .codex_execution import CodexExecution
+        self.execution = CodexExecution(self.auth, self._can_execute)
         self.port = DEFAULT_PORT
         self.registry = Path(registry)
         self.root = Path(root)
@@ -227,6 +229,7 @@ class Supervisor:
                 logfh.close()
             except OSError:
                 pass
+        self.execution.cancel(key, remember=rc != 0)
         # Finish and drop ownership atomically: reconcile interrupts any
         # unowned running row, so the two must never be observed apart.
         row = runs.get(key, self.registry)
@@ -290,7 +293,10 @@ class Supervisor:
                         row.get('bundle', ''), path=self.registry)
                     row.update(finished or {})
                 elif alive and row.get('status') != 'cancelling':
-                    row.update({k:v for k,v in runs.parse_bundle(row['bundle']).items() if v not in (None,'?',{})})
+                    parsed = runs.parse_bundle(row['bundle'])
+                    if parsed.get('status') == 'cancelled':
+                        parsed.update(status='cancelling', recorded_status='cancelled')
+                    row.update({k:v for k,v in parsed.items() if v not in (None,'?',{})})
                 elif not alive:
                     # A restart observer may have registered an older completion
                     # using observation time. The recorded run remains authoritative.
@@ -351,8 +357,8 @@ class Supervisor:
             row = runs.get(key, self.registry)
             if row is None: raise KeyError(key)
             recorded = _load_json_file(Path(row['bundle'])/'run.json', {}).get('status')
-            if recorded not in runs._ACTIVE_STATUS:
-                return {'key':key,'status':recorded}
+            if row.get('execution_closed') or recorded not in runs._ACTIVE_STATUS:
+                return {'key':key,'status':row.get('status') if row.get('cancel_requested_at') else recorded}
             receipt = row.get('worker')
             if not processes.live(receipt):
                 return {'key': key, 'status': row.get('status')}
@@ -361,10 +367,87 @@ class Supervisor:
             Path(row.get('run_spec_path') or row['action_spec_path']).with_suffix('.cancel').touch()
             tools = processes.tool_receipts(self.root, key)
         def stop():
+            session = self.execution.cancel(key)
             for tool in tools: processes.stop_tree(tool)
+            if session:
+                session.finished.wait(timeout=10)
             processes.stop_tree(receipt)
         threading.Thread(target=stop, daemon=True).start()
         return {'key': key, 'status': 'cancelling'}
+
+    def _can_execute(self, key):
+        with self.lock:
+            row = runs.get(key, self.registry)
+            return bool(row and row.get('status') in runs._ACTIVE_STATUS and
+                        not row.get('cancel_requested_at') and not row.get('execution_closed'))
+
+    def finish_execution(self, key, body):
+        if not isinstance(body, dict) or set(body) != {'cancelled'} or type(body['cancelled']) is not bool:
+            raise ValueError('Expected a boolean cancelled value')
+        with self.lock:
+            row = runs.get(key, self.registry)
+            if row is None: raise KeyError(key)
+            if not row.get('execution_closed') and row.get('status') not in runs._ACTIVE_STATUS:
+                raise ValueError('Run is already stopped')
+            row['execution_closed'] = True
+            if body['cancelled']:
+                row.setdefault('cancel_requested_at', runs.utcnow())
+                row['status'] = 'cancelling'
+            runs.upsert(row, self.registry)
+            tools = processes.tool_receipts(self.root, key)
+        # Closing admission precedes interruption, including a role still waiting
+        # for native initialization. The worker seals only after all writers stop.
+        session = self.execution.cancel(key, remember=False)
+        for tool in tools: processes.stop_tree(tool)
+        if session:
+            with self.lock:
+                row = runs.get(key, self.registry)
+                row.setdefault('cancel_requested_at', runs.utcnow())
+                row['status'] = 'cancelling'
+                runs.upsert(row, self.registry)
+            session.finished.wait()
+        row = runs.get(key, self.registry)
+        return {'key': key, 'cancelled': bool(row.get('cancel_requested_at'))}
+
+    def execute_scientific(self, key, body):
+        from . import coverage_runtime as engine, coverage_protocol as protocol
+        if not isinstance(body, dict) or set(body) != {'role'} or body['role'] not in ('research', 'audit'):
+            raise ValueError('Expected one scientific role: research or audit')
+        role = body['role']
+        with self.lock:
+            row = runs.get(key, self.registry)
+            if row is None: raise KeyError(key)
+            workspace = Path(row['bundle']).resolve()
+            manifest = _load_json_file(workspace / 'run.json', {})
+            if (row.get('status') not in runs._ACTIVE_STATUS or row.get('cancel_requested_at') or
+                    manifest.get('status') != ('researching' if role == 'research' else 'auditing')):
+                raise ValueError('This run is not active in the requested scientific phase')
+            if row.get('execution_closed') or role in row.get('executions_started', []) or (workspace / (role + '-receipt.json')).is_file():
+                raise ValueError('This scientific role has already started; create a new run to repeat it')
+            row['executions_started'] = [*row.get('executions_started', []), role]
+            runs.upsert(row, self.registry)
+        # Parameters come from the API-owned run, never caller-supplied model,
+        # prompt, path, credentials or executable values.
+        context = self.execution.context()
+        command = shlex.join([sys.executable, '-m', 'canary.tools_cli', '--run', key, '--port', str(self.port)])
+        question = manifest['question']
+        seconds = manifest.get('audit_budget_seconds', 600)
+        local = bool(manifest.get('local_text'))
+        if role == 'research':
+            model, effort = protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT
+            prompt = protocol.research_prompt(question, command, manifest.get('minimum_papers', 50), local_text=local)
+            shape = protocol.investigation_schema()
+        else:
+            model, effort = protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT
+            prompt = protocol.audit_prompt(question, command, seconds) + (protocol.LOCAL_TEXT_SCOPE if local else '')
+            shape = protocol.audit_schema()
+        _, receipt = engine.scientific_session(workspace, role, model, effort, prompt, shape,
+            executable=context['CANARY_CODEX_EXECUTABLE'], audit_timeout=seconds if role == 'audit' else None,
+            execution=self.execution, run_key=key, execution_environment={
+                'RUN_KEY': key, 'OUT': str(workspace), 'CANARY_DATA_DIR': str(self.root.resolve()),
+                'CANARY_RUNS_PORT': str(self.port), 'CANARY_API_URL': f'http://127.0.0.1:{self.port}',
+                'CANARY_RUNS_REGISTRY': str(self.registry.resolve())})
+        return receipt
 
     def execute_tool(self, key, action, body):
         from .research_tools import execute
@@ -372,7 +455,8 @@ class Supervisor:
             row = runs.get(key, self.registry)
             if row is None: raise KeyError(key)
             recorded = _load_json_file(Path(row['bundle'])/'run.json', {}).get('status')
-            if recorded not in runs._ACTIVE_STATUS: row = dict(row, status=recorded)
+            if row.get('execution_closed'): row = dict(row, status='done')
+            elif recorded not in runs._ACTIVE_STATUS: row = dict(row, status=recorded)
             if action == 'catalog' or action == 'source' and row.get('status') not in runs._ACTIVE_STATUS:
                 return execute(row, action, body, self.root)
             if row.get('status') not in runs._ACTIVE_STATUS or row.get('cancel_requested_at'):
@@ -1243,7 +1327,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, document())
             elif parsed.path == '/api/status':
                 from .service_status import service_status
-                self._send(200, service_status(self.supervisor.root, self.dashboard_enabled))
+                self._send(200, service_status(self.supervisor.root, self.dashboard_enabled, execution=self.supervisor.execution.status()))
             elif parsed.path == '/api/connection':
                 from .connection import connection_status
                 self._send(200, connection_status(self.supervisor.auth), headers={'Cache-Control': 'no-store'})
@@ -1404,6 +1488,10 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, packet)
                 else:
                     self._send(201, self.supervisor.start_compiled(packet, str(body.get('name', '')), str(body.get('brief', ''))))
+            elif re.fullmatch(r'/api/runs/[^/]+/execution/finish', parsed.path):
+                self._send(200, self.supervisor.finish_execution(unquote(parsed.path.split('/')[3]), body))
+            elif re.fullmatch(r'/api/runs/[^/]+/execution', parsed.path):
+                self._send(200, self.supervisor.execute_scientific(unquote(parsed.path.split('/')[3]), body))
             elif re.fullmatch(r'/api/runs/[^/]+/tools/[^/]+', parsed.path):
                 parts = parsed.path.split('/')
                 self._send(200, self.supervisor.execute_tool(unquote(parts[3]), parts[5], body))
@@ -1589,7 +1677,7 @@ def make_server(port: int = DEFAULT_PORT, registry: str | Path = runs.REGISTRY,
     handler.dashboard_enabled = dashboard_enabled
     class AuthServer(ThreadingHTTPServer):
         def server_close(self):
-            handler.supervisor.auth.close()
+            handler.supervisor.execution.close()
             super().server_close()
 
     server = AuthServer((host, port), handler)
