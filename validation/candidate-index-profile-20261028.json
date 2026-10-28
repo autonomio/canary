@@ -1,0 +1,80 @@
+{
+  "source_revision_baseline": "930a9091f78e25bef8393010ce31cbc33e0317c0",
+  "dataset": "Saved OpenAlex pages from bitcoin-forecasting-state-of-the-art-202610271901",
+  "discovery_pages": 50,
+  "unique_candidates": 6533,
+  "selected_records": 82,
+  "docker_cpu_limit": 1,
+  "platform": "Linux arm64",
+  "network": "disabled",
+  "provider_calls": 0,
+  "model_calls": 0,
+  "historical_source_volume": "read-only",
+  "equal_full_work_records": true,
+  "equal_candidate_views": true,
+  "equal_titles_bytes": true,
+  "equal_selected_records": true,
+  "measurements": [
+    {
+      "phase": "json_discovery",
+      "wall_seconds": 85.179,
+      "records": 6533,
+      "work_semantic_sha256": "21dce021a5a77935f360b8d85faf4a63523f4ce306f0874a6691ff2861e4d361",
+      "candidate_semantic_sha256": "cef0cc9d413debb315fa5d1a25176adf67d5825f923c5295ef596f82c33a009f",
+      "candidate_records": 6533,
+      "candidate_bytes_sha256": "8421fa96ebe3ed6467698cc5cadbd29e149f678565b004c7bd5206e00359d682",
+      "titles_sha256": "14ab0c3a65d0f49595d970eef4a6bde0e038981e0ee9b8c2ab5d5957849681b3",
+      "peak_rss_mib": 1116.76,
+      "cpu_seconds": 84.714,
+      "total_subprocess_cpu_seconds": 86.486,
+      "benchmark_scope": "candidate metadata only; saved source pages; zero model/provider calls; one-vCPU Docker budget"
+    },
+    {
+      "phase": "sqlite_discovery",
+      "wall_seconds": 22.533,
+      "records": 6533,
+      "work_semantic_sha256": "21dce021a5a77935f360b8d85faf4a63523f4ce306f0874a6691ff2861e4d361",
+      "candidate_semantic_sha256": "cef0cc9d413debb315fa5d1a25176adf67d5825f923c5295ef596f82c33a009f",
+      "candidate_records": 6533,
+      "candidate_bytes_sha256": "8421fa96ebe3ed6467698cc5cadbd29e149f678565b004c7bd5206e00359d682",
+      "titles_sha256": "14ab0c3a65d0f49595d970eef4a6bde0e038981e0ee9b8c2ab5d5957849681b3",
+      "peak_rss_mib": 84.38,
+      "cpu_seconds": 15.935,
+      "total_subprocess_cpu_seconds": 18.456,
+      "benchmark_scope": "candidate metadata only; saved source pages; zero model/provider calls; one-vCPU Docker budget"
+    },
+    {
+      "phase": "json_acquisition",
+      "wall_seconds": 2.279,
+      "selected_records": 82,
+      "selected_semantic_sha256": "9914337f68a586c920ca97b4df951000325f83b696dd03c2caffef56bd9320ef",
+      "peak_rss_mib": 863.87,
+      "cpu_seconds": 2.265,
+      "total_subprocess_cpu_seconds": 3.959,
+      "benchmark_scope": "candidate metadata only; saved source pages; zero model/provider calls; one-vCPU Docker budget"
+    },
+    {
+      "phase": "sqlite_acquisition",
+      "wall_seconds": 0.019,
+      "selected_records": 82,
+      "selected_semantic_sha256": "9914337f68a586c920ca97b4df951000325f83b696dd03c2caffef56bd9320ef",
+      "peak_rss_mib": 33.63,
+      "cpu_seconds": 0.019,
+      "total_subprocess_cpu_seconds": 0.662,
+      "benchmark_scope": "candidate metadata only; saved source pages; zero model/provider calls; one-vCPU Docker budget"
+    }
+  ],
+  "limitations": [
+    "Metadata replay, not a concurrent scientific run or an end-to-end throughput benchmark.",
+    "Peak RSS is per fresh benchmark subprocess; it is not the entire VM or container memory.",
+    "Wall time and cpu_seconds isolate metadata operations; total_subprocess_cpu_seconds also includes imports and verification.",
+    "Single dataset; absolute timings vary with hardware and metadata size."
+  ],
+  "equal_candidate_bytes": true,
+  "measurement_scope": {
+    "wall_seconds": "Metadata operation only, excluding imports and verification.",
+    "cpu_seconds": "Metadata operation only, excluding imports and verification.",
+    "total_subprocess_cpu_seconds": "Includes imports and semantic verification.",
+    "peak_rss_mib": "Fresh subprocess high-water mark captured before verification."
+  }
+}
