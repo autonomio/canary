@@ -7,11 +7,11 @@ from . import coverage_protocol as protocol
 from .claim_freshness import schema as freshness_schema
 from .codex_auth import AuthStatus, Login
 from .research_spec import CompiledResearch
-from .research_bundle import ResearchBundle
+from .research_bundle import ResearchBundle, BundleRetention
 from .service_status import ServiceStatus
 from .connection import ConnectionStatus
 from .candidate_index import CandidateMetadata
-from .codex_execution import ExecutionRequest, ExecutionReceipt
+from .codex_execution import ExecutionRequest, ExecutionReceipt, ExecutionFinish, ExecutionFinished
 
 S = {'type':'string'}
 I = {'type':'integer'}
@@ -87,18 +87,20 @@ def schemas():
         'access':O,'profile':O,'coverage':obj({'candidate_metadata':ref('CandidateMetadata')},closed=False),
         'paper_selection':O,'usage':O,'synthesis_md':nullable(S),
         'seed':S,'stopped':S,'model':nullable(S),'papers':arr(O),'iterations':arr(O),
-        'startup_error':nullable(S)},closed=False)
+        'startup_error':nullable(S),'retention':typed(BundleRetention)},closed=False)
     run = obj({'key':S,'name':S,'brief':S,'kind':S,'status':nullable(S),'live':B,'can_cancel':B,
         'recorded_status':nullable(S),'bundle_missing':B,
         'started_at':nullable(S),'ended_at':nullable(S),'duration_seconds':nullable({'type':'number'}),
         'answered':nullable(B),'papers_covered':nullable(I),'input_tokens':nullable(I),
-        'output_tokens':nullable(I),'cached_tokens':nullable(I),'usage':O,'research_summary':O},['key'],closed=False)
+        'output_tokens':nullable(I),'cached_tokens':nullable(I),'usage':O,'research_summary':O,
+        'retention':typed(BundleRetention)},['key'],closed=False)
     run['properties']['input_tokens']['description'] = 'Total input, including cached input. Null means unavailable.'
     run['properties']['cached_tokens']['description'] = 'Subset of input tokens; do not add to total input. Null means unavailable.'
     run['properties']['output_tokens']['description'] = 'Total output, including reasoning where the native provider reports it. Null means unavailable.'
     context = obj({'source_id':S,'reference':O,'paragraphs':arr(ref('Passage')),'page':nullable(I),
         'local_file_url':nullable(S),'original_url':nullable(S),'requested_scope':S,'scope':S,
-        'context_label':S,'text_available':B,'text_complete':nullable(B),'offset_verified':B,'warning':S},
+        'context_label':S,'text_available':B,'text_complete':nullable(B),'offset_verified':B,'warning':S,
+        'source_bytes_retained':B},
         ['source_id','reference','paragraphs','text_available','offset_verified','warning'],closed=False)
     named_findings = {name:generated['properties'][field]['items'] for name,field in (
         ('GeneratedClaim','claims'),('GeneratedEvidence','evidence'),('Gap','gaps'),('Residue','residue'),
@@ -131,6 +133,7 @@ def schemas():
         'Log':obj({'runs':arr(ref('Run'))},['runs']),
         'LoginRequest':obj({'method':{'type':'string','enum':['browser','device'],'default':'browser'}}),
         'ExecutionRequest':typed(ExecutionRequest),'ExecutionReceipt':typed(ExecutionReceipt),
+        'ExecutionFinish':typed(ExecutionFinish),'ExecutionFinished':typed(ExecutionFinished),
         'CandidateMetadata':typed(CandidateMetadata),
         'DiscoverResult':obj({'candidate_metadata':ref('CandidateMetadata')},closed=False),
         'DiscoverRequest':obj({'plan':ref('QuestionPlan'),'pages':dict(I,minimum=1,default=5)},['plan']),
@@ -201,6 +204,7 @@ def document():
     source_content = result['paths']['/api/runs/{key}/sources/{source_id}/file']['get']['responses']['200']['content']
     for media in ('application/pdf','application/xml','text/html','text/plain'):
         source_content[media] = deepcopy(source_content['application/octet-stream'])
+    op('finish_execution','post','/api/runs/{key}/execution/finish','Close scientific admission and stop writers before sealing','ExecutionFinished',body='ExecutionFinish',params=[key])
     op('execute_scientific','post','/api/runs/{key}/execution','Execute the active scientific role through the service-owned native runtime','ExecutionReceipt',body='ExecutionRequest',params=[key])
     for action, body, response in (('discover','DiscoverRequest','DiscoverResult'),('acquire','AcquireRequest','Object'),
                                    ('catalog','Object',None),('source','ReadSourceRequest',None),('finalize','FinalizeRequest','Object')):

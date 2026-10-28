@@ -72,4 +72,6 @@ login-free; use `canary connect` for sign-in. Its status is refreshed on menu op
 
 Errors use `{"error":"safe message","code":"machine_code"}` with HTTP 400/415 (invalid request), 403 (foreign origin), 404 (unknown login/action), 502 (native rejection) or 503 (missing/unavailable Codex). Raw provider error text is withheld. Clients must distinguish unavailable service, unavailable CLI, signed out and pending login.
 
-The adapter uses native stdio JSON-RPC `initialize`, `account/read`, `account/login/start`, `account/login/completed`, `account/login/cancel`, and `account/logout`. It creates no research threads. See the [native protocol](https://learn.chatgpt.com/docs/app-server) and [Codex authentication](https://learn.chatgpt.com/docs/auth).
+The adapter uses native stdio JSON-RPC `initialize`, `account/read`, `account/login/start`, `account/login/completed`, `account/login/cancel`, and `account/logout`. Account actions do not create research threads. The same service-owned transport
+also supports [isolated scientific execution](SHARED_CODEX.md); request IDs and
+thread IDs keep account replies separate from scientific events. See the [native protocol](https://learn.chatgpt.com/docs/app-server) and [Codex authentication](https://learn.chatgpt.com/docs/auth).

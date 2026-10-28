@@ -29,6 +29,14 @@ class ExecutionStatus(TypedDict):
     active_exec_sessions: int
 
 
+class ExecutionFinish(TypedDict):
+    cancelled: bool
+
+
+class ExecutionFinished(ExecutionFinish):
+    key: str
+
+
 class ExecutionReceipt(TypedDict, total=False):
     backend: Literal['shared_codex_app_server', 'codex_exec']
     fallback_reason: str | None
@@ -49,8 +57,8 @@ class ExecutionReceipt(TypedDict, total=False):
 
 
 class CodexExecution:
-    def __init__(self, auth):
-        self.auth = auth
+    def __init__(self, auth, can_start=None):
+        self.auth, self.can_start = auth, can_start
         self.lock = threading.RLock()
         self.sessions: dict[str, Session] = {}
         self.version = None
@@ -86,7 +94,7 @@ class CodexExecution:
         with self.lock:
             if self.closing:
                 raise RuntimeError('The API-owned execution runtime is stopping')
-            if key in self.cancelled_runs:
+            if key in self.cancelled_runs or self.can_start is not None and not self.can_start(key):
                 raise RunCancelled('Research was stopped before scientific execution started')
             if key in self.sessions:
                 raise ValueError('A scientific session is already active for this run')
@@ -139,6 +147,7 @@ class Session:
         self.messages = queue.Queue()
         self.cancelled, self.finished = threading.Event(), threading.Event()
         self.thread_id, self.turn_id, self.process = None, None, None
+        self.process_receipt = None
         self.exit_code, self.last_message = None, None
         self.cancel_at = None
         self.cleanup = {}
@@ -163,9 +172,15 @@ class Session:
             return
         if self.backend == LEGACY:
             import os
-            self.process = subprocess.Popen(self.command, cwd=self.workspace, stdin=subprocess.PIPE,
+            process = subprocess.Popen(self.command, cwd=self.workspace, stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=self.stderr, text=True, start_new_session=True,
                 env=dict(os.environ, CODEX_HOME=self.home, CANARY_CODEX_CREDENTIALS_STORE=self.store, **self.environment))
+            self.process_receipt = {'pid': process.pid, 'identity': identity(process.pid)}
+            self.process = process
+            if self.cancelled.is_set():
+                self.interrupt()
+                self.exit_code = process.wait()
+                return
             self.process.stdin.write(prompt)
             self.process.stdin.close()
         else:
@@ -236,7 +251,8 @@ class Session:
         self.cancelled.set()
         self.cancel_at = self.cancel_at or time.monotonic()
         if self.process is not None:
-            stop_tree({'pid': self.process.pid, 'identity': identity(self.process.pid)}, grace=5)
+            if self.process.poll() is None and self.process_receipt:
+                stop_tree(self.process_receipt, grace=5)
         elif self.thread_id and self.turn_id:
             try:
                 self._rpc('turn/interrupt', {'threadId': self.thread_id, 'turnId': self.turn_id})

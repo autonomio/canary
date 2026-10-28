@@ -10,6 +10,9 @@ Detached orchestration workers call `POST /api/runs/{key}/execution` with
 `{"role":"research"}` or `{"role":"audit"}`. The service derives the prompt,
 schema, models, source-tool command and budget from the active run. Clients cannot
 supply native commands, credentials, model substitutions or workspace paths.
+Each role is claimed atomically in the persistent run registry before native
+initialization. Delayed or restarted duplicate requests cannot execute that role
+again, including after working receipts have been released.
 The response is the typed execution receipt; findings remain available through
 the existing research and bundle endpoints. The operation is for orchestration;
 CLI and MCP users continue to submit questions through the normal run API.
@@ -42,11 +45,18 @@ and reasoning deltas are not copied into operational queues. Research tools stil
 use the existing run-scoped HTTP API; no source-acquisition scheduler is added.
 
 Cancellation and audit timeout interrupt the selected native turn, never the
-shared process. Existing tracked acquisition workers are stopped separately.
+shared process. Existing tracked acquisition workers are stopped separately. Fallback process
+identities are captured at launch, never recaptured when interrupting a child.
 Completed threads are archived after their final output is received; native
 receipts are collected after archival flushes the session. Findings, usage and
 cleanup outcomes are committed before releasing the API's execution ownership.
 Archival failures remain explicit and do not erase findings.
+
+Before sealing, workers call `POST /api/runs/{key}/execution/finish` with a
+boolean `cancelled` value. The API closes admission, interrupts outstanding work
+and waits for native/tool writers to stop. The returned cancellation state wins
+over a normal partial-audit response. SIGTERM cleanup uses this same handshake;
+if writer shutdown cannot be confirmed, working files remain unsealed.
 
 The shared server is a common failure domain. Its death wakes affected sessions;
 Canary preserves partial files/receipts and does not silently repeat scientific
@@ -63,7 +73,7 @@ production backend in one-vCPU Linux arm64 Docker. Synthetic fixture prompts and
 schemas replaced research content, so this did not start a literature review.
 All four outputs matched; native receipts verified models/efforts and no child
 agents; tools reached the canonical API; all native threads were archived.
-The batch took 21.497 seconds. The receipt hashes identify the source snapshot
+The batch, including the finalization handshake, took 38.424 seconds. The receipt hashes identify the source snapshot
 used for that live check; later lifecycle fixes have deterministic regression tests.
 This is operational evidence, not research-quality or whole-question throughput.
 

@@ -150,10 +150,9 @@ def _audit_record(audit: dict) -> dict:
     return cases[0] if len(cases) == 1 else audit
 
 
-def _save_markdown(path: Path, graph: dict):
+def render_markdown(graph: dict):
     """Deterministic downloadable answer; researcher wording stays unchanged."""
     if not has_native_findings(graph):
-        path.unlink(missing_ok=True)  # Remove a stale derived stub, never source/research records.
         return
     lines = ["# " + str(graph.get("question", "?")), "", str(graph.get("scope_note", "")), ""]
     for summary_index, summary in enumerate(graph.get("executive_summary", []), 1):
@@ -268,8 +267,16 @@ def _save_markdown(path: Path, graph: dict):
     for ref in _rows(graph.get("references")):
         paper = ref.get("paper", {})
         lines.append(f'{ref.get("id")} · {paper.get("title", "Unknown source")} · {paper.get("doi") or paper.get("url") or "See saved source graph"}')
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _save_markdown(path: Path, graph: dict):
+    body = render_markdown(graph)
+    if body is None:
+        path.unlink(missing_ok=True)  # Remove a stale derived stub, never source/research records.
+        return
     temporary = path.with_name(path.name + ".export.tmp")
-    temporary.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    temporary.write_text(body, encoding="utf-8")
     temporary.replace(path)
 
 

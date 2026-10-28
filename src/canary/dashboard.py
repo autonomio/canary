@@ -87,7 +87,7 @@ class Supervisor:
                  root: str | Path = runs.ROOT):
         self.auth = CodexAuth()
         from .codex_execution import CodexExecution
-        self.execution = CodexExecution(self.auth)
+        self.execution = CodexExecution(self.auth, self._can_execute)
         self.port = DEFAULT_PORT
         self.registry = Path(registry)
         self.root = Path(root)
@@ -165,6 +165,7 @@ class Supervisor:
             env['CANARY_CANCEL_MARKER'] = str(packet_path.with_suffix('.cancel'))
             if native:
                 env["CANARY_RUN_SPEC"] = str(packet_path.resolve())
+                env['CANARY_COMPACT_OUTPUT'] = '1'
             else:
                 argv = [sys.executable, '-m', 'canary.service_commands', str(packet_path.resolve())]
         launcher_log = self.root / "container-out" / f"{key}.launcher.log"
@@ -240,6 +241,15 @@ class Supervisor:
                                      bundle, path=self.registry)
             finally:
                 self.owned.pop(key, None)
+        from . import compact_bundle
+        if bundle and compact_bundle.exists(bundle):
+            # Service-owned tool/staging receipts are working data too. Native
+            # account/session storage belongs to Codex and is never removed here.
+            shutil.rmtree(self.root/'run-tools'/key, ignore_errors=True)
+            for path in (self.root/'run-inputs'/(key+'.json'),
+                         self.root/'run-inputs'/(key+'.cancel'),
+                         self.root/'container-out'/(key+'.launcher.log')):
+                path.unlink(missing_ok=True)
 
     # -- live state --
 
@@ -271,6 +281,9 @@ class Supervisor:
             if row.get('bundle'):
                 location = Path(row['bundle'])
                 row['bundle_missing'] = not (location if location.is_absolute() else self.root/location).is_dir()
+            if row.get('retention', {}).get('mode') == 'bundle_only':
+                row.update(live=False, can_cancel=False)
+                continue
             if isinstance(row.get('worker'), dict):
                 alive = processes.live(row['worker'])
                 if not alive and row.get('status') in runs._ACTIVE_STATUS:
@@ -280,7 +293,10 @@ class Supervisor:
                         row.get('bundle', ''), path=self.registry)
                     row.update(finished or {})
                 elif alive and row.get('status') != 'cancelling':
-                    row.update({k:v for k,v in runs.parse_bundle(row['bundle']).items() if v not in (None,'?',{})})
+                    parsed = runs.parse_bundle(row['bundle'])
+                    if parsed.get('status') == 'cancelled':
+                        parsed.update(status='cancelling', recorded_status='cancelled')
+                    row.update({k:v for k,v in parsed.items() if v not in (None,'?',{})})
                 elif not alive:
                     # A restart observer may have registered an older completion
                     # using observation time. The recorded run remains authoritative.
@@ -341,8 +357,8 @@ class Supervisor:
             row = runs.get(key, self.registry)
             if row is None: raise KeyError(key)
             recorded = _load_json_file(Path(row['bundle'])/'run.json', {}).get('status')
-            if recorded not in runs._ACTIVE_STATUS:
-                return {'key':key,'status':recorded}
+            if row.get('execution_closed') or recorded not in runs._ACTIVE_STATUS:
+                return {'key':key,'status':row.get('status') if row.get('cancel_requested_at') else recorded}
             receipt = row.get('worker')
             if not processes.live(receipt):
                 return {'key': key, 'status': row.get('status')}
@@ -359,6 +375,40 @@ class Supervisor:
         threading.Thread(target=stop, daemon=True).start()
         return {'key': key, 'status': 'cancelling'}
 
+    def _can_execute(self, key):
+        with self.lock:
+            row = runs.get(key, self.registry)
+            return bool(row and row.get('status') in runs._ACTIVE_STATUS and
+                        not row.get('cancel_requested_at') and not row.get('execution_closed'))
+
+    def finish_execution(self, key, body):
+        if not isinstance(body, dict) or set(body) != {'cancelled'} or type(body['cancelled']) is not bool:
+            raise ValueError('Expected a boolean cancelled value')
+        with self.lock:
+            row = runs.get(key, self.registry)
+            if row is None: raise KeyError(key)
+            if not row.get('execution_closed') and row.get('status') not in runs._ACTIVE_STATUS:
+                raise ValueError('Run is already stopped')
+            row['execution_closed'] = True
+            if body['cancelled']:
+                row.setdefault('cancel_requested_at', runs.utcnow())
+                row['status'] = 'cancelling'
+            runs.upsert(row, self.registry)
+            tools = processes.tool_receipts(self.root, key)
+        # Closing admission precedes interruption, including a role still waiting
+        # for native initialization. The worker seals only after all writers stop.
+        session = self.execution.cancel(key, remember=False)
+        for tool in tools: processes.stop_tree(tool)
+        if session:
+            with self.lock:
+                row = runs.get(key, self.registry)
+                row.setdefault('cancel_requested_at', runs.utcnow())
+                row['status'] = 'cancelling'
+                runs.upsert(row, self.registry)
+            session.finished.wait()
+        row = runs.get(key, self.registry)
+        return {'key': key, 'cancelled': bool(row.get('cancel_requested_at'))}
+
     def execute_scientific(self, key, body):
         from . import coverage_runtime as engine, coverage_protocol as protocol
         if not isinstance(body, dict) or set(body) != {'role'} or body['role'] not in ('research', 'audit'):
@@ -372,8 +422,10 @@ class Supervisor:
             if (row.get('status') not in runs._ACTIVE_STATUS or row.get('cancel_requested_at') or
                     manifest.get('status') != ('researching' if role == 'research' else 'auditing')):
                 raise ValueError('This run is not active in the requested scientific phase')
-            if (workspace / (role + '-receipt.json')).is_file():
-                raise ValueError('This scientific role has already executed; create a new run to repeat it')
+            if row.get('execution_closed') or role in row.get('executions_started', []) or (workspace / (role + '-receipt.json')).is_file():
+                raise ValueError('This scientific role has already started; create a new run to repeat it')
+            row['executions_started'] = [*row.get('executions_started', []), role]
+            runs.upsert(row, self.registry)
         # Parameters come from the API-owned run, never caller-supplied model,
         # prompt, path, credentials or executable values.
         context = self.execution.context()
@@ -403,7 +455,8 @@ class Supervisor:
             row = runs.get(key, self.registry)
             if row is None: raise KeyError(key)
             recorded = _load_json_file(Path(row['bundle'])/'run.json', {}).get('status')
-            if recorded not in runs._ACTIVE_STATUS: row = dict(row, status=recorded)
+            if row.get('execution_closed'): row = dict(row, status='done')
+            elif recorded not in runs._ACTIVE_STATUS: row = dict(row, status=recorded)
             if action == 'catalog' or action == 'source' and row.get('status') not in runs._ACTIVE_STATUS:
                 return execute(row, action, body, self.root)
             if row.get('status') not in runs._ACTIVE_STATUS or row.get('cancel_requested_at'):
@@ -571,6 +624,8 @@ def research_summary(row: dict) -> dict:
     Reads share a four-million-character budget. A truncated summary exposes
     lower-bound counts explicitly, while missing/partial files stay usable.
     """
+    if row.get('retention', {}).get('mode') == 'bundle_only' and row.get('research_summary'):
+        return row['research_summary']
     summary = {"question": "", "synthesis_excerpt": "", "has_synthesis": False,
                "papers_count": 0, "claims_count": 0, "supported_claims_count": 0,
                "iterations_count": 0, "unanswered_count": 0, "gaps_count": 0, "residue_count": 0, "truncated": False}
@@ -691,6 +746,9 @@ def live_snapshot(container: str, dest: Path, timeout: int = 20) -> bool:
 def research_for_row(row: dict, supervisor: "Supervisor") -> tuple[dict, bool]:
     """Research record for a registry row, live-snapping running workers."""
     bundle = row.get("bundle", "")
+    from . import compact_bundle
+    if bundle and compact_bundle.exists(bundle):
+        return compact_bundle.projection(bundle), processes.live(row.get('worker'))
     if (Path(str(bundle)) / "run.json").exists():
         return research_bundle(bundle), processes.live(row.get('worker'))
     container = row.get("container") or ""
@@ -711,6 +769,9 @@ def research_bundle(bundle: str | Path) -> dict:
     Every read is guarded: a running or partial bundle yields present=False /
     empty lists, never a 500. Large blobs are capped with truncated flags.
     """
+    from . import compact_bundle
+    if compact_bundle.exists(bundle):
+        return compact_bundle.projection(bundle)
     b = Path(bundle)
     run = _load_json_file(b / "run.json", {})
     if not isinstance(run, dict):
@@ -935,11 +996,16 @@ def source_artifacts(bundle: str | Path, source_id: str) -> tuple[dict, Path | N
     if not str(bundle).strip():
         raise KeyError(source_id)
     b = Path(bundle)
-    graph = _load_json_file(b / "answer.json", {})
+    from . import compact_bundle
+    retained = compact_bundle.exists(b)
+    graph = (compact_bundle.projection(b)['answer'] if retained
+             else _load_json_file(b / "answer.json", {}))
     graph = graph if isinstance(graph, dict) else {}
     reference = next((r for r in graph.get("references", []) if isinstance(r, dict) and r.get("id") == source_id), None)
     if reference is None:
         raise KeyError(source_id)
+    if retained:
+        return reference, None, None, graph
     paper = reference.get("paper", {})
     paper = paper if isinstance(paper, dict) else {}
     extra = paper.get("extra", {})
@@ -995,10 +1061,32 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
         payload.update(scope="abstract", context_label="Abstract", text_complete=bool(text))
     else:
         if text_path is None:
+            from . import compact_bundle
+            if reference.get('source_retention') != 'excerpts_only' and compact_bundle.exists(bundle):
+                return source_context(bundle, source_id, paragraph_id, scope, key)
+            if reference.get('source_retention') == 'excerpts_only':
+                kept = sorted((p for p in graph.get('passages', []) if p.get('source_id') == source_id),
+                              key=lambda p: (p.get('start', 0), p.get('end', 0)))
+                if paragraph_id and selected is None:
+                    raise ValueError('paragraph does not belong to this source')
+                payload.update(scope='excerpts', context_label='Retained verbatim', text_complete=False,
+                    text_available=bool(kept), source_bytes_retained=False,
+                    paragraphs=[dict(p, selected=p.get('id') == paragraph_id) for p in kept],
+                    warning='Only cited excerpts are retained. Full-paper context is available through the original source link; original bytes are not stored locally.')
+                return payload
             payload["warning"] = "Saved readable full-source text is missing; abstracts are not substituted."
             return payload
-        with text_path.open(encoding="utf-8", newline="") as stream:
-            text = stream.read()
+        try:
+            with text_path.open(encoding="utf-8", newline="") as stream:
+                text = stream.read()
+        except FileNotFoundError:
+            # The compact output is committed before releasing working sources.
+            # A reader that resolved an old path can cross that transition.
+            from . import compact_bundle
+            if compact_bundle.exists(bundle):
+                return source_context(bundle, source_id, paragraph_id, scope, key)
+            payload.update(local_file_url=None, warning="Saved readable full-source text is missing; abstracts are not substituted.")
+            return payload
         expected_chars = reference.get("text_chars") if reference.get("kind") != "abstract" else None
         if type(expected_chars) is int:
             payload["text_complete"] = len(text) == expected_chars
@@ -1275,8 +1363,13 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         kind = {".pdf": "application/pdf", ".xml": "application/xml", ".html": "text/html; charset=utf-8",
                                 ".txt": "text/plain; charset=utf-8"}.get(original.suffix.lower(), "application/octet-stream")
-                        self._send(200, original.read_bytes(), kind,
-                                   {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
+                        try:
+                            content = original.read_bytes()
+                        except FileNotFoundError:
+                            self._send(404, {'error': 'Original source was released; retained excerpts remain available'})
+                        else:
+                            self._send(200, content, kind,
+                                       {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
             elif re.fullmatch(r"/api/runs/[^/]+/exports/[^/]+", parsed.path):
                 parts = parsed.path.split('/')
                 row = runs.get(unquote(parts[3]), self.supervisor.registry)
@@ -1395,6 +1488,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, packet)
                 else:
                     self._send(201, self.supervisor.start_compiled(packet, str(body.get('name', '')), str(body.get('brief', ''))))
+            elif re.fullmatch(r'/api/runs/[^/]+/execution/finish', parsed.path):
+                self._send(200, self.supervisor.finish_execution(unquote(parsed.path.split('/')[3]), body))
             elif re.fullmatch(r'/api/runs/[^/]+/execution', parsed.path):
                 self._send(200, self.supervisor.execute_scientific(unquote(parsed.path.split('/')[3]), body))
             elif re.fullmatch(r'/api/runs/[^/]+/tools/[^/]+', parsed.path):

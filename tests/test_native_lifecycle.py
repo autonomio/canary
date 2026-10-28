@@ -85,17 +85,31 @@ def test_dead_native_worker_with_active_manifest_becomes_interrupted(tmp_path):
     assert after['live'] is False and after['can_cancel'] is False
 
 
-def test_real_native_worker_seals_cancelled_bundle_and_preserves_receipts(tmp_path, monkeypatch):
+@pytest.mark.parametrize('backend',['codex_exec','shared_codex_app_server'])
+@pytest.mark.parametrize('cancel_mode',['api','signal'])
+def test_real_native_worker_seals_cancelled_bundle_and_retains_receipts_in_output(tmp_path, monkeypatch, backend, cancel_mode):
     fake = tmp_path/'codex'
     fake.write_text('''#!/usr/bin/env python3
-import pathlib,sys,time,json
+import pathlib,sys,time,json,os
 if '--version' in sys.argv:
     print('codex-fixture 0.162.0');raise SystemExit()
 if sys.argv[1]=='app-server':
+    current={}
     for line in sys.stdin:
         m=json.loads(line)
         if 'id' not in m: continue
-        result={'config':{'cli_auth_credentials_store':'file'},'layers':[{'name':{'type':'user'},'config':{'developer_instructions':'ignored by exec'}}]} if m['method']=='config/read' else {}
+        method=m['method'];params=m.get('params',{});result={}
+        if method=='config/read':
+            user={'developer_instructions':'ignored by exec'} if os.environ['CANARY_FIXTURE_BACKEND']=='codex_exec' else {}
+            result={'config':{'cli_auth_credentials_store':'file'},'layers':[{'name':{'type':'user'},'config':user}]}
+        elif method=='thread/start':
+            current=params
+            result={'thread':{'id':'fixture-thread'},'model':params['model'],'cwd':params['cwd'],'reasoningEffort':params['config']['model_reasoning_effort']}
+        elif method=='turn/start':
+            pathlib.Path(current['cwd'],'synthetic-committed.txt').write_text('Synthetic material; no scientific evidence.')
+            result={'turn':{'id':'fixture-turn'}}
+        elif method=='turn/interrupt':
+            print(json.dumps({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'fixture-turn','status':'interrupted'}}}),flush=True)
         print(json.dumps({'id':m['id'],'result':result}),flush=True)
     raise SystemExit()
 assert sys.argv[1]=='exec'
@@ -106,6 +120,7 @@ time.sleep(60)
     fake.chmod(0o755)
     monkeypatch.setenv('PATH', str(tmp_path)+os.pathsep+os.environ['PATH'])
     monkeypatch.setenv('CODEX_HOME', str(tmp_path/'fixture-auth'))
+    monkeypatch.setenv('CANARY_FIXTURE_BACKEND', backend)
     server = dashboard.make_server(0, registry=tmp_path/'registry.json', root=tmp_path)
     thread = threading.Thread(target=server.serve_forever, daemon=True);thread.start()
     key = None
@@ -115,13 +130,24 @@ time.sleep(60)
             assert result.status_code == 201, result.text
             key = result.json()['key'];workspace = tmp_path/'container-out'/key
             eventually(lambda: (workspace/'synthetic-committed.txt').is_file())
-            assert client.post('/api/runs/'+key+'/cancel',json={}).status_code == 202
+            if cancel_mode=='api':
+                assert client.post('/api/runs/'+key+'/cancel',json={}).status_code == 202
+            else:
+                os.kill(runs.get(key,server.RequestHandlerClass.supervisor.registry)['worker']['pid'],signal.SIGTERM)
             eventually(lambda: client.get('/api/runs/'+key).json()['status']=='cancelled')
             bundle = client.get('/api/runs/'+key+'/bundle').json()['bundle']
             assert bundle['state'] == 'finished'
             assert bundle['execution']['status'] == 'cancelled'
-            assert (workspace/'research-receipt.json').is_file()
-            assert (workspace/'synthetic-committed.txt').read_text() == 'Synthetic material; no scientific evidence.'
+            output = client.get('/api/runs/'+key+'/exports/resolvent').json()
+            receipt = output['method_metadata']['canary_view']['profile']['roles']['research']
+            assert receipt['thread_id']=='fixture-thread'
+            assert receipt['backend']==backend
+            assert receipt['exit_code'] != 0
+            assert not (workspace/'synthetic-committed.txt').exists()
+            assert not (workspace/'research-receipt.json').exists()
+            assert server.RequestHandlerClass.supervisor.execution.status()['active_shared_sessions']==0
+            assert client.get('/api/runs/'+key+'/bundle/archive').status_code==200
+            assert {p.name for p in workspace.iterdir()}=={'resolvent.json','.resolvent.sha256'}
     finally:
         if key: processes.stop_tree(runs.get(key,server.RequestHandlerClass.supervisor.registry)['worker'])
         server.shutdown();server.server_close();thread.join(5)

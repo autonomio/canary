@@ -277,6 +277,9 @@ def _revised_tally(events: list[dict]) -> dict:
 def parse_bundle(bundle: str | Path) -> dict:
     """Bundle directory → dashboard row fields (no registry I/O)."""
     bundle = Path(bundle)
+    from . import compact_bundle
+    if compact_bundle.exists(bundle):
+        return dict(compact_bundle.record(bundle), bundle=str(bundle))
     manifest = _load_json(bundle / "manifest.json", {})
     run = _load_json(bundle / "run.json", {})
     if not isinstance(manifest, dict):
@@ -558,7 +561,8 @@ def log_rows(path: str | Path = REGISTRY, root: str | Path = ROOT) -> list[dict]
         bundle = Path(row["bundle"]) if row.get("bundle") else None
         if bundle and not bundle.is_absolute():
             bundle = Path(root) / bundle
-        parsed = parse_bundle(bundle) if bundle and bundle.is_dir() else {}
+        parsed = (row if row.get('retention', {}).get('mode') == 'bundle_only' else
+                  parse_bundle(bundle) if bundle and bundle.is_dir() else {})
         entry = {key: row.get(key) for key in ("key", "name", "kind", "status")}
         if parsed.get("kind") == "question":
             known_failure = row.get("status") in _FAILURE_STATUS and parsed.get("status") in _ACTIVE_STATUS

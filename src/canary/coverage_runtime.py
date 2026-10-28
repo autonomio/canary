@@ -866,6 +866,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
             write(workspace / 'run.json', manifest)
         scientific_session(workspace, "research", protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT,
             protocol.research_prompt(question, command, minimum_papers, local_text=bool(local_text)), protocol.investigation_schema(), executable=executable)
+        check_cancelled()
         wait_for_tools(run_key)
         payload = bind_payload(workspace)
         manifest.update(status="auditing", research_finished_at=now(), accounting=payload["accounting"])
@@ -874,6 +875,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
         audit, _ = scientific_session(workspace, "audit", protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT,
             protocol.audit_prompt(question, command, audit_seconds) + (protocol.LOCAL_TEXT_SCOPE if local_text else ""), protocol.audit_schema(), executable=executable,
             audit_timeout=audit_seconds)
+        check_cancelled()
         wait_for_tools(run_key)
         checked = {r["claim_id"] for r in audit.get("claim_checks", [])}
         for claim in payload["claims"]:
@@ -897,6 +899,8 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
         manifest.update(status="cancelled" if cancelled else "failed", failure=type(error).__name__ + ": " + str(error))
         raise
     finally:
+        if cancellation_requested():
+            manifest['status'] = 'cancelled'
         manifest.update(ended_at=now(), seconds=round(time.monotonic() - before, 3))
         write(workspace / "run.json", manifest)
     return payload
@@ -905,6 +909,31 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
 def sys_executable():
     import sys
     return sys.executable
+
+
+def cancellation_requested():
+    marker = os.environ.get('CANARY_CANCEL_MARKER')
+    return bool(marker and Path(marker).exists())
+
+
+def check_cancelled():
+    if cancellation_requested():
+        raise RunCancelled('Research cancelled by the service')
+
+
+def finish_execution(cancelled):
+    key = os.environ.get('RUN_KEY')
+    if not key:
+        return cancelled
+    from urllib.parse import quote
+    try:
+        with httpx.Client(base_url=endpoint(), timeout=60, trust_env=False) as client:
+            response = client.post('/api/runs/' + quote(key, safe='') + '/execution/finish',
+                                   json={'cancelled': cancelled})
+        response.raise_for_status()
+        return response.json()['cancelled']
+    except (httpx.HTTPError, ValueError, KeyError) as error:
+        raise RuntimeError('API could not confirm execution stopped; working files remain unsealed') from error
 
 
 def wait_for_tools(run_key):

@@ -213,7 +213,7 @@ def test_http_execution_owns_parameters_and_frontend_discloses_backend(native,mo
     pool,home,root=native
     server=dashboard.make_server(0,registry=root/'registry.json',root=root)
     supervisor=server.RequestHandlerClass.supervisor
-    supervisor.auth.close();supervisor.auth=pool.auth;supervisor.execution=pool
+    supervisor.auth.close();supervisor.auth=pool.auth;supervisor.execution=pool;pool.can_start=supervisor._can_execute
     workspace=root/'http';workspace.mkdir()
     engine.write(workspace/'run.json',{'question':'Synthetic HTTP fixture?','status':'researching','minimum_papers':50})
     runs.register_start('http','Fixture','',kind='question',bundle=str(workspace),status='running',path=supervisor.registry)
@@ -268,3 +268,79 @@ def test_cancel_before_native_initialization_prevents_late_model_start(native):
         execute(pool,root,'stopped-before-start')
     assert not [c for c in calls(home) if c['method'] in ('thread/start','turn/start','exec')]
     assert not (root/'stopped-before-start/research-prompt.txt').exists()
+
+
+def test_delayed_duplicate_is_rejected_after_first_role_closes_and_receipt_is_removed(native,monkeypatch):
+    # Hold the raw active phase stable while scheduling the delayed request;
+    # opportunistic UI exports are independent of durable role admission.
+    monkeypatch.setattr(engine,'refresh_committed_progress',lambda *a,**kw:None)
+    pool,home,root=native
+    server=dashboard.make_server(0,registry=root/'registry.json',root=root)
+    supervisor=server.RequestHandlerClass.supervisor
+    supervisor.auth=pool.auth;supervisor.execution=pool;pool.can_start=supervisor._can_execute
+    workspace=root/'duplicate';workspace.mkdir();(workspace/'hold').touch()
+    engine.write(workspace/'run.json',{'question':'Fixture?','status':'researching'})
+    runs.register_start('duplicate','Fixture','',kind='question',bundle=str(workspace),status='running',path=supervisor.registry)
+    open_session=pool.open;count=0;entered=threading.Event();release=threading.Event()
+    def late_open(*args,**kwargs):
+        nonlocal count
+        count+=1
+        if count>1:
+            entered.set();assert release.wait(8)
+        return open_session(*args,**kwargs)
+    monkeypatch.setattr(pool,'open',late_open)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    def request():
+        with httpx.Client(base_url=f'http://127.0.0.1:{server.server_port}',timeout=15,trust_env=False) as client:
+            return client.post('/api/runs/duplicate/execution',json={'role':'research'})
+    try:
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            first=workers.submit(request)
+            eventually(lambda:(workspace/'synthetic-committed.txt').exists())
+            duplicate=workers.submit(request)
+            eventually(lambda:duplicate.done() or entered.is_set())
+            (workspace/'hold').unlink()
+            assert first.result(timeout=10).status_code==200
+            original=(workspace/'research-receipt.json').read_bytes()
+            release.set()
+            assert duplicate.result(timeout=10).status_code==400
+            assert (workspace/'research-receipt.json').read_bytes()==original
+        # The persisted admission claim survives missing artifacts and a new
+        # supervisor; a receipt-file check alone cannot establish this property.
+        (workspace/'research-receipt.json').unlink()
+        restarted=dashboard.Supervisor(registry=supervisor.registry,root=root)
+        with pytest.raises(ValueError,match='already started'):
+            restarted.execute_scientific('duplicate',{'role':'research'})
+        assert len([c for c in calls(home) if c['method']=='thread/start'])==1
+    finally:
+        release.set();server.shutdown();server.server_close();thread.join(5)
+
+
+@pytest.mark.parametrize('reaped',[False,True])
+def test_fallback_cancellation_uses_birth_identity_and_never_captures_a_reused_pid(native,monkeypatch,reaped):
+    from types import SimpleNamespace
+    pool,_,root=native
+    session=codex_execution.Session(pool,'birth','research',root,'gpt-6.1-sol','xhigh',{},root/'out',None,[],False,None,'file',{})
+    session.process=SimpleNamespace(pid=12345,poll=lambda:0 if reaped else None)
+    session.process_receipt={'pid':12345,'identity':'original-child-birth'}
+    stopped=[]
+    monkeypatch.setattr(codex_execution,'identity',lambda _:pytest.fail('Captured a replacement PID identity'))
+    monkeypatch.setattr(codex_execution,'stop_tree',lambda record,**kw:stopped.append(record))
+    session.interrupt()
+    assert stopped==([] if reaped else [session.process_receipt])
+
+
+def test_finish_closes_admission_before_a_late_native_start(native):
+    pool,home,root=native
+    server=dashboard.make_server(0,registry=root/'registry.json',root=root)
+    supervisor=server.RequestHandlerClass.supervisor
+    supervisor.auth=pool.auth;supervisor.execution=pool;pool.can_start=supervisor._can_execute
+    workspace=root/'closing';workspace.mkdir();engine.write(workspace/'run.json',{'status':'researching'})
+    runs.register_start('closing','Fixture','',kind='question',bundle=str(workspace),status='running',path=supervisor.registry)
+    try:
+        assert supervisor.finish_execution('closing',{'cancelled':True})=={'key':'closing','cancelled':True}
+        with pytest.raises(engine.RunCancelled,match='stopped before'):
+            execute(pool,root,'closing')
+        assert not [c for c in calls(home) if c['method']=='thread/start']
+    finally:
+        server.server_close()
