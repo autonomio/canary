@@ -85,7 +85,7 @@ def test_dead_native_worker_with_active_manifest_becomes_interrupted(tmp_path):
     assert after['live'] is False and after['can_cancel'] is False
 
 
-def test_real_native_worker_seals_cancelled_bundle_and_preserves_receipts(tmp_path, monkeypatch):
+def test_real_native_worker_seals_cancelled_bundle_and_retains_receipts_in_output(tmp_path, monkeypatch):
     fake = tmp_path/'codex'
     fake.write_text('''#!/usr/bin/env python3
 import pathlib,sys,time,json
@@ -114,8 +114,12 @@ time.sleep(60)
             bundle = client.get('/api/runs/'+key+'/bundle').json()['bundle']
             assert bundle['state'] == 'finished'
             assert bundle['execution']['status'] == 'cancelled'
-            assert (workspace/'research-receipt.json').is_file()
-            assert (workspace/'synthetic-committed.txt').read_text() == 'Synthetic material; no scientific evidence.'
+            output = client.get('/api/runs/'+key+'/exports/resolvent').json()
+            receipt = output['method_metadata']['canary_view']['profile']['roles']['research']
+            assert receipt['thread_id']=='fixture-thread'
+            assert receipt['exit_code'] != 0
+            assert not (workspace/'synthetic-committed.txt').exists()
+            assert not (workspace/'research-receipt.json').exists()
     finally:
         if key: processes.stop_tree(runs.get(key,server.RequestHandlerClass.supervisor.registry)['worker'])
         server.shutdown();server.server_close();thread.join(5)

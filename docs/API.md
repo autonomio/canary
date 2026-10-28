@@ -48,6 +48,15 @@ substitutes an abstract when full text is missing. Resolve relative URLs against
 API origin, not the application's frontend origin. Source offsets address canonical
 extracted Unicode text; PDF originals have their own content hash and page context.
 
+New completed requests retain the research bundle and release working papers and
+full text. `bundle.retention.mode` is `bundle_only`; the downloadable artifact is
+`resolvent.json`, directly accepted as a Resolvent contribution. The same bundle
+contains the dashboard projection and repeat settings. Source context then returns
+`scope: excerpts`, `text_complete: false`, `offset_verified: false` and no local
+file link. Cited verbatim, source URLs, hashes and recorded offsets remain; full
+original bytes are not part of this retention contract. Active requests and
+historical full-workspace bundles still expose saved full-source context.
+
 OpenAPI publishes the existing `GeneratedInvestigation`, `GeneratedClaim`,
 `GeneratedEvidence`, `Gap`, `Residue`, `StudyResult`, `Contradiction`, `NextQuestion`,
 `Freshness` and audit schemas. Current generation requires claim uncertainty and

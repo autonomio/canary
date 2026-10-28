@@ -30,13 +30,29 @@ def execute(row, action: str, body: ToolRequest, root: Path):
     if action not in FIELDS or not isinstance(body, dict) or set(body) - FIELDS[action]:
         raise ValueError('Unknown tool or tool fields')
     workspace = Path(row['bundle'])
+    for field in ('pages', 'workers', 'context', 'limit', 'page'):
+        if field in body and body[field] is not None and (type(body[field]) is not int or body[field] < (0 if field == 'context' else 1)):
+            raise ValueError(field + ' is outside its integer range')
+    from . import compact_bundle
+    if compact_bundle.exists(workspace):
+        contribution = compact_bundle.read(workspace)
+        if action == 'catalog':
+            return [dict(r, source_bytes_retained=False) for r in compact_bundle.payload(contribution).get('references', [])]
+        if action == 'source':
+            import re
+            if not isinstance(body.get('reference_id'), str) or not engine.SOURCE_ID.fullmatch(body['reference_id']):
+                raise ValueError('reference_id is required')
+            pattern = re.compile(body['match'], re.I) if body.get('match') else None
+            graph = contribution['method_metadata']['canary_view']['answer']
+            return [dict(p, reference_id=p['source_id'], source_bytes_retained=False) for p in graph.get('passages', [])
+                    if p.get('source_id') == body.get('reference_id')
+                    and (body.get('page') is None or p.get('page') == body['page'])
+                    and (pattern is None or pattern.search(p.get('text', '')))][:body.get('limit', 8)]
+        raise ValueError('Research is complete; working sources have been released')
     if action in ('discover', 'acquire', 'finalize') and row.get('status') not in runs._ACTIVE_STATUS:
         raise ValueError('This run is stopped; committed sources remain readable')
     if action in ('discover', 'acquire', 'finalize') and row.get('status') == 'cancelling':
         raise ValueError('This run is stopping; committed sources remain readable')
-    for field in ('pages', 'workers', 'context', 'limit', 'page'):
-        if field in body and body[field] is not None and (type(body[field]) is not int or body[field] < (0 if field == 'context' else 1)):
-            raise ValueError(field + ' is outside its integer range')
     if action == 'discover':
         engine.validate_plan(body.get('plan'))
         path = workspace/'question-plan-submitted.json'

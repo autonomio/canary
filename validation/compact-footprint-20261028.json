@@ -1,0 +1,21 @@
+{
+  "baseline_run": "bitcoin-forecasting-state-of-the-art-202610271901",
+  "copied_working_bytes": 417732339,
+  "retained_bytes": 2641360,
+  "reduction_percent": 99.368,
+  "packaging_seconds": 0.175,
+  "claims": 23,
+  "verbatim_sources": 262,
+  "graph_passages": 286,
+  "consumer_schema_revision": "fdcd455ae996e7cca9c008c43692c7f7ff136400",
+  "consumer_schema_valid": true,
+  "claims_evidence_sources_unchanged": true,
+  "uncertainty_freshness_gaps_residue_audit_unchanged": true,
+  "full_source_bytes_retained": false,
+  "historical_originals_modified": false,
+  "new_model_calls": 0,
+  "retained_files": [
+    ".resolvent.sha256",
+    "resolvent.json"
+  ]
+}
