@@ -16,6 +16,8 @@ Dashboard / CLI / SDK / agent tools
 
 Every application action enters through the API. Only API-owned engine code and workers may invoke vendors, launch scientific sessions, or manage run files. Internal engine functions can call each other directly; no internal loopback HTTP layer is required. Starting the service and installing its dependencies are bootstrap operations.
 
+Scientific execution follows that boundary too: orchestration workers request the active research/audit role through `POST /api/runs/{key}/execution`. The [shared native runtime](SHARED_CODEX.md) owns thread isolation, interruption, receipts and archival; incompatible personal configuration retains the proven API-owned exec path.
+
 Authentication follows the same boundary: `canary auth login` calls the service, which owns the Codex login process and credential location. It must not sign in a separate client-side worker. Codex retains responsibility for its browser/device flow, credential storage and refresh. The service and its workers use the same persistent `CODEX_HOME`; credentials do not enter images, run artifacts or API responses. Login status establishes authentication, not access to every model or a successful research run.
 
 Keep the tested stateful research/audit harness and the existing typed scientific payload. Do not substitute a single model API call, change scientific reasoning settings, add autonomy, or rewrite earlier research to implement this migration.

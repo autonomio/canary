@@ -660,9 +660,9 @@ def _native_usage(thread_id, codex_home=None):
         "count_scope": "Unique native per-response receipts owned by this scientific thread; cached input/reasoning output are subsets, not extra tokens."}
 
 
-def command_line(executable, model, effort, workspace, shape, output):
+def command_line(executable, model, effort, workspace, shape, output, *, store=None):
     from .codex_auth import credential_store
-    store = credential_store(os.environ.get('CANARY_CODEX_CREDENTIALS_STORE', 'file'))
+    store = credential_store(store or os.environ.get('CANARY_CODEX_CREDENTIALS_STORE', 'file'))
     return [executable, "exec", "--ignore-user-config",
             "-c", 'cli_auth_credentials_store=' + json.dumps(store), "--disable", "multi_agent", "--disable", "multi_agent_v2",
         "-m", model, "-c", f'model_reasoning_effort="{effort}"', "-c", "agents.enabled=false",
@@ -672,7 +672,7 @@ def command_line(executable, model, effort, workspace, shape, output):
         "--approve-for-me", "--output-schema", str(shape), "-o", str(output), "-"]
 
 
-def refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed, *, finished=False):
+def refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed, *, finished=False, codex_home=None, execution=None):
     """Refresh committed artifacts and exact native receipts without another model call."""
     from .coverage_export import export_bundle
     try:
@@ -686,10 +686,11 @@ def refresh_committed_progress(workspace, role, model, effort, thread_id, starte
                 recorded_usage = receipt.get("usage", {})
                 roles[name] = dict(receipt, active=False, tokens=recorded_usage.get("totals", {}),
                                    receipts=recorded_usage.get("receipts", []))
-        usage = native_usage(thread_id) if thread_id else {"available": False, "reason": "Thread not yet recorded"}
+        usage = (native_usage(thread_id, codex_home) if codex_home else native_usage(thread_id)) if thread_id else {"available": False, "reason": "Thread not yet recorded"}
         roles[role] = {"active": not finished, "thread_id": thread_id, "model": model, "reasoning_effort": effort,
                        "started_at": started, "ended_at": now() if finished else None, "seconds": round(elapsed, 3),
-                       "usage": usage, "tokens": usage.get("totals", {}), "receipts": usage.get("receipts", [])}
+                       "usage": usage, "tokens": usage.get("totals", {}), "receipts": usage.get("receipts", []),
+                       **(execution or {})}
         write(workspace / "profile.json", {"roles": roles, "active_role": None if finished else role})
         return export_bundle(workspace)
     except Exception as error:
@@ -697,104 +698,125 @@ def refresh_committed_progress(workspace, role, model, effort, thread_id, starte
         return None
 
 
-def scientific_session(workspace, role, model, effort, prompt, shape, *, executable, audit_timeout=None):
-    started, before = now(), time.monotonic()
-    schema_path, output_path = workspace / (role + "-schema.json"), workspace / (role + "-response.json")
-    write(schema_path, shape)
-    (workspace / (role + "-prompt.txt")).write_text(prompt)
-    command = command_line(executable, model, effort, workspace, schema_path, output_path)
-    version = subprocess.run([executable, "--version"], capture_output=True, text=True, check=True).stdout.strip()
-    write(workspace / (role + "-invocation.json"), {"argv": command, "started_at": started,
-        "model": model, "effort": effort, "cli_version": version, "subagents_enabled": False})
-    event(workspace, role + "_started", model=model, reasoning_effort=effort)
-    thread_id, turn_usage, timed_out, last_refresh, exit_code = None, [], False, 0.0, None
-    with (workspace / (role + "-events.jsonl")).open("w") as events, (workspace / (role + "-stderr.log")).open("w") as stderr:
-        process = subprocess.Popen(command, cwd=workspace, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                   stderr=stderr, text=True, start_new_session=True)
-        def stop_audit():
-            nonlocal timed_out
-            timed_out = True
-            import signal
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                return
-            def force_stop():
-                if process.poll() is None:
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-            grace = threading.Timer(5, force_stop)
-            grace.daemon = True
-            grace.start()
-        timer = threading.Timer(audit_timeout, stop_audit) if audit_timeout else None
-        if timer:
-            timer.start()
-        try:
-            process.stdin.write(prompt); process.stdin.close()
-            for line in process.stdout:
-                events.write(line); events.flush()
-                try:
-                    record = json.loads(line)
-                except ValueError:
-                    continue
-                if record.get("type") == "thread.started":
-                    thread_id = record.get("thread_id")
-                    write(workspace / (role + "-active.json"), {"thread_id": thread_id, "model": model, "effort": effort, "started_at": started})
-                if record.get("type") == "turn.completed":
-                    turn_usage.append(record.get("usage", {}))
-                item = record.get("item", {})
-                if record.get("type") == "item.completed" and item.get("type") == "agent_message":
-                    event(workspace, role + "_message", text=item.get("text", "")[:1600])
-                if record.get("type") in ("turn.failed", "error"):
-                    event(workspace, role + "_error", detail=record)
-                # Completed tools/messages expose only committed artifacts;
-                # reasoning items are never published to the researcher UI.
-                if record.get("type") in ("thread.started", "item.completed", "turn.completed"):
-                    elapsed = time.monotonic() - before
-                    if record.get("type") == "thread.started" or elapsed - last_refresh >= 10:
-                        refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed)
-                        last_refresh = elapsed
-            exit_code = process.wait()
-        finally:
+def scientific_session(workspace, role, model, effort, prompt, shape, *, executable, audit_timeout=None,
+                       execution=None, run_key=None, execution_environment=None):
+    if execution is None:
+        # Detached orchestration workers use the API-owned native runtime. They
+        # do not launch providers or create a second shared server.
+        from urllib.parse import quote
+        key = os.environ.get('RUN_KEY')
+        if not key:
+            raise RuntimeError('Scientific execution requires an API-owned run')
+        with httpx.Client(base_url=endpoint(), timeout=None, trust_env=False) as client:
+            response = client.post('/api/runs/' + quote(key, safe='') + '/execution', json={'role': role})
+        body = response.json()
+        if response.is_error:
+            raise RuntimeError(body.get('error', 'Scientific execution failed'))
+        return read(Path(workspace) / ('investigation.json' if role == 'research' else 'audit.json')), body
+    return _scientific_session(workspace, role, model, effort, prompt, shape,
+        executable=executable, audit_timeout=audit_timeout, execution=execution, run_key=run_key, environment=execution_environment)
+
+
+def _scientific_session(workspace, role, model, effort, prompt, shape, *, executable,
+                        audit_timeout, execution, run_key, environment):
+    session = None
+    try:
+        started, before = now(), time.monotonic()
+        schema_path, output_path = workspace / (role + "-schema.json"), workspace / (role + "-response.json")
+        context = execution.context()
+        executable = context['CANARY_CODEX_EXECUTABLE']
+        command = command_line(executable, model, effort, workspace, schema_path, output_path,
+                               store=context['CANARY_CODEX_CREDENTIALS_STORE'])
+        session = execution.open(run_key, role, workspace, model, effort, shape, output_path, None, command, environment)
+        write(schema_path, shape)
+        (workspace / (role + "-prompt.txt")).write_text(prompt)
+        event(workspace, role + "_started", model=model, reasoning_effort=effort)
+        thread_id, turn_usage, timed_out, last_refresh, exit_code = None, [], False, 0.0, None
+        with (workspace / (role + "-events.jsonl")).open("w") as events, (workspace / (role + "-stderr.log")).open("w") as stderr:
+            session.stderr = stderr
+            invocation = session.invocation()
+            write(workspace / (role + '-invocation.json'), dict(invocation,
+                argv=command if session.backend == 'codex_exec' else [executable, 'app-server'],
+                started_at=started, model=model, effort=effort))
+            def stop_audit():
+                nonlocal timed_out
+                timed_out = True
+                session.interrupt()
+            timer = threading.Timer(audit_timeout, stop_audit) if audit_timeout else None
             if timer:
-                timer.cancel()
-            if process.poll() is None:
-                stop_tree({'pid': process.pid, 'identity': identity(process.pid)})
-            exit_code = process.wait()
-            receipt = {"started_at": started, "ended_at": now(), "seconds": round(time.monotonic() - before, 3),
-                "exit_code": exit_code, "thread_id": thread_id, "model": model, "reasoning_effort": effort,
-                "timed_out": timed_out, "turn_usage": turn_usage,
-                "usage": native_usage(thread_id) if thread_id else {"available": False, "reason": "No scientific thread ID"}}
-            write(workspace / (role + "-receipt.json"), receipt)
-    event(workspace, role + "_finished", seconds=receipt["seconds"], exit_code=exit_code, timed_out=timed_out)
-    candidate = output_path if output_path.exists() else workspace / "audit.json"
-    if role == "audit" and candidate.exists():
-        try:
-            read(candidate)
-        except (ValueError, OSError):
-            immutable_bytes(workspace / "audit-incomplete-output.json", candidate.read_bytes())
-            candidate.unlink()
-    if output_path.exists():
-        result = read(output_path)
-        write(workspace / ("investigation.json" if role == "research" else "audit.json"), result)
-    elif role == "audit" and (workspace / "audit.json").exists():
-        result = read(workspace / "audit.json")
-        result["audit_complete"] = False
-        result.setdefault("limitations", []).append("Audit stopped at its recorded time budget; intermediate audit preserved.")
-        write(workspace / "audit.json", result)
-    elif role == "audit":
-        result = {"audit_complete": False, "claim_checks": [], "findings": [], "scores": {},
-            "source_reviewed_ids": [], "selection_assessment": "Not completed", "strengths": [],
-            "limitations": ["Audit did not produce a usable persisted payload"], "scope_note": "Unavailable audit is not scientific acceptance."}
-        write(workspace / "audit.json", result)
-    else:
-        raise RuntimeError("Research session failed to produce structured final research; partial files and receipts are preserved")
-    if exit_code and role == "research":
-        raise RuntimeError("Research session failed; existing partial investigation remains available")
-    refresh_committed_progress(workspace, role, model, effort, thread_id, started, receipt["seconds"], finished=True)
-    return result, receipt
+                timer.start()
+            try:
+                session.start(prompt)
+                for line in session:
+                    events.write(line); events.flush()
+                    try:
+                        record = json.loads(line)
+                    except ValueError:
+                        continue
+                    if record.get("type") == "thread.started":
+                        thread_id = record.get("thread_id")
+                        write(workspace / (role + "-active.json"), {"thread_id": thread_id, "model": model, "effort": effort, "started_at": started})
+                    if record.get("type") == "turn.completed":
+                        turn_usage.append(record.get("usage", {}))
+                    item = record.get("item", {})
+                    if record.get("type") == "item.completed" and item.get("type") == "agent_message":
+                        event(workspace, role + "_message", text=item.get("text", "")[:1600])
+                    if record.get("type") in ("turn.failed", "error"):
+                        event(workspace, role + "_error", detail=record)
+                    # Completed tools/messages expose only committed artifacts;
+                    # reasoning items are never published to the researcher UI.
+                    if record.get("type") in ("thread.started", "item.completed", "turn.completed"):
+                        elapsed = time.monotonic() - before
+                        if record.get("type") == "thread.started" or elapsed - last_refresh >= 10:
+                            refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed,
+                                codex_home=session.home, execution=invocation)
+                            last_refresh = elapsed
+                exit_code = session.wait()
+            finally:
+                if timer:
+                    timer.cancel()
+                if session.exit_code is None:
+                    session.interrupt()
+                exit_code = session.wait()
+                thread_id = thread_id or session.thread_id
+                cleanup = session.archive()
+                receipt = {"started_at": started, "ended_at": now(), "seconds": round(time.monotonic() - before, 3),
+                    "exit_code": exit_code, "thread_id": thread_id, "model": model, "reasoning_effort": effort,
+                    "timed_out": timed_out, "turn_usage": turn_usage,
+                    "usage": native_usage(thread_id, session.home) if thread_id else {"available": False, "reason": "No scientific thread ID"},
+                    **invocation, 'cleanup': cleanup}
+                write(workspace / (role + "-receipt.json"), receipt)
+        event(workspace, role + "_finished", seconds=receipt["seconds"], exit_code=exit_code, timed_out=timed_out)
+        candidate = output_path if output_path.exists() else workspace / "audit.json"
+        if role == "audit" and candidate.exists():
+            try:
+                read(candidate)
+            except (ValueError, OSError):
+                immutable_bytes(workspace / "audit-incomplete-output.json", candidate.read_bytes())
+                candidate.unlink()
+        if output_path.exists():
+            result = read(output_path)
+            write(workspace / ("investigation.json" if role == "research" else "audit.json"), result)
+        elif role == "audit" and (workspace / "audit.json").exists():
+            result = read(workspace / "audit.json")
+            result["audit_complete"] = False
+            result.setdefault("limitations", []).append("Audit stopped at its recorded time budget; intermediate audit preserved.")
+            write(workspace / "audit.json", result)
+        elif role == "audit":
+            result = {"audit_complete": False, "claim_checks": [], "findings": [], "scores": {},
+                "source_reviewed_ids": [], "selection_assessment": "Not completed", "strengths": [],
+                "limitations": ["Audit did not produce a usable persisted payload"], "scope_note": "Unavailable audit is not scientific acceptance."}
+            write(workspace / "audit.json", result)
+        else:
+            raise RuntimeError("Research session failed to produce structured final research; partial files and receipts are preserved")
+        if exit_code and role == "research":
+            raise RuntimeError("Research session failed; existing partial investigation remains available")
+        refresh_committed_progress(workspace, role, model, effort, thread_id, started, receipt["seconds"], finished=True,
+            codex_home=session.home, execution=invocation)
+        return result, receipt
+    finally:
+        if session is not None:
+            session.close()
 
 
 def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable=None, on_reserved=None, local_text=None):

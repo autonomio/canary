@@ -1,0 +1,379 @@
+{
+  "codex_version": "codex-cli 0.162.0",
+  "cpu_limit": 1,
+  "scientific_run": false,
+  "cases": [
+    {
+      "key": "fixture-0",
+      "role": "research",
+      "result_matches": true,
+      "receipt": {
+        "started_at": "2026-10-28T11:45:00.156962+00:00",
+        "ended_at": "2026-10-28T11:45:14.745873+00:00",
+        "seconds": 14.59,
+        "exit_code": 0,
+        "thread_id": "01a18253-eb58-7f63-a02a-ce601cd5df0c",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "xhigh",
+        "timed_out": false,
+        "turn_usage": [
+          {}
+        ],
+        "usage": {
+          "available": true,
+          "thread_id": "01a18253-eb58-7f63-a02a-ce601cd5df0c",
+          "response_count": 3,
+          "totals": {
+            "input_tokens": 30884,
+            "cached_input_tokens": 10112,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 323,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 31207,
+            "uncached_input_tokens": 20772,
+            "other_output_tokens": 323
+          },
+          "receipts": [
+            {
+              "response_id": "resp_0c6ab8ba4108a47d016ae1e040871481919cbab8ff705a872a",
+              "thread_id": "01a18253-eb58-7f63-a02a-ce601cd5df0c",
+              "model": "gpt-6.1-sol",
+              "reasoning_effort": "xhigh",
+              "usage": {
+                "input_tokens": 10018,
+                "cached_input_tokens": 0,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 154,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 10172
+              }
+            },
+            {
+              "response_id": "resp_0c6ab8ba4108a47d016ae1e04544c881918982cd0e0fa2613d",
+              "thread_id": "01a18253-eb58-7f63-a02a-ce601cd5df0c",
+              "model": "gpt-6.1-sol",
+              "reasoning_effort": "xhigh",
+              "usage": {
+                "input_tokens": 10323,
+                "cached_input_tokens": 0,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 129,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 10452
+              }
+            },
+            {
+              "response_id": "resp_0c6ab8ba4108a47d016ae1e048c02481919b388d6e527127b3",
+              "thread_id": "01a18253-eb58-7f63-a02a-ce601cd5df0c",
+              "model": "gpt-6.1-sol",
+              "reasoning_effort": "xhigh",
+              "usage": {
+                "input_tokens": 10543,
+                "cached_input_tokens": 10112,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 40,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 10583
+              }
+            }
+          ],
+          "child_thread_ids": [],
+          "no_subagents_verified": true,
+          "incomplete_lines": 0,
+          "count_scope": "Unique native per-response receipts owned by this scientific thread; cached input/reasoning output are subsets, not extra tokens."
+        },
+        "backend": "shared_codex_app_server",
+        "fallback_reason": null,
+        "cli_version": "codex-cli 0.162.0",
+        "subagents_enabled": false,
+        "configuration_policy": "native_clean_or_credentials_only",
+        "cleanup": {
+          "archived": true
+        }
+      }
+    },
+    {
+      "key": "fixture-1",
+      "role": "research",
+      "result_matches": true,
+      "receipt": {
+        "started_at": "2026-10-28T11:45:00.159760+00:00",
+        "ended_at": "2026-10-28T11:45:18.288902+00:00",
+        "seconds": 18.13,
+        "exit_code": 0,
+        "thread_id": "01a18253-eb5d-7222-a22e-555807edbb24",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "xhigh",
+        "timed_out": false,
+        "turn_usage": [
+          {}
+        ],
+        "usage": {
+          "available": true,
+          "thread_id": "01a18253-eb5d-7222-a22e-555807edbb24",
+          "response_count": 3,
+          "totals": {
+            "input_tokens": 30883,
+            "cached_input_tokens": 20480,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 324,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 31207,
+            "uncached_input_tokens": 10403,
+            "other_output_tokens": 324
+          },
+          "receipts": [
+            {
+              "response_id": "resp_009d0011dcee5e86016ae1e040784c8191b2450eddd4967258",
+              "thread_id": "01a18253-eb5d-7222-a22e-555807edbb24",
+              "model": "gpt-6.1-sol",
+              "reasoning_effort": "xhigh",
+              "usage": {
+                "input_tokens": 10018,
+                "cached_input_tokens": 0,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 151,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 10169
+              }
+            },
+            {
+              "response_id": "resp_009d0011dcee5e86016ae1e04718188191b138c81bd249679c",
+              "thread_id": "01a18253-eb5d-7222-a22e-555807edbb24",
+              "model": "gpt-6.1-sol",
+              "reasoning_effort": "xhigh",
+              "usage": {
+                "input_tokens": 10320,
+                "cached_input_tokens": 10112,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 133,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 10453
+              }
+            },
+            {
+              "response_id": "resp_009d0011dcee5e86016ae1e04b51d4819197c0a93bbb409ec5",
+              "thread_id": "01a18253-eb5d-7222-a22e-555807edbb24",
+              "model": "gpt-6.1-sol",
+              "reasoning_effort": "xhigh",
+              "usage": {
+                "input_tokens": 10545,
+                "cached_input_tokens": 10368,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 40,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 10585
+              }
+            }
+          ],
+          "child_thread_ids": [],
+          "no_subagents_verified": true,
+          "incomplete_lines": 0,
+          "count_scope": "Unique native per-response receipts owned by this scientific thread; cached input/reasoning output are subsets, not extra tokens."
+        },
+        "backend": "shared_codex_app_server",
+        "fallback_reason": null,
+        "cli_version": "codex-cli 0.162.0",
+        "subagents_enabled": false,
+        "configuration_policy": "native_clean_or_credentials_only",
+        "cleanup": {
+          "archived": true
+        }
+      }
+    },
+    {
+      "key": "fixture-2",
+      "role": "audit",
+      "result_matches": true,
+      "receipt": {
+        "started_at": "2026-10-28T11:45:00.158883+00:00",
+        "ended_at": "2026-10-28T11:45:19.320001+00:00",
+        "seconds": 19.162,
+        "exit_code": 0,
+        "thread_id": "01a18253-eb59-79b3-9e97-a41521d58307",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "ultra",
+        "timed_out": false,
+        "turn_usage": [
+          {}
+        ],
+        "usage": {
+          "available": true,
+          "thread_id": "01a18253-eb59-79b3-9e97-a41521d58307",
+          "response_count": 3,
+          "totals": {
+            "input_tokens": 30697,
+            "cached_input_tokens": 20224,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 322,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 31019,
+            "uncached_input_tokens": 10473,
+            "other_output_tokens": 322
+          },
+          "receipts": [
+            {
+              "response_id": "resp_0b35be7330667210016ae1e03fefbc819184f2159f6b301a0e",
+              "thread_id": "01a18253-eb59-79b3-9e97-a41521d58307",
+              "model": "gpt-6-astra",
+              "reasoning_effort": "ultra",
+              "usage": {
+                "input_tokens": 9954,
+                "cached_input_tokens": 0,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 154,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 10108
+              }
+            },
+            {
+              "response_id": "resp_0b35be7330667210016ae1e047d5a48191be6fec5f756eae37",
+              "thread_id": "01a18253-eb59-79b3-9e97-a41521d58307",
+              "model": "gpt-6-astra",
+              "reasoning_effort": "ultra",
+              "usage": {
+                "input_tokens": 10261,
+                "cached_input_tokens": 9984,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 129,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 10390
+              }
+            },
+            {
+              "response_id": "resp_0b35be7330667210016ae1e04c6f648191bf299f314b1da88d",
+              "thread_id": "01a18253-eb59-79b3-9e97-a41521d58307",
+              "model": "gpt-6-astra",
+              "reasoning_effort": "ultra",
+              "usage": {
+                "input_tokens": 10482,
+                "cached_input_tokens": 10240,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 39,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 10521
+              }
+            }
+          ],
+          "child_thread_ids": [],
+          "no_subagents_verified": true,
+          "incomplete_lines": 0,
+          "count_scope": "Unique native per-response receipts owned by this scientific thread; cached input/reasoning output are subsets, not extra tokens."
+        },
+        "backend": "shared_codex_app_server",
+        "fallback_reason": null,
+        "cli_version": "codex-cli 0.162.0",
+        "subagents_enabled": false,
+        "configuration_policy": "native_clean_or_credentials_only",
+        "cleanup": {
+          "archived": true
+        }
+      }
+    },
+    {
+      "key": "fixture-3",
+      "role": "audit",
+      "result_matches": true,
+      "receipt": {
+        "started_at": "2026-10-28T11:45:00.160015+00:00",
+        "ended_at": "2026-10-28T11:45:21.066060+00:00",
+        "seconds": 20.907,
+        "exit_code": 0,
+        "thread_id": "01a18253-eb5c-7b72-9a82-a1b8f7d2674d",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "ultra",
+        "timed_out": false,
+        "turn_usage": [
+          {}
+        ],
+        "usage": {
+          "available": true,
+          "thread_id": "01a18253-eb5c-7b72-9a82-a1b8f7d2674d",
+          "response_count": 3,
+          "totals": {
+            "input_tokens": 30705,
+            "cached_input_tokens": 20224,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 323,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 31028,
+            "uncached_input_tokens": 10481,
+            "other_output_tokens": 323
+          },
+          "receipts": [
+            {
+              "response_id": "resp_00e31b9cf30a0dad016ae1e03fe29081918918d67435a67181",
+              "thread_id": "01a18253-eb5c-7b72-9a82-a1b8f7d2674d",
+              "model": "gpt-6-astra",
+              "reasoning_effort": "ultra",
+              "usage": {
+                "input_tokens": 9954,
+                "cached_input_tokens": 0,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 153,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 10107
+              }
+            },
+            {
+              "response_id": "resp_00e31b9cf30a0dad016ae1e04862f88191bae04162c4b9380c",
+              "thread_id": "01a18253-eb5c-7b72-9a82-a1b8f7d2674d",
+              "model": "gpt-6-astra",
+              "reasoning_effort": "ultra",
+              "usage": {
+                "input_tokens": 10265,
+                "cached_input_tokens": 9984,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 128,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 10393
+              }
+            },
+            {
+              "response_id": "resp_00e31b9cf30a0dad016ae1e04e2ff481919a87a13c65618969",
+              "thread_id": "01a18253-eb5c-7b72-9a82-a1b8f7d2674d",
+              "model": "gpt-6-astra",
+              "reasoning_effort": "ultra",
+              "usage": {
+                "input_tokens": 10486,
+                "cached_input_tokens": 10240,
+                "cache_write_input_tokens": 0,
+                "output_tokens": 42,
+                "reasoning_output_tokens": 0,
+                "total_tokens": 10528
+              }
+            }
+          ],
+          "child_thread_ids": [],
+          "no_subagents_verified": true,
+          "incomplete_lines": 0,
+          "count_scope": "Unique native per-response receipts owned by this scientific thread; cached input/reasoning output are subsets, not extra tokens."
+        },
+        "backend": "shared_codex_app_server",
+        "fallback_reason": null,
+        "cli_version": "codex-cli 0.162.0",
+        "subagents_enabled": false,
+        "configuration_policy": "native_clean_or_credentials_only",
+        "cleanup": {
+          "archived": true
+        }
+      }
+    }
+  ],
+  "seconds": 21.497,
+  "execution_status": {
+    "backend": "shared_codex_app_server",
+    "running": true,
+    "active_shared_sessions": 0,
+    "active_exec_sessions": 0
+  },
+  "loaded_threads": [],
+  "scope": "API-owned native execution with declared synthetic prompts/schemas; not a scientific research run or throughput benchmark.",
+  "image_base": "canary-bitcoin-server:20261027 (930a909); current source mounted read-only",
+  "source_sha256": {
+    "codex_execution.py": "ec63893d4cf742b2fd6002812eab40f6690681948eefeb8c03ffe872f82c680e",
+    "codex_auth.py": "26d50aa5288b1b2f99787510e8cb7d76f10592988205b7beacb5fc388cb67c3a",
+    "coverage_runtime.py": "0abfe57bad64a664285871e45eb5803c273bceaf87cb7fb05990704cff07c21c",
+    "dashboard.py": "f78ef2aae0bc9f39af1da5dea56236979852dfd5d21d91529545dc2bd17191b8"
+  }
+}

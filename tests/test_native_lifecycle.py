@@ -91,6 +91,13 @@ def test_real_native_worker_seals_cancelled_bundle_and_preserves_receipts(tmp_pa
 import pathlib,sys,time,json
 if '--version' in sys.argv:
     print('codex-fixture 0.162.0');raise SystemExit()
+if sys.argv[1]=='app-server':
+    for line in sys.stdin:
+        m=json.loads(line)
+        if 'id' not in m: continue
+        result={'config':{'cli_auth_credentials_store':'file'},'layers':[{'name':{'type':'user'},'config':{'developer_instructions':'ignored by exec'}}]} if m['method']=='config/read' else {}
+        print(json.dumps({'id':m['id'],'result':result}),flush=True)
+    raise SystemExit()
 assert sys.argv[1]=='exec'
 pathlib.Path('synthetic-committed.txt').write_text('Synthetic material; no scientific evidence.')
 print(json.dumps({'type':'thread.started','thread_id':'fixture-thread'}),flush=True)
@@ -99,7 +106,6 @@ time.sleep(60)
     fake.chmod(0o755)
     monkeypatch.setenv('PATH', str(tmp_path)+os.pathsep+os.environ['PATH'])
     monkeypatch.setenv('CODEX_HOME', str(tmp_path/'fixture-auth'))
-    monkeypatch.setattr(dashboard.CodexAuth, 'worker_environment', lambda self: {'CODEX_HOME': self.home})
     server = dashboard.make_server(0, registry=tmp_path/'registry.json', root=tmp_path)
     thread = threading.Thread(target=server.serve_forever, daemon=True);thread.start()
     key = None

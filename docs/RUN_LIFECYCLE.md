@@ -38,8 +38,10 @@ Native process ownership is recorded before the API returns the run key. On rest
 the service checks the recorded process identity instead of inferring liveness from
 an old `researching` file. Dead workers with unfinished manifests become interrupted;
 live workers remain observable and cancellable without their original in-memory
-Popen handle. Detached workers survive a service restart; API tools need the service
-available and expose a failed request if it is unavailable during that interval.
+Popen handle. Detached orchestration workers survive a service restart. New
+scientific sessions use the [API-owned shared Codex runtime](SHARED_CODEX.md); a
+shared turn ends if its owning service stops, with partial work preserved and no
+automatic scientific retry. API tools also require the service to be available.
 
 ## Scientific tools
 

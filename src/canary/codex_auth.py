@@ -59,9 +59,9 @@ def credential_store(value: str) -> str:
 
 
 class CodexAuth:
-    """One lazy app-server, serialized RPCs; Codex owns storage and refresh.
+    """One lazy app-server; Codex owns storage and refresh.
 
-    The process only receives account RPCs, never scientific prompts or threads.
+    Scientific sessions share its multiplexed transport through CodexExecution.
     Login challenges live in memory and are removed at completion/cancellation.
     """
     def __init__(self, home: str | None = None):
@@ -70,6 +70,9 @@ class CodexAuth:
         self.proc: subprocess.Popen | None = None
         self.messages: queue.Queue = queue.Queue()
         self.sequence = 0
+        self.rpc_lock = threading.RLock()
+        self.pending: dict = {}
+        self.listeners: dict = {}
         self.login: Login | None = None
         self.completions: dict = {}
         self.timeout = 15.0
@@ -89,7 +92,10 @@ class CodexAuth:
                         proc.wait(timeout=2)
             for stream in (proc.stdin, proc.stdout):
                 if stream:
-                    stream.close()
+                    try:
+                        stream.close()
+                    except (OSError, ValueError):
+                        pass
         if self.login and self.login['state'] == 'pending':
             self._finish('failed', 'Login stopped with the authentication service; start again.')
 
@@ -106,6 +112,8 @@ class CodexAuth:
             raise AuthError('Codex CLI is not installed on the service host.')
         executable = str(Path(executable).resolve())
         self.messages = messages = queue.Queue()
+        self.pending = pending = {}
+        self.listeners = listeners = {}
         self.completions.clear()
         try:
             Path(self.home).mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -127,10 +135,30 @@ class CodexAuth:
             try:
                 for line in proc.stdout:
                     try:
-                        messages.put(json.loads(line))
+                        message = json.loads(line)
+                        with self.rpc_lock:
+                            response = pending.pop(message.get('id'), None) if 'method' not in message else None
+                            params = message.get('params') or {}
+                            thread_id = params.get('threadId') or (params.get('thread') or {}).get('id')
+                            listener = listeners.get(thread_id)
+                        if response is not None:
+                            response.put(message)
+                        elif listener is not None:
+                            listener(message)
+                        else:
+                            messages.put(message)
                     except ValueError:
                         pass
             finally:
+                failure = {'error': {'code': 'connection_closed'}}
+                with self.rpc_lock:
+                    waiting = list(pending.values())
+                    pending.clear()
+                    callbacks = list(listeners.values())
+                for waiting_request in waiting:
+                    waiting_request.put(failure)
+                for callback in callbacks:
+                    callback({'method': 'canary/connectionClosed', 'params': {}})
                 messages.put(None)
 
         threading.Thread(target=read, daemon=True).start()
@@ -158,12 +186,13 @@ class CodexAuth:
             raise AuthError('Codex authentication connection closed.') from None
 
     def _event(self, message: dict) -> None:
-        if message.get('method') == 'account/login/completed':
-            event = message.get('params', {})
-            login_id = event.get('loginId')
-            if isinstance(login_id, str):
-                self.completions[login_id] = bool(event.get('success'))
-            self._apply_completion()
+        with self.lock:
+            if message.get('method') == 'account/login/completed':
+                event = message.get('params', {})
+                login_id = event.get('loginId')
+                if isinstance(login_id, str):
+                    self.completions[login_id] = bool(event.get('success'))
+                self._apply_completion()
 
     def _finish(self, state, error=None):
         self.login.update(state=state, error=error, url=None, user_code=None)
@@ -174,35 +203,54 @@ class CodexAuth:
             self._finish('complete' if success else 'failed',
                          None if success else 'Codex login failed. Retry, or use device login.')
 
-    def _rpc(self, method: str, params: dict | None = None) -> dict:
-        self.sequence += 1
-        request_id = self.sequence
-        self._write({'id': request_id, 'method': method, 'params': params or {}})
-        deadline = time.monotonic() + self.timeout
+    def _rpc(self, method: str, params: dict | None = None, *, generation=None) -> dict:
+        # Only ID assignment and the pipe write serialize; independent scientific
+        # requests keep receiving replies and events while an account call waits.
+        response = queue.Queue(maxsize=1)
+        with self.rpc_lock:
+            if generation is not None and self.proc is not generation:
+                raise AuthError('The Codex execution connection was replaced.')
+            self.sequence += 1
+            request_id = self.sequence
+            pending = self.pending
+            pending[request_id] = response
+            try:
+                self._write({'id': request_id, 'method': method, 'params': params or {}})
+            except Exception:
+                pending.pop(request_id, None)
+                raise
+        try:
+            message = response.get(timeout=self.timeout)
+        except queue.Empty:
+            raise AuthError('Codex request timed out; retry.') from None
+        finally:
+            with self.rpc_lock:
+                pending.pop(request_id, None)
+        # Login-completed can precede its start response. Preserve those events
+        # without taking another session's replies off the transport.
         while True:
             try:
-                message = self.messages.get(timeout=max(0, deadline - time.monotonic()))
+                event = self.messages.get_nowait()
             except queue.Empty:
-                raise AuthError('Codex authentication timed out; retry.') from None
-            if message is None:
-                raise AuthError('Codex authentication connection closed.')
-            if message.get('id') == request_id:
-                if 'error' in message:
-                    # Never forward provider error text: it can contain auth URLs or secrets.
-                    raise AuthError('Codex rejected the authentication action. Retry or use device login.',
-                                    'codex_auth_failed', 502)
-                result = message.get('result')
-                if not isinstance(result, dict):
-                    raise AuthError('Codex returned an unsupported authentication response.')
-                return result
-            self._event(message)
+                break
+            if event is not None:
+                self._event(event)
+        if 'error' in message:
+            # Provider error text can contain credentials or login URLs.
+            raise AuthError('Codex rejected the request or its connection closed.',
+                            'codex_connection_closed' if message['error'].get('code') == 'connection_closed' else 'codex_request_failed', 502)
+        result = message.get('result')
+        if not isinstance(result, dict):
+            raise AuthError('Codex returned an unsupported response.')
+        return result
 
     def _call(self, method, params=None):
         try:
             self._start()
             return self._rpc(method, params)
-        except AuthError:
-            self._stop()
+        except AuthError as error:
+            if error.code != 'codex_request_failed':
+                self._stop()
             raise
 
     def status(self) -> AuthStatus:
@@ -210,8 +258,11 @@ class CodexAuth:
             try:
                 was_pending = self.login and self.login['state'] == 'pending'
                 result = self._call('account/read', {'refreshToken': False})
-                while not self.messages.empty():
-                    message = self.messages.get_nowait()
+                while True:
+                    try:
+                        message = self.messages.get_nowait()
+                    except queue.Empty:
+                        break
                     if message is None:
                         raise AuthError('Codex authentication connection closed.')
                     self._event(message)
@@ -226,7 +277,8 @@ class CodexAuth:
                             mode=mode if authenticated else None,
                             login=dict(self.login) if self.login else None, error=None)
             except AuthError as error:
-                self._stop()
+                if error.code != 'codex_request_failed':
+                    self._stop()
                 return dict(available=False, authenticated=False, state='unavailable', mode=None,
                             login=dict(self.login) if self.login else None, error=str(error))
 
