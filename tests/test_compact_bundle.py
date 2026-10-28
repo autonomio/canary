@@ -148,3 +148,52 @@ assert.doesNotMatch(html,/Complete paper/);
 assert.doesNotMatch(html,/Read complete paper/);
 assert.match(html,/Read retained excerpts/);
 """)
+
+
+@pytest.mark.parametrize('action',['context','file'])
+def test_inflight_source_context_crossing_release_returns_exact_retained_excerpts(api,tmp_path,monkeypatch,action):
+    server,client,_=api
+    workspace=tmp_path/'context-race';workspace.mkdir();original=prepared(workspace)
+    registry=server.RequestHandlerClass.supervisor.registry
+    runs.register_start('context-race','Fixture','',kind='question',bundle=str(workspace),status='done',path=registry)
+    paragraph=dashboard.research_bundle(workspace)['answer']['passages'][0]
+    resolve=dashboard.source_artifacts;released=False
+    def cutover(*args,**kwargs):
+        nonlocal released
+        result=resolve(*args,**kwargs)
+        if not released:
+            released=True
+            compact_bundle.retain(workspace)
+        return result
+    monkeypatch.setattr(dashboard,'source_artifacts',cutover)
+    response=client.get('/api/runs/context-race/sources/W1/'+action,params={'scope':'paper','paragraph_id':paragraph['id']})
+    if action=='file':
+        assert response.status_code==404
+        return
+    assert response.status_code==200,response.text
+    result=response.json()
+    assert result['scope']=='excerpts' and result['text_complete'] is False
+    assert result['local_file_url'] is None and result['offset_verified'] is False
+    assert result['paragraphs'][0]['text']==original['evidence'][0]['verbatims'][0]['text']
+    assert 'not stored locally' in result['warning']
+
+
+def test_open_original_stream_survives_release_before_http_headers(api,tmp_path,monkeypatch):
+    server,client,_=api
+    workspace=tmp_path/'file-race';workspace.mkdir();prepared(workspace)
+    registry=server.RequestHandlerClass.supervisor.registry
+    runs.register_start('file-race','Fixture','',kind='question',bundle=str(workspace),status='done',path=registry)
+    _,source,_,_=dashboard.source_artifacts(workspace,'W1')
+    expected=source.read_bytes();open_file=Path.open;released=False
+    def cutover(path,*args,**kwargs):
+        nonlocal released
+        stream=open_file(path,*args,**kwargs)
+        if path==source and (args[0] if args else kwargs.get('mode'))=='rb' and not released:
+            released=True
+            compact_bundle.retain(workspace)
+        return stream
+    monkeypatch.setattr(Path,'open',cutover)
+    response=client.get('/api/runs/file-race/sources/W1/file')
+    assert response.status_code==200 and response.content==expected
+    assert compact_bundle.exists(workspace)
+    assert client.get('/api/runs/file-race/sources/W1/file').status_code==404

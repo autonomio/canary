@@ -320,14 +320,25 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         ref = receipt.get("reference")
         if isinstance(ref, dict) and ref.get("id"):
             refs[ref["id"]] = ref
-    candidates = {}
-    try:
-        for line in (source / "candidates.jsonl").read_text(encoding="utf-8").splitlines():
-            row = json.loads(line)
-            if isinstance(row, dict) and row.get("id"):
-                candidates[row["id"]] = row
-    except (OSError, ValueError):
-        pass
+    from .candidate_index import CandidateIndex, NAME as CANDIDATE_INDEX
+    candidates, candidate_count = {}, 0
+    if (source / CANDIDATE_INDEX).is_file():
+        with CandidateIndex(source) as index:
+            candidate_count = index.count()
+            candidates = index.selected(refs, projection=True)
+    else:
+        seen = set()
+        try:
+            with (source / 'candidates.jsonl').open(encoding='utf-8') as stream:
+                for line in stream:
+                    row = json.loads(line)
+                    if isinstance(row, dict) and row.get('id'):
+                        seen.add(row['id'])
+                        if row['id'] in refs:
+                            candidates[row['id']] = row
+        except (OSError, ValueError):
+            pass
+        candidate_count = len(seen)
     spans = {}
     for path in sorted((source / "passages").glob("*.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -657,7 +668,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                 "core_papers": roles.get("core", 0), "supporting_papers": roles.get("supporting", 0),
                 "cited_sources": len({p["source_id"] for p in graph["passages"]}),
                 "available_papers": len(refs) - preview_count, "retrieved_sources": len(refs),
-                "preview_suspected_sources": preview_count, "discovered_candidates": len(candidates),
+                "preview_suspected_sources": preview_count, "discovered_candidates": candidate_count,
                 "assessed_candidates": len(set(selection.get("assessed_candidate_ids", []))),
                 "decision_records": len(_rows(selection.get("decisions"))), "related_report_groups": groups,
                 "independent_study_count": None,
@@ -671,6 +682,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     search_progress = _load(source / "search-progress.json", _load(bundle / "search-progress.json", None))
     if isinstance(search_progress, dict):
         coverage["search_progress"] = search_progress
+        if search_progress.get('candidate_metadata'):
+            coverage['candidate_metadata'] = search_progress['candidate_metadata']
     corpus = _load(source / 'local-corpus.json', _load(bundle / 'local-corpus.json', {}))
     if corpus:
         coverage['local_corpus'] = {k: v for k, v in corpus.items() if k not in ('files', 'excluded_files')}
@@ -713,7 +726,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                reasoning_effort="xhigh", reviewer_model="gpt-6-astra", reviewer_reasoning_effort="ultra",
                generated_at=run.get("generated_at", run.get("started_at", context.get("started_at"))),
                status=status, runtime_status=lifecycle, answered=has_findings, receipts=model_receipts,
-               discovered=len(candidates), accepted=len(accepted), available_unique_sources=len(refs),
+               discovered=candidate_count, accepted=len(accepted), available_unique_sources=len(refs),
                llm_calls=_profile_response_count(profile),
                papers_reviewed=covered, papers_core=roles.get("core", 0), papers_supporting=roles.get("supporting", 0),
                target_papers=target, preview_suspected_sources=preview_count, audit_status=graph["audit"]["status"], coverage=coverage,

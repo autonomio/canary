@@ -13,6 +13,12 @@ import httpx
 
 from canary import coverage_protocol as protocol
 from canary import coverage_runtime as runtime
+from canary.candidate_index import CandidateIndex
+
+def stored(workspace):
+    with CandidateIndex(workspace) as index:
+        return list(index.records())
+
 
 
 def rich_plan():
@@ -71,7 +77,7 @@ def test_fresh_search_cap_resume_and_rich_plan_preservation(tmp_path, monkeypatc
     assert runtime.read(tmp_path / "research" / "question-plan.json") == rich_plan()
     logs = (tmp_path / "research" / "openalex-requests.json").read_text()
     assert "synthetic-source-key" not in logs
-    assert len(runtime.read(tmp_path / "research" / "works.json")) == 2
+    assert len(stored(tmp_path / "research")) == 2
 
 
 
@@ -105,7 +111,7 @@ def test_openalex_429_stops_whole_net_and_resumes_committed_cursor(tmp_path, mon
         assert limited["queries"]["q2"]["pages"] == 0
         assert limited["backoff"]["retry_not_before_epoch"] == clock[0] + 60
         assert limited["keyword_requests"] == limited["usage"]["keyword_searches_today"] == 1
-        assert [w["id"].rsplit("/", 1)[-1] for w in runtime.read(workspace / "works.json")] == ["W1"]
+        assert [w["id"].rsplit("/", 1)[-1] for w in stored(workspace)] == ["W1"]
         candidate = json.loads((workspace / "candidates.jsonl").read_text())
         assert candidate["id"] == "W1" and candidate["abstract"] == "synthetic abstract"
         assert (workspace / "titles.tsv").read_text().startswith("W1\t")
@@ -121,7 +127,7 @@ def test_openalex_429_stops_whole_net_and_resumes_committed_cursor(tmp_path, mon
     assert resumed["queries"]["q1"]["pages"] == 2
     assert "failure_status" not in resumed["queries"]["q1"]
     assert resumed["keyword_requests"] == resumed["usage"]["keyword_searches_today"] == 3
-    assert len(runtime.read(workspace / "works.json")) == 3
+    assert len(stored(workspace)) == 3
     assert [r["status"] for r in runtime.read(workspace / "openalex-requests.json")] == [200, 429, 200, 200]
     assert "synthetic-source-key" not in (workspace / "search-progress.json").read_text()
     assert "synthetic-source-key" not in (workspace / "openalex-requests.json").read_text()
@@ -148,7 +154,7 @@ def test_openalex_http_date_backoff_is_shared_with_new_workspace(tmp_path, monke
         assert second["backoff"]["retry_not_before_epoch"] == clock[0] + 120
         assert second["backoff"]["retry_after"] == retry_after
         assert second["complete"] is False and second["pending_query_ids"] == ["q1"]
-        assert runtime.read(tmp_path / "second" / "works.json") == []
+        assert stored(tmp_path / "second") == []
         assert (tmp_path / "second" / "candidates.jsonl").read_text() == ""
         with sqlite3.connect(tmp_path / "out" / "coverage-openalex-usage.sqlite") as db:
             assert db.execute("SELECT COUNT(*) FROM searches").fetchone()[0] == 0
@@ -493,7 +499,7 @@ def test_rejected_query_change_keeps_committed_plan_candidates_and_exported_net(
     net = runtime.read(workspace / "query-net.json")
     assert net == original
     assert result["coverage"]["search_progress"]["queries"]["q1"]["search"] == original["queries"][0]["search"]
-    assert runtime.read(workspace / "works.json")[0]["query_ids"] == ["q1"]
+    assert stored(workspace)[0]["query_ids"] == ["q1"]
     data = {"query_net": net, "answer": result["answer"], "coverage": result["coverage"], "run": result["run"]}
     run_dashboard(tmp_path, data, r"""
 const before=JSON.stringify(graph),html=queryNetHtml(graph);
@@ -521,7 +527,7 @@ def test_new_query_id_can_extend_a_committed_search_net(tmp_path):
     assert runtime.read(workspace / "question-plan.json") == extended
     assert progress["queries"]["q1"]["pages"] == progress["queries"]["q2"]["pages"] == 1
     assert progress["complete"] is True
-    assert {w["id"].split("/")[-1] for w in runtime.read(workspace / "works.json")} == {"W1", "W2"}
+    assert {w["id"].split("/")[-1] for w in stored(workspace)} == {"W1", "W2"}
 
 
 @pytest.mark.parametrize("complete", [False, True])
@@ -556,7 +562,7 @@ def test_omitted_query_keeps_search_history_cursor_candidates_and_honest_complet
     assert progress["queries"]["q1"]["pages"] == (1 if complete else 2)
     assert progress["queries"]["q2"]["pages"] == 1
     assert progress["complete"] is complete and progress["pending_query_ids"] == ([] if complete else ["q1"])
-    works = runtime.read(workspace / "works.json")
+    works = stored(workspace)
     assert {w["id"].split("/")[-1]: w["query_ids"] for w in works} == {"W1": ["q1"], "W2": ["q2"]}
     result = export_bundle(workspace)
     assert runtime.read(workspace / "query-net.json") == canonical

@@ -70,7 +70,7 @@ def initialize(workspace, packet):
     report['created_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     report['engine'] = {'python': sys.version.split()[0], 'sources': {
         name: file_hash(Path(__file__).parent / name) for name in
-        ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'claim_freshness.py',
+        ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'candidate_index.py', 'claim_freshness.py',
          'research_spec.py', 'research_bundle.py', 'bundle_connectors.py', 'compact_bundle.py', 'local_text.py',
          'processes.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py', 'api_client.py')}}
     lock = resource_root() / 'uv.lock'

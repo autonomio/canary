@@ -913,12 +913,15 @@ def source_artifacts(bundle: str | Path, source_id: str) -> tuple[dict, Path | N
         raise KeyError(source_id)
     b = Path(bundle)
     from . import compact_bundle
-    graph = (compact_bundle.projection(b)['answer'] if compact_bundle.exists(b)
+    retained = compact_bundle.exists(b)
+    graph = (compact_bundle.projection(b)['answer'] if retained
              else _load_json_file(b / "answer.json", {}))
     graph = graph if isinstance(graph, dict) else {}
     reference = next((r for r in graph.get("references", []) if isinstance(r, dict) and r.get("id") == source_id), None)
     if reference is None:
         raise KeyError(source_id)
+    if retained:
+        return reference, None, None, graph
     paper = reference.get("paper", {})
     paper = paper if isinstance(paper, dict) else {}
     extra = paper.get("extra", {})
@@ -974,6 +977,9 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
         payload.update(scope="abstract", context_label="Abstract", text_complete=bool(text))
     else:
         if text_path is None:
+            from . import compact_bundle
+            if reference.get('source_retention') != 'excerpts_only' and compact_bundle.exists(bundle):
+                return source_context(bundle, source_id, paragraph_id, scope, key)
             if reference.get('source_retention') == 'excerpts_only':
                 kept = sorted((p for p in graph.get('passages', []) if p.get('source_id') == source_id),
                               key=lambda p: (p.get('start', 0), p.get('end', 0)))
@@ -986,8 +992,17 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
                 return payload
             payload["warning"] = "Saved readable full-source text is missing; abstracts are not substituted."
             return payload
-        with text_path.open(encoding="utf-8", newline="") as stream:
-            text = stream.read()
+        try:
+            with text_path.open(encoding="utf-8", newline="") as stream:
+                text = stream.read()
+        except FileNotFoundError:
+            # The compact output is committed before releasing working sources.
+            # A reader that resolved an old path can cross that transition.
+            from . import compact_bundle
+            if compact_bundle.exists(bundle):
+                return source_context(bundle, source_id, paragraph_id, scope, key)
+            payload.update(local_file_url=None, warning="Saved readable full-source text is missing; abstracts are not substituted.")
+            return payload
         expected_chars = reference.get("text_chars") if reference.get("kind") != "abstract" else None
         if type(expected_chars) is int:
             payload["text_complete"] = len(text) == expected_chars
@@ -1264,8 +1279,13 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         kind = {".pdf": "application/pdf", ".xml": "application/xml", ".html": "text/html; charset=utf-8",
                                 ".txt": "text/plain; charset=utf-8"}.get(original.suffix.lower(), "application/octet-stream")
-                        self._send(200, original.read_bytes(), kind,
-                                   {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
+                        try:
+                            content = original.read_bytes()
+                        except FileNotFoundError:
+                            self._send(404, {'error': 'Original source was released; retained excerpts remain available'})
+                        else:
+                            self._send(200, content, kind,
+                                       {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
             elif re.fullmatch(r"/api/runs/[^/]+/exports/[^/]+", parsed.path):
                 parts = parsed.path.split('/')
                 row = runs.get(unquote(parts[3]), self.supervisor.registry)

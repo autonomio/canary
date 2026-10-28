@@ -10,6 +10,7 @@ from .research_spec import CompiledResearch
 from .research_bundle import ResearchBundle, BundleRetention
 from .service_status import ServiceStatus
 from .connection import ConnectionStatus
+from .candidate_index import CandidateMetadata
 
 S = {'type':'string'}
 I = {'type':'integer'}
@@ -82,7 +83,8 @@ def schemas():
         'gaps':arr(O),'residue':arr(O),'contradictions':arr(O),'study_results':arr(O),
         'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O)},closed=False)
     research = obj({'kind':S,'answer':ref('Findings'),'run':O,'peer_review':O,'query_net':O,
-        'access':O,'profile':O,'coverage':O,'paper_selection':O,'usage':O,'synthesis_md':nullable(S),
+        'access':O,'profile':O,'coverage':obj({'candidate_metadata':ref('CandidateMetadata')},closed=False),
+        'paper_selection':O,'usage':O,'synthesis_md':nullable(S),
         'seed':S,'stopped':S,'model':nullable(S),'papers':arr(O),'iterations':arr(O),
         'startup_error':nullable(S),'retention':typed(BundleRetention)},closed=False)
     run = obj({'key':S,'name':S,'brief':S,'kind':S,'status':nullable(S),'live':B,'can_cancel':B,
@@ -129,6 +131,8 @@ def schemas():
         'InputReceipt':obj({'id':S,'bytes':I},['id','bytes']),
         'Log':obj({'runs':arr(ref('Run'))},['runs']),
         'LoginRequest':obj({'method':{'type':'string','enum':['browser','device'],'default':'browser'}}),
+        'CandidateMetadata':typed(CandidateMetadata),
+        'DiscoverResult':obj({'candidate_metadata':ref('CandidateMetadata')},closed=False),
         'DiscoverRequest':obj({'plan':ref('QuestionPlan'),'pages':dict(I,minimum=1,default=5)},['plan']),
         'AcquireRequest':obj({'ids':arr(S),'workers':dict(I,minimum=1,maximum=32,default=12),'retry_failed':B},['ids']),
         'ReadSourceRequest':obj({'reference_id':S,'match':nullable(S),'page':nullable(dict(I,minimum=1)),
@@ -197,9 +201,9 @@ def document():
     source_content = result['paths']['/api/runs/{key}/sources/{source_id}/file']['get']['responses']['200']['content']
     for media in ('application/pdf','application/xml','text/html','text/plain'):
         source_content[media] = deepcopy(source_content['application/octet-stream'])
-    for action, body, response in (('discover','DiscoverRequest','Object'),('acquire','AcquireRequest','Object'),
+    for action, body, response in (('discover','DiscoverRequest','DiscoverResult'),('acquire','AcquireRequest','Object'),
                                    ('catalog','Object',None),('source','ReadSourceRequest',None),('finalize','FinalizeRequest','Object')):
-        op('tool_'+action,'post','/api/runs/{key}/tools/'+action,'Run-scoped deterministic '+action,body=body,params=[key])
+        op('tool_'+action,'post','/api/runs/{key}/tools/'+action,'Run-scoped deterministic '+action,response or 'Object',body=body,params=[key])
         if response is None:
             result['paths']['/api/runs/{key}/tools/'+action]['post']['responses']['200']['content']['application/json']['schema'] = arr(O)
     for name in ('findings','experiments'):
