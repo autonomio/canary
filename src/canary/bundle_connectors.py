@@ -15,6 +15,9 @@ UNCERTAINTY_POLICY = ('Resolvent candidate uncertainty is at least medium becaus
 
 def resolvent(workspace):
     workspace = Path(workspace)
+    from . import compact_bundle
+    if compact_bundle.exists(workspace):
+        return compact_bundle.read(workspace)
     bundle = research_bundle.read(workspace)
     if bundle['state'] != 'finished':
         raise ValueError('Resolvent export requires a finished versioned bundle')

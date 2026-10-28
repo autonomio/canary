@@ -53,7 +53,7 @@ def refresh(root, registry):
         for directory, dirs, files in os.walk(configured, followlinks=False, onerror=error):
             dirs[:] = sorted(d for d in dirs if d not in SKIP and not Path(directory,d).is_symlink())
             path = Path(directory)
-            native = 'run.json' in files
+            native = 'run.json' in files or 'resolvent.json' in files
             bundle = runs._load_json(path/'bundle.json', {}) if 'bundle.json' in files else {}
             manifest = runs._load_json(path/'manifest.json', {}) if 'manifest.json' in files else {}
             exported = isinstance(manifest,dict) and 'status' in manifest and ('run_id' in manifest or 'spec' in manifest)

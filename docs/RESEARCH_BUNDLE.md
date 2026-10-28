@@ -25,7 +25,35 @@ Repetition uses the saved declaration/resolved settings and verifies their diges
 
 ## Storage contract, version 1
 
-One directory is one run. Existing engine paths remain in place:
+New API-owned research uses a temporary working directory. On completion the
+worker commits and verifies `resolvent.json`, then releases papers, complete
+extracted texts, intermediate records and scientific console/event files. The
+service also releases that request's staging input, launcher log and tool files.
+The retained output is one standalone Resolvent-compatible JSON contribution and
+a SHA-256 sidecar. Registry rows retain small operational summaries for polling
+and the log; native Codex account/session storage remains vendor-managed.
+
+The JSON includes the original/resolved YAML settings, bound research payload,
+claims/evidence/verbatim/reference links, uncertainty, freshness, gaps, residue,
+audit scope and usage, plus the existing researcher-facing projection. No new
+model call or scientific reinterpretation is performed during packaging. The
+projection lets the dashboard read the same bundle as downstream consumers.
+
+`retention.mode: bundle_only` and `source_bytes_retained: false` make the boundary
+explicit in the API, CLI/MCP responses and frontend. Exact cited excerpts and
+source locators/hashes are retained. Original full-paper bytes and complete text
+cannot be reconstructed from the compact bundle alone; open the original source
+URL for broader context. The context API returns `scope: excerpts`,
+`text_complete: false`, and no local original URL. It does not present retained
+quotes as a complete paper or reverify their offsets against absent full text.
+
+The retained bundle is checked before any working files are released. A failed
+commit/export preserves the workspace. Only newly reserved API workers enter this
+path; historical research, protected scientific artifacts, and externally supplied
+local corpus files are preserved. Existing full-workspace bundles remain readable.
+
+While a request is active, and in historical full-workspace bundles, these paths
+remain the working format:
 
 ```text
 bundle.json                  Version, persistent bundle ID, snapshot state, settings, artifact inventory
@@ -47,7 +75,7 @@ research-*, audit-*           Prompts, schemas, events, invocations and usage re
 profile.json                 Recorded scientific timing/usage
 ```
 
-`bundle.json` uses `format: canary.research-bundle`, `version: 1`, a persistent `RB-<uuid>` ID, `created_at`, `state`, `execution`, `specification`, `artifacts` and `limitations`. An artifact has a relative path, byte count and SHA-256. Compilation inputs are inventoried at initialization; the complete inventory is sealed once the worker finishes, including failed runs. `finished` describes a terminal snapshot, not scientific acceptance. Execution status, unanswered scope and incomplete audits remain explicit.
+The manifest uses `format: canary.research-bundle`, `version: 1`, a persistent `RB-<uuid>` ID, `created_at`, `state`, `execution`, `specification`, `artifacts` and `limitations`. An artifact has a relative path, byte count and SHA-256. Compilation inputs are inventoried at initialization; the complete working inventory is sealed once the worker finishes, including failed runs. After release the API derives the manifest from the retained output and lists only `resolvent.json` as a downloadable artifact. The original construction inventory remains provenance metadata, not a promise that discarded files are available. `finished` describes a terminal snapshot, not scientific acceptance. Execution status, unanswered scope and incomplete audits remain explicit.
 
 The artifact inventory retains research files recursively, including CSV tables, figures, helper scripts and source/receipt directories. It excludes the manifest itself, hidden files/directories, credential filenames, temporary files, bytecode/dependency directories and symlinks. Service registry/staging/launcher logs and native Codex's own account/session store remain outside this directory; per-run scientific events and usage receipts are inside. There is no automatic machine-wide index: the current registry and the deferred local-footprint work are distinct (see #125).
 
@@ -102,7 +130,7 @@ The handoff uses a stable `RUN-<bundle uuid>` ID, deterministic local ID mapping
 
 Resolvent currently has no native residue or claim-freshness field. Those records are preserved losslessly in the research artifact/metadata rather than converted into claims or resolution tasks. Its receiving admission process must account for them. Gaps likewise remain typed in the retained artifact. No acceptance criteria, pre-research brief or world-model relationships are invented to fill fields.
 
-Pass the resulting JSON as `input-artefacts/RUN-<uuid>.json` to a chosen compatible world-model repository. Resolvent's PR-side admission supplies dispositions, runs `scripts/world_control.py` and its compiler, and owns independent review and publication. Its generic template is not a destination for research data. Retain the accompanying neutral bundle ZIP in the destination's artifact storage so source originals remain recoverable; the JSON handoff and public URLs alone do not transport all original files. This delivery supplies normalization/export, not an unrequested publication to a destination repository.
+Pass the resulting JSON as `input-artefacts/RUN-<uuid>.json` to a chosen compatible world-model repository. Resolvent's PR-side admission supplies dispositions, runs `scripts/world_control.py` and its compiler, and owns independent review and publication. Its generic template is not a destination for research data. The JSON is the retained handoff; an accompanying paper archive is not required for ingestion. Original full papers are not included in a compact bundle. Historical full-workspace archives remain available where they were retained. This delivery supplies normalization/export, not an unrequested publication to a destination repository.
 
 Further adapters can consume this same bundle version using small mapping functions; there is no plugin framework or destination-specific field in the producer format. Representative adjacent systems are [Graphiti](https://github.com/getzep/graphiti) (temporal knowledge-graph episodes, including structured JSON), [Cognee](https://docs.cognee.ai/api-reference/introduction) (document ingestion followed by graph construction), and [Mem0](https://docs.mem0.ai/api-reference/memory/add-memories) (agent memory with optional inference). These are integration comparisons, not a measured adoption ranking. A connector must preserve source material, uncertainty, freshness, scoped gaps and residue even when the destination's default ingestion would extract or rewrite facts.
 
@@ -110,7 +138,9 @@ Vectorization/embeddings of bundle artifacts are explicitly deferred in #126. A 
 
 ### Disposable receiving proof
 
-Use an empty disposable clone of the recorded `autonomio/resolvent` revision, not the template repository as a data destination. Supply explicit admission decisions under its existing contract:
+The following original-material reconstruction proof applies to historical
+full-workspace bundles. Compact contributions retain exact excerpts and locators,
+but cannot repeat an offline check against discarded full papers. Use an empty disposable clone of the recorded `autonomio/resolvent` revision, not the template repository as a data destination. Supply explicit admission decisions under its existing contract:
 
 ```sh
 python scripts/verify_resolvent_receiver.py --api http://127.0.0.1:8789 \

@@ -7,7 +7,7 @@ from . import coverage_protocol as protocol
 from .claim_freshness import schema as freshness_schema
 from .codex_auth import AuthStatus, Login
 from .research_spec import CompiledResearch
-from .research_bundle import ResearchBundle
+from .research_bundle import ResearchBundle, BundleRetention
 from .service_status import ServiceStatus
 from .connection import ConnectionStatus
 
@@ -84,18 +84,20 @@ def schemas():
     research = obj({'kind':S,'answer':ref('Findings'),'run':O,'peer_review':O,'query_net':O,
         'access':O,'profile':O,'coverage':O,'paper_selection':O,'usage':O,'synthesis_md':nullable(S),
         'seed':S,'stopped':S,'model':nullable(S),'papers':arr(O),'iterations':arr(O),
-        'startup_error':nullable(S)},closed=False)
+        'startup_error':nullable(S),'retention':typed(BundleRetention)},closed=False)
     run = obj({'key':S,'name':S,'brief':S,'kind':S,'status':nullable(S),'live':B,'can_cancel':B,
         'recorded_status':nullable(S),'bundle_missing':B,
         'started_at':nullable(S),'ended_at':nullable(S),'duration_seconds':nullable({'type':'number'}),
         'answered':nullable(B),'papers_covered':nullable(I),'input_tokens':nullable(I),
-        'output_tokens':nullable(I),'cached_tokens':nullable(I),'usage':O,'research_summary':O},['key'],closed=False)
+        'output_tokens':nullable(I),'cached_tokens':nullable(I),'usage':O,'research_summary':O,
+        'retention':typed(BundleRetention)},['key'],closed=False)
     run['properties']['input_tokens']['description'] = 'Total input, including cached input. Null means unavailable.'
     run['properties']['cached_tokens']['description'] = 'Subset of input tokens; do not add to total input. Null means unavailable.'
     run['properties']['output_tokens']['description'] = 'Total output, including reasoning where the native provider reports it. Null means unavailable.'
     context = obj({'source_id':S,'reference':O,'paragraphs':arr(ref('Passage')),'page':nullable(I),
         'local_file_url':nullable(S),'original_url':nullable(S),'requested_scope':S,'scope':S,
-        'context_label':S,'text_available':B,'text_complete':nullable(B),'offset_verified':B,'warning':S},
+        'context_label':S,'text_available':B,'text_complete':nullable(B),'offset_verified':B,'warning':S,
+        'source_bytes_retained':B},
         ['source_id','reference','paragraphs','text_available','offset_verified','warning'],closed=False)
     named_findings = {name:generated['properties'][field]['items'] for name,field in (
         ('GeneratedClaim','claims'),('GeneratedEvidence','evidence'),('Gap','gaps'),('Residue','residue'),

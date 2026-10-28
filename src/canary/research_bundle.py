@@ -19,7 +19,18 @@ INPUT_FILES = ('research.yaml', 'run-spec.json', 'compile-report.json')
 ARTIFACT_DIRS = {'papers', 'texts', 'passages', 'download-receipts', 'download-history', 'search-responses'}
 
 
-class ResearchBundle(TypedDict):
+class BundleRetention(TypedDict):
+    mode: str
+    source_bytes_retained: bool
+    verbatim_retained: bool
+    limitation: str
+
+
+class _BundleOptions(TypedDict, total=False):
+    retention: BundleRetention
+
+
+class ResearchBundle(_BundleOptions):
     format: str
     version: int
     id: str
@@ -60,7 +71,7 @@ def initialize(workspace, packet):
     report['engine'] = {'python': sys.version.split()[0], 'sources': {
         name: file_hash(Path(__file__).parent / name) for name in
         ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'claim_freshness.py',
-         'research_spec.py', 'research_bundle.py', 'bundle_connectors.py', 'local_text.py',
+         'research_spec.py', 'research_bundle.py', 'bundle_connectors.py', 'compact_bundle.py', 'local_text.py',
          'processes.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py', 'api_client.py')}}
     lock = resource_root() / 'uv.lock'
     report['engine']['dependency_lock_sha256'] = file_hash(lock) if lock.is_file() else None
@@ -85,6 +96,9 @@ def _artifact_paths(workspace):
 
 
 def seal(workspace, *, state='finished') -> ResearchBundle:
+    from . import compact_bundle
+    if compact_bundle.exists(workspace):
+        return compact_bundle.manifest(workspace)
     workspace = Path(workspace).resolve()
     report = json.loads((workspace / 'compile-report.json').read_text(encoding='utf-8'))
     artifacts = []
@@ -109,6 +123,9 @@ def seal(workspace, *, state='finished') -> ResearchBundle:
 
 
 def read(workspace) -> ResearchBundle:
+    from . import compact_bundle
+    if workspace and compact_bundle.exists(workspace):
+        return compact_bundle.manifest(workspace)
     path = Path(workspace) / 'bundle.json' if workspace else None
     if path is None or not path.is_file():
         return {'format': 'canary.research-bundle', 'version': BUNDLE_VERSION, 'id': '', 'created_at': None, 'execution': {'status': None, 'answered': None, 'audit_complete': None}, 'state': 'legacy_unversioned',
@@ -152,7 +169,12 @@ def archive(workspace, target):
     if manifest['state'] != 'finished':
         raise ValueError('Only a finished versioned bundle can be archived')
     with zipfile.ZipFile(target, 'w', compression=zipfile.ZIP_STORED) as output:
-        output.write(workspace / 'bundle.json', 'bundle.json')
+        if manifest.get('retention', {}).get('mode') == 'bundle_only':
+            from .compact_bundle import CHECKSUM
+            output.writestr('bundle.json', json.dumps(manifest, ensure_ascii=False))
+            output.write(workspace / CHECKSUM, CHECKSUM)
+        else:
+            output.write(workspace / 'bundle.json', 'bundle.json')
         for entry in manifest['artifacts']:
             output.write(verified_artifact(workspace, entry), entry['path'])
 
@@ -197,6 +219,9 @@ def run_compiled(staged, workspace):
                 coverage_export.export_bundle(workspace)
             finally:
                 seal(workspace)
+            if os.environ.get('CANARY_COMPACT_OUTPUT') == '1':
+                from .compact_bundle import retain
+                retain(workspace)
 
 
 if __name__ == '__main__':

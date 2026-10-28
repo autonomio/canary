@@ -163,6 +163,7 @@ class Supervisor:
             env['CANARY_CANCEL_MARKER'] = str(packet_path.with_suffix('.cancel'))
             if native:
                 env["CANARY_RUN_SPEC"] = str(packet_path.resolve())
+                env['CANARY_COMPACT_OUTPUT'] = '1'
             else:
                 argv = [sys.executable, '-m', 'canary.service_commands', str(packet_path.resolve())]
         launcher_log = self.root / "container-out" / f"{key}.launcher.log"
@@ -237,6 +238,15 @@ class Supervisor:
                                      bundle, path=self.registry)
             finally:
                 self.owned.pop(key, None)
+        from . import compact_bundle
+        if bundle and compact_bundle.exists(bundle):
+            # Service-owned tool/staging receipts are working data too. Native
+            # account/session storage belongs to Codex and is never removed here.
+            shutil.rmtree(self.root/'run-tools'/key, ignore_errors=True)
+            for path in (self.root/'run-inputs'/(key+'.json'),
+                         self.root/'run-inputs'/(key+'.cancel'),
+                         self.root/'container-out'/(key+'.launcher.log')):
+                path.unlink(missing_ok=True)
 
     # -- live state --
 
@@ -268,6 +278,9 @@ class Supervisor:
             if row.get('bundle'):
                 location = Path(row['bundle'])
                 row['bundle_missing'] = not (location if location.is_absolute() else self.root/location).is_dir()
+            if row.get('retention', {}).get('mode') == 'bundle_only':
+                row.update(live=False, can_cancel=False)
+                continue
             if isinstance(row.get('worker'), dict):
                 alive = processes.live(row['worker'])
                 if not alive and row.get('status') in runs._ACTIVE_STATUS:
@@ -527,6 +540,8 @@ def research_summary(row: dict) -> dict:
     Reads share a four-million-character budget. A truncated summary exposes
     lower-bound counts explicitly, while missing/partial files stay usable.
     """
+    if row.get('retention', {}).get('mode') == 'bundle_only' and row.get('research_summary'):
+        return row['research_summary']
     summary = {"question": "", "synthesis_excerpt": "", "has_synthesis": False,
                "papers_count": 0, "claims_count": 0, "supported_claims_count": 0,
                "iterations_count": 0, "unanswered_count": 0, "gaps_count": 0, "residue_count": 0, "truncated": False}
@@ -647,6 +662,9 @@ def live_snapshot(container: str, dest: Path, timeout: int = 20) -> bool:
 def research_for_row(row: dict, supervisor: "Supervisor") -> tuple[dict, bool]:
     """Research record for a registry row, live-snapping running workers."""
     bundle = row.get("bundle", "")
+    from . import compact_bundle
+    if bundle and compact_bundle.exists(bundle):
+        return compact_bundle.projection(bundle), processes.live(row.get('worker'))
     if (Path(str(bundle)) / "run.json").exists():
         return research_bundle(bundle), processes.live(row.get('worker'))
     container = row.get("container") or ""
@@ -667,6 +685,9 @@ def research_bundle(bundle: str | Path) -> dict:
     Every read is guarded: a running or partial bundle yields present=False /
     empty lists, never a 500. Large blobs are capped with truncated flags.
     """
+    from . import compact_bundle
+    if compact_bundle.exists(bundle):
+        return compact_bundle.projection(bundle)
     b = Path(bundle)
     run = _load_json_file(b / "run.json", {})
     if not isinstance(run, dict):
@@ -891,7 +912,9 @@ def source_artifacts(bundle: str | Path, source_id: str) -> tuple[dict, Path | N
     if not str(bundle).strip():
         raise KeyError(source_id)
     b = Path(bundle)
-    graph = _load_json_file(b / "answer.json", {})
+    from . import compact_bundle
+    graph = (compact_bundle.projection(b)['answer'] if compact_bundle.exists(b)
+             else _load_json_file(b / "answer.json", {}))
     graph = graph if isinstance(graph, dict) else {}
     reference = next((r for r in graph.get("references", []) if isinstance(r, dict) and r.get("id") == source_id), None)
     if reference is None:
@@ -951,6 +974,16 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
         payload.update(scope="abstract", context_label="Abstract", text_complete=bool(text))
     else:
         if text_path is None:
+            if reference.get('source_retention') == 'excerpts_only':
+                kept = sorted((p for p in graph.get('passages', []) if p.get('source_id') == source_id),
+                              key=lambda p: (p.get('start', 0), p.get('end', 0)))
+                if paragraph_id and selected is None:
+                    raise ValueError('paragraph does not belong to this source')
+                payload.update(scope='excerpts', context_label='Retained verbatim', text_complete=False,
+                    text_available=bool(kept), source_bytes_retained=False,
+                    paragraphs=[dict(p, selected=p.get('id') == paragraph_id) for p in kept],
+                    warning='Only cited excerpts are retained. Full-paper context is available through the original source link; original bytes are not stored locally.')
+                return payload
             payload["warning"] = "Saved readable full-source text is missing; abstracts are not substituted."
             return payload
         with text_path.open(encoding="utf-8", newline="") as stream:

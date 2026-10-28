@@ -181,8 +181,11 @@ def fake(question,workspace,**options):
     workspace=Path(workspace)
     assert not workspace.exists()
     workspace.mkdir(parents=True)
+    (workspace/'.run-reservation').touch()
     options['on_reserved']()
-    research_bundle.write_json(workspace/'actual-settings.json',{'minimum_papers':options['minimum_papers'],'audit_seconds':options['audit_seconds']})
+    resolved=json.loads(Path(os.environ['CANARY_RUN_SPEC']).read_text())['resolved']
+    assert options['minimum_papers']==resolved['retrieval']['target_papers']
+    assert options['audit_seconds']==resolved['audit']['budget_seconds']
     return seed(workspace)
 coverage_runtime.run=fake
 research_bundle.run_compiled(os.environ['CANARY_RUN_SPEC'],os.environ['OUT'])
@@ -207,7 +210,7 @@ def wait_bundle(client,key):
     deadline=time.monotonic()+15
     while time.monotonic()<deadline:
         result=client.get(f'/api/runs/{key}/bundle').json()
-        if result['bundle']['state']=='finished':return result
+        if result['bundle']['state']=='finished' and not result['live']:return result
         time.sleep(.05)
     pytest.fail('Synthetic worker did not finish: '+str(result))
 
@@ -223,7 +226,8 @@ def test_api_cli_compile_execute_read_archive_and_repeat_exact_settings(api,tmp_
     result=wait_bundle(client,started['key'])
     assert result['bundle']['specification']['source_yaml']==DECLARATION
     assert result['research']['answer']['claims'][0]['freshness']['policy']=='unknown'
-    assert client.get(f"/api/runs/{started['key']}/bundle/artifacts/research.yaml").text==DECLARATION
+    assert result['bundle']['retention']['mode']=='bundle_only'
+    assert client.get(f"/api/runs/{started['key']}/bundle/artifacts/resolvent.json").status_code==200
     saved=client.get(f"/api/runs/{started['key']}/bundle/archive")
     assert saved.status_code==200 and zipfile.is_zipfile(io.BytesIO(saved.content))
     exported=client.get(f"/api/runs/{started['key']}/exports/resolvent")
@@ -234,8 +238,7 @@ def test_api_cli_compile_execute_read_archive_and_repeat_exact_settings(api,tmp_
     assert second['bundle']['id']!=result['bundle']['id']
     assert second['bundle']['specification']['resolved']==compiled['resolved']
     assert second['bundle']['specification']['spec_sha256']==started['spec_sha256']
-    settings=json.loads((Path(repeated['bundle'])/'actual-settings.json').read_text())
-    assert settings=={'minimum_papers':1,'audit_seconds':9}
+    assert not (Path(repeated['bundle'])/'actual-settings.json').exists()
 
 
 def test_bad_request_never_spawns_and_legacy_or_corrupt_bundles_keep_their_research(api,tmp_path):
