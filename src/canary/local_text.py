@@ -186,6 +186,7 @@ def _prepare(workspace, config):
 
 def discover(workspace, plan, config, pages):
     from .coverage_runtime import _commit_discovery, event, read, write
+    from .candidate_index import CandidateIndex
     workspace = Path(workspace)
     manifest = prepare(workspace, config)
     previous = read(workspace / 'question-plan.json', {})
@@ -199,10 +200,9 @@ def discover(workspace, plan, config, pages):
         state = progress['queries'].get(query['id'])
         if state and state['search'] != query['search']:
             raise ValueError('Change a query ID when changing its search string')
-    works = {w['id']: w for w in read(workspace / 'works.json', [])}
     progress.update(adapter='local_text', corpus_snapshot_sha256=manifest['snapshot_sha256'],
                     indexed_files=manifest['indexed_files'], scope_note=SCOPE, keyword_requests=0)
-    with sqlite3.connect((workspace / INDEX).resolve().as_uri() + '?mode=ro', uri=True) as db:
+    with sqlite3.connect((workspace / INDEX).resolve().as_uri() + '?mode=ro', uri=True) as db, CandidateIndex(workspace) as candidates:
         # Reject invalid syntax before it can poison the persistent query history.
         counts = {}
         for query in plan['queries']:
@@ -219,19 +219,13 @@ def discover(workspace, plan, config, pages):
             matched = counts[query['id']]
             rows = db.execute('SELECT record FROM search JOIN documents ON documents.rowid=search.rowid '
                 'WHERE search MATCH ? ORDER BY bm25(search, 5.0, 2.0, 1.0), documents.id LIMIT ? OFFSET ?',
-                (query['search'], limit, offset)).fetchall()
-            for (value,) in rows:
-                work = json.loads(value)
-                identifier = work['id']
-                if identifier not in works:
-                    works[identifier] = dict(work, query_ids=[], fresh_search_rank=len(works) + 1)
-                if query['id'] not in works[identifier]['query_ids']:
-                    works[identifier]['query_ids'].append(query['id'])
-            state.update(pages=state['pages'] + max(1, (len(rows) + 199) // 200), matched=matched, returned=min(offset + len(rows), matched),
-                         complete=offset + len(rows) >= matched, truncated=offset + len(rows) < matched)
+                (query['search'], limit, offset))
+            returned = candidates.add_page((json.loads(value) for (value,) in rows), query['id'])
+            state.update(pages=state['pages'] + max(1, (returned + 199) // 200), matched=matched, returned=min(offset + returned, matched),
+                         complete=offset + returned >= matched, truncated=offset + returned < matched)
             state.pop('failure', None)
-            _commit_discovery(workspace, works, progress, plan)
-            event(workspace, 'local_search_page', query_id=query['id'], matched=matched, returned=len(rows), complete=state['complete'])
+            _commit_discovery(workspace, candidates, progress, plan)
+            event(workspace, 'local_search_page', query_id=query['id'], matched=matched, returned=returned, complete=state['complete'])
     return progress
 
 

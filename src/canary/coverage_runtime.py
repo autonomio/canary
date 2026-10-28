@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 import fcntl
@@ -33,6 +33,7 @@ from .api_client import endpoint
 from . import coverage_protocol as protocol
 from .runtime_paths import data_root
 from .processes import RunCancelled, stop_tree, identity, tool_receipts
+from .candidate_index import CandidateIndex, abstract_text
 
 WORK_ID = re.compile(r"W[1-9][0-9]{0,19}\Z")
 SOURCE_ID = re.compile(r"(?:W[1-9][0-9]{0,19}|L[0-9a-f]{24})\Z")
@@ -132,11 +133,6 @@ def operator_key(root):
     return ""
 
 
-def abstract_text(index):
-    positions = {number: word for word, numbers in (index or {}).items() for number in numbers}
-    return " ".join(positions[number] for number in sorted(positions))
-
-
 def record_daily_search(root):
     """Operator-only usage; explicitly excludes the independently deployed gateway."""
     path = root / "out" / "coverage-openalex-usage.sqlite"
@@ -183,9 +179,10 @@ def _openalex_backoff(root, *, deadline=None, retry_after=None, source=None):
             "active": row[0] > time.time(), "scope": "coverage_operator_shared"}
 
 
-def _commit_discovery(workspace, works, progress, plan):
+def _commit_discovery(workspace, index, progress, plan):
     """Commit usable candidates even when the provider pauses remaining branches."""
-    progress["unique_candidates"] = len(works)
+    progress["unique_candidates"] = index.count()
+    progress['candidate_metadata'] = index.metadata()
     progress["pending_query_ids"] = [identifier for identifier, state in progress["queries"].items() if not state.get("complete", False)]
     progress["complete"] = not progress["pending_query_ids"]
     if progress.get("backoff"):
@@ -193,16 +190,7 @@ def _commit_discovery(workspace, works, progress, plan):
     progress["status"] = "complete" if progress["complete"] else "backoff" if progress.get("backoff", {}).get("active") else "incomplete"
     if progress["complete"]:
         progress.pop("incomplete_reason", None)
-    write(workspace / "works.json", list(works.values()))
-    candidates = [{"id": ident, "title": w.get("display_name") or w.get("title"), "year": w.get("publication_year"),
-        "doi": w.get("doi"), "abstract": w.get("abstract") if "local_text" in w else abstract_text(w.get("abstract_inverted_index")),
-        **({"local_text": w["local_text"], "discovery_excerpt": w.get("discovery_excerpt")} if "local_text" in w else {}),
-        "oa_indicated": (w.get("open_access") or {}).get("is_oa"), "query_ids": w["query_ids"], "rank": w["fresh_search_rank"]}
-        for ident, w in works.items()]
-    temporary = workspace / "candidates.jsonl.tmp"
-    temporary.write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in candidates))
-    temporary.replace(workspace / "candidates.jsonl")
-    (workspace / "titles.tsv").write_text("".join(f'{c["id"]}\t{c["year"]}\t{c["title"]}\n' for c in candidates))
+    index.export()
     write(workspace / "search-progress.json", progress)
 
 
@@ -213,7 +201,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
     plan = validate_plan(read(Path(plan_path)))
     if pages < 1:
         raise ValueError("Search page limit must be positive")
-    with workspace_lock(workspace, "discovery"):
+    with workspace_lock(workspace, "discovery"), ExitStack() as lifetime:
         local = read(workspace / 'run.json', {}).get('local_text')
         if local:
             from .local_text import discover as local_discover
@@ -224,10 +212,6 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
             raise ValueError("QuestionPlan differs from this run question")
         if previous_plan and previous_plan["question"] != plan["question"]:
             raise ValueError("Workspace belongs to a different question")
-        works = {w["id"].rsplit("/", 1)[-1]: w for w in read(workspace / "works.json", [])}
-        for rank, work in enumerate(works.values(), 1):
-            work.setdefault("fresh_search_rank", rank)
-            work.setdefault("query_ids", [])
         requests = read(workspace / "openalex-requests.json", [])
         progress = read(workspace / "search-progress.json", {"queries": {}})
         # Supplemental plans cannot erase committed search history. Restore
@@ -242,6 +226,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
             state = progress["queries"].get(query["id"])
             if state and state["search"] != query["search"]:
                 raise ValueError("Change a query ID when changing its search string")
+        index = lifetime.enter_context(CandidateIndex(workspace))
         # Rejected query redefinitions must not replace the saved plan paired
         # with committed candidates and cursor receipts.
         write(workspace / "question-plan.json", plan)
@@ -317,11 +302,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                         identifier = work["id"].rsplit("/", 1)[-1]
                         if not WORK_ID.fullmatch(identifier):
                             raise ValueError("Invalid OpenAlex work ID")
-                        if identifier in works:
-                            if query["id"] not in works[identifier]["query_ids"]:
-                                works[identifier]["query_ids"].append(query["id"])
-                        else:
-                            works[identifier] = {**work, "query_ids": [query["id"]], "fresh_search_rank": len(works) + 1}
+                    index.add_page(body.get('results', []), query['id'])
                     state.update(pages=state["pages"] + 1, cursor=body.get("meta", {}).get("next_cursor"),
                                  matched=body.get("meta", {}).get("count"))
                     state.pop("failure_status", None)
@@ -330,8 +311,8 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                         isinstance(state["matched"], int) and state["pages"] * 200 >= state["matched"])
                     state["truncated"] = not state["complete"]
                     progress["queries"][query["id"]] = state
-                    _commit_discovery(workspace, works, progress, plan)
-                    event(workspace, "search_page", query_id=query["id"], page=state["pages"], candidates=len(works), complete=state["complete"])
+                    _commit_discovery(workspace, index, progress, plan)
+                    event(workspace, "search_page", query_id=query["id"], page=state["pages"], candidates=index.count(), complete=state["complete"])
                     if state["complete"]:
                         break
                 if stopped_for_backoff:
@@ -339,7 +320,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
         finally:
             if own:
                 client.close()
-        _commit_discovery(workspace, works, progress, plan)
+        _commit_discovery(workspace, index, progress, plan)
     return progress
 
 
@@ -422,7 +403,8 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
         raise ValueError("Provide selected source IDs")
     if not 1 <= workers <= 32:
         raise ValueError("Acquisition workers must be between 1 and 32")
-    works = {w["id"].rsplit("/", 1)[-1]: w for w in read(workspace / "works.json", [])}
+    with CandidateIndex(workspace) as index:
+        works = index.selected(ids)
     if any(identifier not in works for identifier in ids):
         raise ValueError("Selected ID is absent from this workspace's search")
     local = read(workspace / 'run.json', {}).get('local_text')

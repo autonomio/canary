@@ -14,6 +14,12 @@ import pytest
 from canary import api_contract, coverage_export, coverage_protocol, coverage_runtime as engine
 from canary import dashboard, local_text, research_bundle, research_spec, research_tools, runs
 from test_coverage_evidence_ui import run_dashboard
+from canary.candidate_index import CandidateIndex
+
+def stored(workspace):
+    with CandidateIndex(workspace) as index:
+        return list(index.records())
+
 
 
 def plan(*queries):
@@ -100,7 +106,7 @@ def test_full_text_search_scoping_metadata_hashes_and_immutable_source_chain(cor
 def test_changed_source_is_refused_and_acquired_bytes_survive_input_mutation(corpus):
     workspace,config,body=corpus
     discover(workspace,'zymofixture')
-    identifier=engine.read(workspace/'works.json')[0]['id']
+    identifier=stored(workspace)[0]['id']
     path=Path(config['directory'])/'paper.txt'
     path.write_text('Changed outside the run.')
     receipt=engine.acquire(workspace,[identifier])[0]
@@ -146,7 +152,7 @@ def test_service_allowlist_metadata_ambiguity_and_path_escape(corpus,monkeypatch
     manifest=local_text.prepare(workspace,config)
     assert manifest['ambiguous_metadata_files']==['paper.txt'] and manifest['matched_metadata_files']==0
     discover(workspace,'zymofixture')
-    work=engine.read(workspace/'works.json')[0]
+    work=stored(workspace)[0]
     assert work['doi'] is None and work['display_name']=='paper'
     for name in ('../outside.txt',str(metadata)):
         escaped=copy.deepcopy(work);escaped['local_text']['file']=name
@@ -206,7 +212,7 @@ def test_http_compile_local_tools_source_context_and_archive_use_one_adapter(cor
             assert refused.status_code==400 and 'CANARY_LOCAL_TEXT_ROOTS' in refused.json()['error']
             result=client.post('/api/runs/fixture/tools/discover',json={'plan':plan('zymofixture')})
             assert result.status_code==200 and result.json()['adapter']=='local_text',result.text
-            identifier=engine.read(workspace/'works.json')[0]['id']
+            identifier=stored(workspace)[0]['id']
             result=client.post('/api/runs/fixture/tools/acquire',json={'ids':[identifier]})
             assert result.status_code==200 and result.json()['sources_available']==1,result.text
             passage=client.post('/api/runs/fixture/tools/source',json={'reference_id':identifier}).json()[0]
