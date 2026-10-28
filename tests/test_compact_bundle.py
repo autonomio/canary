@@ -142,4 +142,6 @@ S.sourceContexts={[contextKey('W1',undefined,'paper')]:{scope:'excerpts',paragra
 const html=sourceInspector(graph,state);
 assert.match(html,/Retained verbatim/);
 assert.doesNotMatch(html,/Complete paper/);
+assert.doesNotMatch(html,/Read complete paper/);
+assert.match(html,/Read retained excerpts/);
 """)
