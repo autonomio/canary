@@ -53,6 +53,9 @@ def test_retained_ui_and_agent_sources_expose_exact_excerpts_without_full_paper_
     view = dashboard.research_bundle(tmp_path)
     assert view['answer']['claims'][0]['text'] == original['claims'][0]['text']
     assert view['answer']['claims'][0]['freshness'] == original['claims'][0]['freshness']
+    assert original['claims'][0]['text'] in view['synthesis_md']
+    assert compact_bundle.LIMITATION in view['synthesis_md']
+    assert not (tmp_path/'answer.md').exists()
     paragraph = view['answer']['passages'][0]
     context = dashboard.source_context(tmp_path, 'W1', paragraph['id'], scope='paper')
     assert context['paragraphs'][0]['text'] == original['evidence'][0]['verbatims'][0]['text']

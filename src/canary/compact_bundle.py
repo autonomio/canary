@@ -49,16 +49,19 @@ def manifest(workspace):
 
 
 def projection(workspace):
+    from .coverage_export import render_markdown
     contribution = read(workspace)
     saved = contribution['method_metadata']['canary_view']
     raw = payload(contribution)
     graph, run = saved['answer'], saved['run']
+    report = render_markdown(graph)
     return dict(saved, kind='question', query_net=raw.get('question_plan', {}),
         coverage=graph.get('coverage', {}),
         paper_selection={'selection': raw.get('selection', {}), 'reviewed_papers': raw.get('reviewed_papers', [])},
         access={'accepted': [], 'excluded': [], 'scope_note': LIMITATION},
         seed=contribution['scope'], stopped=run.get('status'), model=run.get('model'),
-        unanswered=graph.get('unanswered', []), synthesis_md=None, synthesis_truncated=False,
+        unanswered=graph.get('unanswered', []),
+        synthesis_md=report + '\n' + LIMITATION + '\n' if report else None, synthesis_truncated=False,
         papers=[r['paper'] for r in graph.get('references', []) if isinstance(r.get('paper'), dict)],
         papers_total=run.get('discovered'), papers_truncated=False,
         iterations=[], assessments=[], decisions=[], retention=contribution['method_metadata']['retention'])
