@@ -383,6 +383,7 @@ def test_lost_staged_input_does_not_hide_existing_research(api,tmp_path):
 
 
 def test_cancelled_partial_audit_cannot_seal_as_complete(tmp_path,monkeypatch):
+    monkeypatch.setenv('CANARY_CODEX_EXECUTABLE','synthetic-codex-unused')
     staged=tmp_path/'staged.json';packet=research_spec.compile_research(DECLARATION)
     research_bundle.write_json(staged,packet);workspace=tmp_path/'cancelled-audit'
     marker=tmp_path/'cancel';monkeypatch.setenv('CANARY_CANCEL_MARKER',str(marker))
@@ -408,6 +409,7 @@ def test_cancelled_partial_audit_cannot_seal_as_complete(tmp_path,monkeypatch):
 
 
 def test_unconfirmed_writer_shutdown_preserves_unsealed_work(tmp_path,monkeypatch):
+    monkeypatch.setenv('CANARY_CODEX_EXECUTABLE','synthetic-codex-unused')
     staged=tmp_path/'staged.json';research_bundle.write_json(staged,research_spec.compile_research(DECLARATION))
     workspace=tmp_path/'unsealed'
     def failed(*args,**kwargs):raise RuntimeError('Synthetic execution failure')
