@@ -60,6 +60,7 @@ def test_live_openapi_cli_and_responses_share_the_contract(api,capsys):
     extraction = client.get('/api/status').json()['pdf_extraction']
     assert extraction['concurrent_pdf_conversions'] == 1
     assert extraction['capacity_scope'] == 'service_data_directory'
+    assert extraction['skip_superseded_copies'] is True
     compiled=client.post('/api/runs/compile',json={'spec':{'question':'Synthetic schema check?'}})
     validate_response(contract,'/api/runs/compile','post',200,compiled.json())
     started=client.post('/api/runs',json={'spec':{'question':'Synthetic schema check?'}})

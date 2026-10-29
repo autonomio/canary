@@ -1,0 +1,249 @@
+{
+  "baseline_commit": "c49787ce765378a9be2039a336723f0c271c8eeb",
+  "method": {
+    "cpu_quota": 1,
+    "memory_limit_gib": 2,
+    "network": "disabled",
+    "source_volume": "read_only",
+    "concurrent_acquisition_jobs": 4,
+    "paper_tasks": 48,
+    "unique_pdfs": 12,
+    "available_copies_per_paper": 3,
+    "replays_per_version": 2,
+    "order": [
+      "baseline",
+      "candidate",
+      "candidate",
+      "baseline"
+    ],
+    "all_copy_pools_drained_before_measurement": true,
+    "models_invoked": 0
+  },
+  "means": {
+    "baseline": {
+      "wall": 26.105110740987584,
+      "cpu": 24.9721245,
+      "peak_anon": 520161280,
+      "conversions": 143.5,
+      "after_winner_conversions": 87
+    },
+    "candidate": {
+      "wall": 15.608865257003345,
+      "cpu": 15.2432275,
+      "peak_anon": 459704320,
+      "conversions": 48.5,
+      "after_winner_conversions": 0
+    }
+  },
+  "reduction_percent": {
+    "wall": 40.207626729214006,
+    "cpu": 38.95902809550705,
+    "peak_anon": 11.622733626001535
+  },
+  "all_bodies_and_text_hashes_equal": true,
+  "replays": [
+    {
+      "groups": 4,
+      "copies_per_paper": 3,
+      "wall": 25.816265553003177,
+      "after_winner_conversions": 85,
+      "peak_held_pdf_bytes_per_worker": [
+        48661232,
+        48701280,
+        48659960,
+        48661232
+      ],
+      "cpu": 24.996612,
+      "sources": 48,
+      "conversions": 143,
+      "reused": 48,
+      "peak_anon": 531980288,
+      "body_hashes": {
+        "W4281756923": "0d8134e81e1ed47120ff70ec00171b4a2e0736c880d9a0f4445bcbd6794345b4",
+        "W4391984636": "5a6cd4bb3d145aeb877d3f6616decbda4d2725893b275a8bd902f88e1400753a",
+        "W2910159406": "f34773f4174ec306d0b51c4e65908259464ec979f726749379ebe6d1e420dda4",
+        "W4226098645": "6a9033d884d7b31b744cf0640f6c138615f4320b4987936b23169e1ae47a4068",
+        "W3209510764": "00072c7488d436cff0b2b34ba2a00385dcc370ef3a378539d51f6221d0038c33",
+        "W7211895836": "eccc0d7c78cdc38b930b7eb5b8b9fe204f33716203c20088d15dd23df3b50c9d",
+        "W3170058287": "43360ef9136352af15935b1586647d319ed777fc54bd5982dbd38220f8d0a350",
+        "W7128472017": "45580b25c49fd9304147acf08665f59c8f85c294c112658af5ec4ffcba8e0f60",
+        "W4394585974": "e9f9f7ce6da595bde1d23f9959ca5c28617cbb42b526c689dfa6bc95521f5a14",
+        "W4391216288": "d1a00f76ddc058461e2852d7f58063d619241b89cd113e592a440a4715eb93cc",
+        "W4405944461": "eadb32d85cef29a4531f1d024d806e199e2166faaa4008870b8a1eb2d7d09448",
+        "W4392132413": "a60ed00459afa887d3c3b9df2c5dff7598cbdb665b6c7c6458ee5dad6b27bd54"
+      },
+      "text_hashes": {
+        "W4281756923": "35cfc53a93c01dcfb72f14665b4b6ca4a95d4a2bed75d987eded6da62e28447b",
+        "W4391984636": "bbfb6efd542a5e82da0b938d3582353d9082a4b7e1c8b0ea06d5847701177202",
+        "W2910159406": "b1d8b473031fb92a3cae8343eed7d99ef2fa21e29e3aa610e71464ed17ca8f63",
+        "W4226098645": "77cba777aa85245aa413c83fb2593f6357719274f6c1c5f36b95948c6768b3c9",
+        "W3209510764": "a74525b12b0bd1ad0553a35e15496ca88dbad34c440088c3e64469a16418fe79",
+        "W7211895836": "f6ccd790e457f123a1584a3e206c3987d62f93481fd2801bc39d3f5b91d82d82",
+        "W3170058287": "c70601f5c9b68b91393246d90d3357a991d418ca65ae1e136fbc84843d745e3f",
+        "W7128472017": "b5327a227ca123a41dc41bf060f17ba95928bb37620c28d3d66bf77ff009a8f2",
+        "W4394585974": "2d64c8bcc911dfe77dedf11cf680f67aacdb78c983087905203b40c00ef461d3",
+        "W4391216288": "479b0fbb405d667db48b1fb9626b352ddca5736a77147f3eff9a4d08894155a8",
+        "W4405944461": "0daf73b8728ef1899bdc05cedeb4760ca0f9ebd23bfb03c4f21af9e332029ee7",
+        "W4392132413": "cbef29e4f76cddd00ebf3dbfca396e83590bf53748aae9868a633651f20365c3"
+      },
+      "container_memory_peak": 623808512,
+      "scientific_run": false,
+      "variant": "baseline"
+    },
+    {
+      "groups": 4,
+      "copies_per_paper": 3,
+      "wall": 16.091466340003535,
+      "after_winner_conversions": 0,
+      "peak_held_pdf_bytes_per_worker": [
+        47749303,
+        47994382,
+        47970577,
+        47281689
+      ],
+      "cpu": 15.691365,
+      "sources": 48,
+      "conversions": 49,
+      "reused": 48,
+      "peak_anon": 461963264,
+      "body_hashes": {
+        "W7211895836": "eccc0d7c78cdc38b930b7eb5b8b9fe204f33716203c20088d15dd23df3b50c9d",
+        "W4392132413": "a60ed00459afa887d3c3b9df2c5dff7598cbdb665b6c7c6458ee5dad6b27bd54",
+        "W3209510764": "00072c7488d436cff0b2b34ba2a00385dcc370ef3a378539d51f6221d0038c33",
+        "W4405944461": "eadb32d85cef29a4531f1d024d806e199e2166faaa4008870b8a1eb2d7d09448",
+        "W4226098645": "6a9033d884d7b31b744cf0640f6c138615f4320b4987936b23169e1ae47a4068",
+        "W4391216288": "d1a00f76ddc058461e2852d7f58063d619241b89cd113e592a440a4715eb93cc",
+        "W4391984636": "5a6cd4bb3d145aeb877d3f6616decbda4d2725893b275a8bd902f88e1400753a",
+        "W2910159406": "f34773f4174ec306d0b51c4e65908259464ec979f726749379ebe6d1e420dda4",
+        "W4281756923": "0d8134e81e1ed47120ff70ec00171b4a2e0736c880d9a0f4445bcbd6794345b4",
+        "W4394585974": "e9f9f7ce6da595bde1d23f9959ca5c28617cbb42b526c689dfa6bc95521f5a14",
+        "W3170058287": "43360ef9136352af15935b1586647d319ed777fc54bd5982dbd38220f8d0a350",
+        "W7128472017": "45580b25c49fd9304147acf08665f59c8f85c294c112658af5ec4ffcba8e0f60"
+      },
+      "text_hashes": {
+        "W7211895836": "f6ccd790e457f123a1584a3e206c3987d62f93481fd2801bc39d3f5b91d82d82",
+        "W4392132413": "cbef29e4f76cddd00ebf3dbfca396e83590bf53748aae9868a633651f20365c3",
+        "W3209510764": "a74525b12b0bd1ad0553a35e15496ca88dbad34c440088c3e64469a16418fe79",
+        "W4405944461": "0daf73b8728ef1899bdc05cedeb4760ca0f9ebd23bfb03c4f21af9e332029ee7",
+        "W4226098645": "77cba777aa85245aa413c83fb2593f6357719274f6c1c5f36b95948c6768b3c9",
+        "W4391216288": "479b0fbb405d667db48b1fb9626b352ddca5736a77147f3eff9a4d08894155a8",
+        "W4391984636": "bbfb6efd542a5e82da0b938d3582353d9082a4b7e1c8b0ea06d5847701177202",
+        "W2910159406": "b1d8b473031fb92a3cae8343eed7d99ef2fa21e29e3aa610e71464ed17ca8f63",
+        "W4281756923": "35cfc53a93c01dcfb72f14665b4b6ca4a95d4a2bed75d987eded6da62e28447b",
+        "W4394585974": "2d64c8bcc911dfe77dedf11cf680f67aacdb78c983087905203b40c00ef461d3",
+        "W3170058287": "c70601f5c9b68b91393246d90d3357a991d418ca65ae1e136fbc84843d745e3f",
+        "W7128472017": "b5327a227ca123a41dc41bf060f17ba95928bb37620c28d3d66bf77ff009a8f2"
+      },
+      "container_memory_peak": 548564992,
+      "scientific_run": false,
+      "variant": "candidate"
+    },
+    {
+      "groups": 4,
+      "copies_per_paper": 3,
+      "wall": 15.126264174003154,
+      "after_winner_conversions": 0,
+      "peak_held_pdf_bytes_per_worker": [
+        48026125,
+        48238486,
+        46772700,
+        47994382
+      ],
+      "cpu": 14.795089999999998,
+      "sources": 48,
+      "conversions": 48,
+      "reused": 48,
+      "peak_anon": 457445376,
+      "body_hashes": {
+        "W7128472017": "45580b25c49fd9304147acf08665f59c8f85c294c112658af5ec4ffcba8e0f60",
+        "W4391984636": "5a6cd4bb3d145aeb877d3f6616decbda4d2725893b275a8bd902f88e1400753a",
+        "W2910159406": "f34773f4174ec306d0b51c4e65908259464ec979f726749379ebe6d1e420dda4",
+        "W4392132413": "a60ed00459afa887d3c3b9df2c5dff7598cbdb665b6c7c6458ee5dad6b27bd54",
+        "W4281756923": "0d8134e81e1ed47120ff70ec00171b4a2e0736c880d9a0f4445bcbd6794345b4",
+        "W4405944461": "eadb32d85cef29a4531f1d024d806e199e2166faaa4008870b8a1eb2d7d09448",
+        "W7211895836": "eccc0d7c78cdc38b930b7eb5b8b9fe204f33716203c20088d15dd23df3b50c9d",
+        "W3209510764": "00072c7488d436cff0b2b34ba2a00385dcc370ef3a378539d51f6221d0038c33",
+        "W3170058287": "43360ef9136352af15935b1586647d319ed777fc54bd5982dbd38220f8d0a350",
+        "W4226098645": "6a9033d884d7b31b744cf0640f6c138615f4320b4987936b23169e1ae47a4068",
+        "W4394585974": "e9f9f7ce6da595bde1d23f9959ca5c28617cbb42b526c689dfa6bc95521f5a14",
+        "W4391216288": "d1a00f76ddc058461e2852d7f58063d619241b89cd113e592a440a4715eb93cc"
+      },
+      "text_hashes": {
+        "W7128472017": "b5327a227ca123a41dc41bf060f17ba95928bb37620c28d3d66bf77ff009a8f2",
+        "W4391984636": "bbfb6efd542a5e82da0b938d3582353d9082a4b7e1c8b0ea06d5847701177202",
+        "W2910159406": "b1d8b473031fb92a3cae8343eed7d99ef2fa21e29e3aa610e71464ed17ca8f63",
+        "W4392132413": "cbef29e4f76cddd00ebf3dbfca396e83590bf53748aae9868a633651f20365c3",
+        "W4281756923": "35cfc53a93c01dcfb72f14665b4b6ca4a95d4a2bed75d987eded6da62e28447b",
+        "W4405944461": "0daf73b8728ef1899bdc05cedeb4760ca0f9ebd23bfb03c4f21af9e332029ee7",
+        "W7211895836": "f6ccd790e457f123a1584a3e206c3987d62f93481fd2801bc39d3f5b91d82d82",
+        "W3209510764": "a74525b12b0bd1ad0553a35e15496ca88dbad34c440088c3e64469a16418fe79",
+        "W3170058287": "c70601f5c9b68b91393246d90d3357a991d418ca65ae1e136fbc84843d745e3f",
+        "W4226098645": "77cba777aa85245aa413c83fb2593f6357719274f6c1c5f36b95948c6768b3c9",
+        "W4394585974": "2d64c8bcc911dfe77dedf11cf680f67aacdb78c983087905203b40c00ef461d3",
+        "W4391216288": "479b0fbb405d667db48b1fb9626b352ddca5736a77147f3eff9a4d08894155a8"
+      },
+      "container_memory_peak": 544702464,
+      "scientific_run": false,
+      "variant": "candidate"
+    },
+    {
+      "groups": 4,
+      "copies_per_paper": 3,
+      "wall": 26.39395592897199,
+      "after_winner_conversions": 89,
+      "peak_held_pdf_bytes_per_worker": [
+        48215369,
+        48231220,
+        48288500,
+        48603012
+      ],
+      "cpu": 24.947637,
+      "sources": 48,
+      "conversions": 144,
+      "reused": 48,
+      "peak_anon": 508342272,
+      "body_hashes": {
+        "W4281756923": "0d8134e81e1ed47120ff70ec00171b4a2e0736c880d9a0f4445bcbd6794345b4",
+        "W4405944461": "eadb32d85cef29a4531f1d024d806e199e2166faaa4008870b8a1eb2d7d09448",
+        "W2910159406": "f34773f4174ec306d0b51c4e65908259464ec979f726749379ebe6d1e420dda4",
+        "W4391984636": "5a6cd4bb3d145aeb877d3f6616decbda4d2725893b275a8bd902f88e1400753a",
+        "W4226098645": "6a9033d884d7b31b744cf0640f6c138615f4320b4987936b23169e1ae47a4068",
+        "W3209510764": "00072c7488d436cff0b2b34ba2a00385dcc370ef3a378539d51f6221d0038c33",
+        "W7211895836": "eccc0d7c78cdc38b930b7eb5b8b9fe204f33716203c20088d15dd23df3b50c9d",
+        "W3170058287": "43360ef9136352af15935b1586647d319ed777fc54bd5982dbd38220f8d0a350",
+        "W7128472017": "45580b25c49fd9304147acf08665f59c8f85c294c112658af5ec4ffcba8e0f60",
+        "W4394585974": "e9f9f7ce6da595bde1d23f9959ca5c28617cbb42b526c689dfa6bc95521f5a14",
+        "W4391216288": "d1a00f76ddc058461e2852d7f58063d619241b89cd113e592a440a4715eb93cc",
+        "W4392132413": "a60ed00459afa887d3c3b9df2c5dff7598cbdb665b6c7c6458ee5dad6b27bd54"
+      },
+      "text_hashes": {
+        "W4281756923": "35cfc53a93c01dcfb72f14665b4b6ca4a95d4a2bed75d987eded6da62e28447b",
+        "W4405944461": "0daf73b8728ef1899bdc05cedeb4760ca0f9ebd23bfb03c4f21af9e332029ee7",
+        "W2910159406": "b1d8b473031fb92a3cae8343eed7d99ef2fa21e29e3aa610e71464ed17ca8f63",
+        "W4391984636": "bbfb6efd542a5e82da0b938d3582353d9082a4b7e1c8b0ea06d5847701177202",
+        "W4226098645": "77cba777aa85245aa413c83fb2593f6357719274f6c1c5f36b95948c6768b3c9",
+        "W3209510764": "a74525b12b0bd1ad0553a35e15496ca88dbad34c440088c3e64469a16418fe79",
+        "W7211895836": "f6ccd790e457f123a1584a3e206c3987d62f93481fd2801bc39d3f5b91d82d82",
+        "W3170058287": "c70601f5c9b68b91393246d90d3357a991d418ca65ae1e136fbc84843d745e3f",
+        "W7128472017": "b5327a227ca123a41dc41bf060f17ba95928bb37620c28d3d66bf77ff009a8f2",
+        "W4394585974": "2d64c8bcc911dfe77dedf11cf680f67aacdb78c983087905203b40c00ef461d3",
+        "W4391216288": "479b0fbb405d667db48b1fb9626b352ddca5736a77147f3eff9a4d08894155a8",
+        "W4392132413": "cbef29e4f76cddd00ebf3dbfca396e83590bf53748aae9868a633651f20365c3"
+      },
+      "container_memory_peak": 584728576,
+      "scientific_run": false,
+      "variant": "baseline"
+    }
+  ],
+  "source_file_sha256": {
+    "coverage_sources.py": "cc2f7297054f19f65672f4bf5a1bf5f2d5e00b4c468c7aa425232104690ab3cd",
+    "pdf_capacity.py": "a228bd053c8c677898df28ac1963737a05d900eda285c7ff1432a834df10c5c2",
+    "service_status.py": "dcce0fc7157d7ea70293a77e8bee7d74e693b0dbcd05cf7f6ee533784641bc6c"
+  },
+  "limitations": [
+    "Processing-burst replay with fixed HTTP responses of real PDF bytes. No model reasoning, live provider latency or research-throughput claim.",
+    "Healthy direct copies only in the replay; unusable/preview/wrong-identity/HTML/XML fallbacks and streaming closure are covered by separate regressions.",
+    "A converter already admitted before another copy wins completes normally; one candidate replay performed 49 conversions for 48 committed paper tasks.",
+    "In-flight blocked network reads retain the existing timeout. Copies already buffered before selection still contribute to the memory peak."
+  ]
+}

@@ -15,6 +15,7 @@ import re
 import shutil
 import socket
 import subprocess
+import threading
 import unicodedata
 from typing import NamedTuple
 from urllib.parse import quote, unquote, urljoin, urlsplit
@@ -24,7 +25,7 @@ import xml.etree.ElementTree as ET
 import httpx
 from pypdf import PdfReader
 
-from .pdf_capacity import conversion_slot
+from .pdf_capacity import CopySuperseded, conversion_slot
 
 
 class PaperCopy(NamedTuple):
@@ -452,9 +453,9 @@ def repository_pdf_urls(raw, expected):
     return list(dict.fromkeys(parser.links))
 
 
-def pdf_matches_work(raw, expected):
+def pdf_matches_work(raw, expected, *, cancelled=None):
     """Check newly discovered PDFs against their actual first-page identity."""
-    with conversion_slot():
+    with conversion_slot(cancelled):
         return _pdf_matches_work(raw, expected)
 
 
@@ -475,10 +476,16 @@ def _pdf_matches_work(raw, expected):
         return False
 
 
-def _validate_paper_copy(raw, kind, expected):
+def _check_copy(cancelled):
+    if cancelled is not None and cancelled.is_set():
+        raise CopySuperseded()
+
+
+def _validate_paper_copy(raw, kind, expected, *, cancelled=None):
     """Validate before selecting a copy, including PDFs found on HTML landings."""
+    _check_copy(cancelled)
     if kind == "application/pdf":
-        text, pages, blank = _pdf_text(raw)
+        text, pages, blank = _pdf_text(raw, cancelled=cancelled)
         extraction = text, pages, list(blank), "pdf"
     elif kind in ("application/xml", "text/xml", "application/tei+xml"):
         text = _xml_text(raw)
@@ -495,8 +502,9 @@ def _validate_paper_copy(raw, kind, expected):
     return extraction
 
 
-def public_download(client, url, resolver, expected=None, discover_pdf=True):
+def public_download(client, url, resolver, expected=None, discover_pdf=True, *, cancelled=None):
     for _ in range(6):
+        _check_copy(cancelled)
         public_url(url, resolver)
         # Explicitly empty credentials. Redirects are checked before following;
         # they never change the provider client's redirect/retry behavior.
@@ -510,7 +518,12 @@ def public_download(client, url, resolver, expected=None, discover_pdf=True):
                 continue
             if response.status_code != 200:
                 raise ValueError("Content unavailable")
-            raw = response.read()
+            def chunks():
+                for chunk in response.iter_bytes():
+                    _check_copy(cancelled)
+                    yield chunk
+            raw = b''.join(chunks())
+            _check_copy(cancelled)
             kind = content_kind(raw)
             if kind is None:
                 linked_timeout = None
@@ -521,8 +534,8 @@ def public_download(client, url, resolver, expected=None, discover_pdf=True):
                     discovered = repository_pdf_urls(raw, expected)
                     for link in dict.fromkeys([*explicit, *discovered]):
                         try:
-                            result = public_download(client, urljoin(url, link), resolver, expected, False)
-                            if link not in explicit and (result[1] != "application/pdf" or not pdf_matches_work(result[0], expected)):
+                            result = public_download(client, urljoin(url, link), resolver, expected, False, cancelled=cancelled)
+                            if link not in explicit and (result[1] != "application/pdf" or not pdf_matches_work(result[0], expected, cancelled=cancelled)):
                                 continue
                             return result
                         except httpx.TimeoutException as exc:
@@ -531,14 +544,14 @@ def public_download(client, url, resolver, expected=None, discover_pdf=True):
                         except (httpx.HTTPError, ValueError, OSError, AccessFailure):
                             continue
                 try:
-                    extraction = _validate_paper_copy(raw, "text/html", expected)
+                    extraction = _validate_paper_copy(raw, "text/html", expected, cancelled=cancelled)
                 except ValueError:
                     if linked_timeout is not None:
                         raise linked_timeout
                     raise
                 kind = "text/html"
             else:
-                extraction = _validate_paper_copy(raw, kind, expected)
+                extraction = _validate_paper_copy(raw, kind, expected, cancelled=cancelled)
             return PaperCopy(raw, kind, url, extraction)
     raise ValueError("Too many content redirects")
 
@@ -711,6 +724,7 @@ class _BorrowedPublicTransport(httpx.BaseTransport):
 
 def public_work_download(work, transport, resolver):
     """Race three free copies plus DOI metadata; only the caller saves a winner."""
+    selected, choice = threading.Event(), threading.Lock()
     def client():
         return httpx.Client(trust_env=False, follow_redirects=False, verify=PUBLIC_SSL_CONTEXT,
                             transport=_BorrowedPublicTransport(transport) if transport else None)
@@ -718,28 +732,37 @@ def public_work_download(work, transport, resolver):
     raw_hints = set(raw_pdf_candidates(work))
 
     def download(url):
-        with client() as public:
-            try:
-                result = public_download(public, url, resolver, work)
-                if url in raw_hints and (result[1] != "application/pdf" or not pdf_matches_work(result[0], work)):
+        try:
+            _check_copy(selected)
+            with client() as public:
+                result = public_download(public, url, resolver, work, cancelled=selected)
+                if url in raw_hints and (result[1] != "application/pdf" or not pdf_matches_work(result[0], work, cancelled=selected)):
                     return None, False
-                # public_download validates each linked/direct copy before
-                # returning; do not extract a healthy winner a second time here.
-                return result, False
-            except httpx.TimeoutException:
-                return None, True
-            except (httpx.HTTPError, ValueError, OSError, AccessFailure):
-                return None, False
+            # Claim only after readability, preview and required identity checks,
+            # and after the private client has closed successfully.
+            with choice:
+                _check_copy(selected)
+                selected.set()
+            return result, False
+        except CopySuperseded:
+            return None, False
+        except httpx.TimeoutException:
+            return None, True
+        except (httpx.HTTPError, ValueError, OSError, AccessFailure):
+            return None, False
 
     def metadata(provider):
+        if selected.is_set():
+            return []
         with client() as public:
-            return free_metadata_candidates(work, public, resolver, provider)
+            result = free_metadata_candidates(work, public, resolver, provider)
+            return [] if selected.is_set() else result
 
     pending, tried, urls = {}, set(), deque(public_candidates(work))
     timed_out = False
 
     def fill():
-        while urls and sum(kind == "paper" for kind in pending.values()) < 3:
+        while urls and not selected.is_set() and sum(kind == "paper" for kind in pending.values()) < 3:
             url = urls.popleft()
             if url not in tried:
                 tried.add(url)
@@ -764,6 +787,7 @@ def public_work_download(work, transport, resolver):
             fill()
         return None, timed_out
     finally:
+        selected.set()
         # Do not wait for slow losing requests. Each running task owns and closes
         # its client; it cannot mutate the cache or the chosen response.
         for future in pending:
@@ -800,8 +824,8 @@ def _native_pdf_text(raw: bytes, *, slot_fd: int) -> tuple[str, int, tuple[int, 
     return text, len(pages), blank
 
 
-def _pdf_text(raw: bytes) -> tuple[str, int, tuple[int, ...]]:
-    with conversion_slot() as slot_fd:
+def _pdf_text(raw: bytes, *, cancelled=None) -> tuple[str, int, tuple[int, ...]]:
+    with conversion_slot(cancelled) as slot_fd:
         return _pdf_text_in_slot(raw, slot_fd)
 
 

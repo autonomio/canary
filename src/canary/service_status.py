@@ -12,6 +12,7 @@ class PdfExtractionStatus(TypedDict):
     layout_preserved: bool
     concurrent_pdf_conversions: int
     capacity_scope: str
+    skip_superseded_copies: bool
 
 
 class SourceReadStatus(TypedDict):
@@ -46,6 +47,7 @@ def service_status(root: Path, dashboard_enabled: bool, *, execution=None) -> Se
                                        'active_shared_sessions': 0, 'active_exec_sessions': 0},
             'pdf_extraction': {'engine': 'pdftotext' if shutil.which('pdftotext') else 'pypdf',
                                'layout_preserved': bool(shutil.which('pdftotext')),
-                               'concurrent_pdf_conversions': 1, 'capacity_scope': 'service_data_directory'},
+                               'concurrent_pdf_conversions': 1, 'capacity_scope': 'service_data_directory',
+                               'skip_superseded_copies': True},
             'source_reads': {'simple_queries': 'api_process', 'complex_patterns': 'isolated_worker'},
             'readiness_note': 'Runtime availability only. See /api/auth/status for login; model access and source availability are checked during research.'}
