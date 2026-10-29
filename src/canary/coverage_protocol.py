@@ -14,6 +14,7 @@ AUDIT_EFFORT = "ultra"
 class OpenAlexBackoff(TypedDict):
     provider: Literal['openalex']
     scope: Literal['anonymous', 'configured_key', 'provider', 'legacy_unknown']
+    scope_source: Literal['recorded_request', 'operator_attribution', 'legacy_unknown']
     reason: Literal['rate_limited', 'service_unavailable', 'legacy_scope_unknown']
     retry_not_before: str
     retry_not_before_epoch: float

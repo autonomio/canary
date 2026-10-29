@@ -119,18 +119,22 @@ def validate_plan(plan):
     return plan
 
 
-def operator_key(root):
-    """Read only the explicitly authorized source key; never evaluate .env."""
-    if os.environ.get("OPENALEX_API_KEY"):
-        return os.environ["OPENALEX_API_KEY"]
+def _operator_setting(root, name):
+    """Select an explicitly named operator setting; never evaluate .env."""
+    if os.environ.get(name):
+        return os.environ[name]
     envfile = root / ".env"
     if envfile.exists():
         for line in envfile.read_text().splitlines():
             key, separator, value = line.strip().removeprefix("export ").partition("=")
-            if separator and key == "OPENALEX_API_KEY":
+            if separator and key == name:
                 pieces = shlex.split(value, comments=True)
                 return pieces[0] if pieces else ""
     return ""
+
+
+def operator_key(root):
+    return _operator_setting(root, "OPENALEX_API_KEY")
 
 
 def record_daily_search(root):
@@ -174,6 +178,10 @@ def _openalex_backoff(root, *, allowance="anonymous", scope=None, deadline=None,
     scope = scope or allowance
     if scope not in (allowance, "provider"):
         raise ValueError("Unknown OpenAlex backoff scope")
+    legacy_scope = _operator_setting(root, "CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE")
+    if legacy_scope and legacy_scope not in ("anonymous", "configured_key"):
+        raise ValueError("CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE must be anonymous or configured_key")
+    legacy_scope = legacy_scope or "legacy_unknown"
     path = root / "out" / "coverage-openalex-usage.sqlite"
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path, timeout=10) as db:
@@ -183,17 +191,20 @@ def _openalex_backoff(root, *, allowance="anonymous", scope=None, deadline=None,
         if deadline is not None:
             db.execute("INSERT INTO provider_backoff_scoped VALUES(?,?,?,?,?) ON CONFLICT(provider,scope) DO UPDATE SET retry_not_before=excluded.retry_not_before, retry_after=excluded.retry_after, retry_after_source=excluded.retry_after_source WHERE excluded.retry_not_before > provider_backoff_scoped.retry_not_before",
                        ("openalex", scope, deadline, retry_after, source))
-        rows = db.execute("SELECT retry_not_before,retry_after,retry_after_source,scope FROM provider_backoff_scoped WHERE provider=? AND scope IN (?,?)",
-                          ("openalex", allowance, "provider")).fetchall()
+        rows = [(*row, "recorded_request") for row in db.execute(
+            "SELECT retry_not_before,retry_after,retry_after_source,scope FROM provider_backoff_scoped WHERE provider=? AND scope IN (?,?)",
+            ("openalex", allowance, "provider"))]
         legacy = db.execute("SELECT retry_not_before,retry_after,retry_after_source FROM provider_backoff WHERE provider=?", ("openalex",)).fetchone()
-        if legacy:
-            rows.append((*legacy, "legacy_unknown"))
+        if legacy and legacy_scope in (allowance, "legacy_unknown"):
+            rows.append((*legacy, legacy_scope,
+                         "legacy_unknown" if legacy_scope == "legacy_unknown" else "operator_attribution"))
     row = max(rows, key=lambda item: (item[0], item[3] == "provider"), default=None)
     if row is None:
         return None
     return {"provider": "openalex", "retry_not_before": datetime.fromtimestamp(row[0], timezone.utc).isoformat(),
             "retry_not_before_epoch": row[0], "retry_after": row[1], "retry_after_source": row[2],
             "active": row[0] > time.time(), "scope": row[3],
+            "scope_source": row[4],
             "reason": {"provider": "service_unavailable", "legacy_unknown": "legacy_scope_unknown"}.get(row[3], "rate_limited")}
 
 

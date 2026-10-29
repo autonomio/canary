@@ -565,6 +565,8 @@ for(const [scope,reason,label,why] of [
     assert.ok(html.includes(label));assert.ok(html.includes(why));
     assert.match(html,/Retry not before/);
   }
+  scoped.coverage.search_progress.backoff.scope_source='operator_attribution';
+  assert.match(searchProgressHtml(scoped),/Historical allowance attributed by operator/);
 }
 for(const html of [coverageSelectionHtml(graph),queryNetHtml(graph)]) {
   assert.match(html,/Search incomplete/);assert.match(html,/OpenAlex rate limited/);

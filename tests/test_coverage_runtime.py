@@ -290,6 +290,74 @@ def test_openalex_effective_pause_is_latest_applicable_deadline(tmp_path, monkey
     assert runtime._openalex_backoff(tmp_path)["retry_not_before_epoch"] == clock[0] + 600
 
 
+def test_openalex_upgrade_recovers_only_with_known_legacy_anonymous_attribution(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    monkeypatch.delenv("CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE", raising=False)
+    import time
+    path = tmp_path / "out" / "coverage-openalex-usage.sqlite"
+    path.parent.mkdir()
+    legacy_row = ("openalex", time.time()+3600, "3600", "retry_after")
+    with sqlite3.connect(path) as db:
+        # Exact old schema: no assumption about which credential produced it.
+        db.execute("CREATE TABLE provider_backoff(provider TEXT PRIMARY KEY, retry_not_before REAL NOT NULL, retry_after TEXT, retry_after_source TEXT NOT NULL)")
+        db.execute("INSERT INTO provider_backoff VALUES(?,?,?,?)", legacy_row)
+    plan = tmp_path / "input-plan.json"; runtime.write(plan, rich_plan())
+    calls = []
+    def handler(request):
+        calls.append(request)
+        assert request.headers["Authorization"] == "Bearer synthetic-operator-key"
+        return httpx.Response(200, json={"results": [work("W1")], "meta": {"count": 1}})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        original = tmp_path / "original"
+        runtime.discover(original, plan, root=tmp_path, client=client)
+        before = {p.name:p.read_bytes() for p in original.glob("*.json*")}
+        (tmp_path / ".env").write_text("OPENALEX_API_KEY=synthetic-operator-key\n")
+        unknown = runtime.discover(tmp_path / "unknown", plan, root=tmp_path, client=client)
+        assert unknown["status"] == "backoff" and calls == []
+        # The operator can explicitly attribute a known pre-upgrade anonymous
+        # pause; no deadline or historical record is cleared to recover.
+        (tmp_path / ".env").write_text("OPENALEX_API_KEY=synthetic-operator-key\n"
+            "CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE=anonymous\n")
+        recovered = runtime.discover(tmp_path / "new", plan, root=tmp_path, client=client)
+        assert recovered["complete"] is True and len(calls) == 1
+        with sqlite3.connect(path) as db:
+            assert db.execute("SELECT * FROM provider_backoff").fetchall() == [legacy_row]
+        assert {p.name:p.read_bytes() for p in original.glob("*.json*")} == before
+        monkeypatch.setenv("OPENALEX_API_KEY", "")
+        (tmp_path / ".env").write_text("CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE=anonymous\n")
+        anonymous = runtime.discover(tmp_path / "anonymous", plan, root=tmp_path, client=client)
+        assert anonymous["status"] == "backoff" and len(calls) == 1
+        assert anonymous["backoff"]["retry_not_before_epoch"] == legacy_row[1]
+        assert anonymous["backoff"]["scope_source"] == "operator_attribution"
+        # Attribution never overrides a genuinely provider-wide pause.
+        runtime._openalex_backoff(tmp_path, scope="provider", deadline=legacy_row[1]+60, source="retry_after")
+        monkeypatch.setenv("OPENALEX_API_KEY", "synthetic-operator-key")
+        global_pause = runtime.discover(tmp_path / "global", plan, root=tmp_path, client=client)
+        assert global_pause["backoff"]["scope"] == "provider" and len(calls) == 1
+
+
+def test_openalex_invalid_legacy_attribution_is_not_silently_accepted(tmp_path, monkeypatch):
+    monkeypatch.setenv("CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE", "synthetic-invalid-secret")
+    with pytest.raises(ValueError, match="must be anonymous or configured_key") as error:
+        runtime._openalex_backoff(tmp_path)
+    assert "synthetic-invalid-secret" not in str(error.value)
+
+
+@pytest.mark.parametrize("allowance", ["anonymous", "configured_key"])
+def test_openalex_legacy_attribution_keeps_the_declared_allowance_paused(tmp_path, monkeypatch, allowance):
+    import time
+    path = tmp_path / "out" / "coverage-openalex-usage.sqlite";path.parent.mkdir()
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE provider_backoff(provider TEXT PRIMARY KEY, retry_not_before REAL NOT NULL, retry_after TEXT, retry_after_source TEXT NOT NULL)")
+        db.execute("INSERT INTO provider_backoff VALUES('openalex',?,'3600','retry_after')", (time.time()+3600,))
+    monkeypatch.setenv("CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE", allowance)
+    paused = runtime._openalex_backoff(tmp_path, allowance=allowance)
+    assert paused["active"] is True and paused["scope"] == allowance
+    assert paused["scope_source"] == "operator_attribution"
+    other = "configured_key" if allowance == "anonymous" else "anonymous"
+    assert runtime._openalex_backoff(tmp_path, allowance=other) is None
+
+
 @pytest.mark.parametrize("retry_after", [None, "not a date", "-1", "1.5", "999999999999999999999999999999999999999"])
 def test_openalex_429_without_valid_retry_header_still_stops_whole_net(tmp_path, monkeypatch, retry_after):
     clock = [1_800_000_000.0]
