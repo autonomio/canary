@@ -1,0 +1,221 @@
+{
+  "baseline_commit": "cb12b2c640e8fb65465a02adadcea365e91cc56a",
+  "method": {
+    "cpu_limit": 1,
+    "memory_limit_bytes": 2147483648,
+    "concurrent_acquisition_jobs": 4,
+    "tasks_per_job": 12,
+    "unique_pdfs": 12,
+    "replays_per_version": 2,
+    "order": [
+      "baseline",
+      "candidate",
+      "candidate",
+      "baseline"
+    ],
+    "network": "disabled",
+    "source_volume": "read_only",
+    "pdf_selection": "12 files around median size, sorted by size then filename",
+    "changed_extraction_algorithms": false,
+    "script": "replay.py",
+    "model_calls": 0
+  },
+  "means": {
+    "baseline": {
+      "wall": 22.874500947073102,
+      "cpu": 22.527541,
+      "peak_anon": 459272192,
+      "container_memory_peak": 501413888,
+      "conversions": 96,
+      "reused": 0
+    },
+    "candidate": {
+      "wall": 12.792042860062793,
+      "cpu": 12.167098,
+      "peak_anon": 279730176,
+      "container_memory_peak": 325036032,
+      "conversions": 48,
+      "reused": 48
+    }
+  },
+  "reduction_percent": {
+    "wall": 44.07728111900254,
+    "cpu": 45.99011938320299,
+    "peak_anon": 39.09272521337412
+  },
+  "all_body_and_text_hashes_equal": true,
+  "replays": [
+    {
+      "groups": 4,
+      "wall": 24.616864677052945,
+      "cpu": 24.249536,
+      "sources": 48,
+      "conversions": 96,
+      "reused": 0,
+      "peak_anon": 459808768,
+      "body_hashes": {
+        "W7128472017": "45580b25c49fd9304147acf08665f59c8f85c294c112658af5ec4ffcba8e0f60",
+        "W4392132413": "a60ed00459afa887d3c3b9df2c5dff7598cbdb665b6c7c6458ee5dad6b27bd54",
+        "W7211895836": "eccc0d7c78cdc38b930b7eb5b8b9fe204f33716203c20088d15dd23df3b50c9d",
+        "W4281756923": "0d8134e81e1ed47120ff70ec00171b4a2e0736c880d9a0f4445bcbd6794345b4",
+        "W4391216288": "d1a00f76ddc058461e2852d7f58063d619241b89cd113e592a440a4715eb93cc",
+        "W4405944461": "eadb32d85cef29a4531f1d024d806e199e2166faaa4008870b8a1eb2d7d09448",
+        "W2910159406": "f34773f4174ec306d0b51c4e65908259464ec979f726749379ebe6d1e420dda4",
+        "W4394585974": "e9f9f7ce6da595bde1d23f9959ca5c28617cbb42b526c689dfa6bc95521f5a14",
+        "W4391984636": "5a6cd4bb3d145aeb877d3f6616decbda4d2725893b275a8bd902f88e1400753a",
+        "W3170058287": "43360ef9136352af15935b1586647d319ed777fc54bd5982dbd38220f8d0a350",
+        "W3209510764": "00072c7488d436cff0b2b34ba2a00385dcc370ef3a378539d51f6221d0038c33",
+        "W4226098645": "6a9033d884d7b31b744cf0640f6c138615f4320b4987936b23169e1ae47a4068"
+      },
+      "text_hashes": {
+        "W7128472017": "b5327a227ca123a41dc41bf060f17ba95928bb37620c28d3d66bf77ff009a8f2",
+        "W4392132413": "cbef29e4f76cddd00ebf3dbfca396e83590bf53748aae9868a633651f20365c3",
+        "W7211895836": "f6ccd790e457f123a1584a3e206c3987d62f93481fd2801bc39d3f5b91d82d82",
+        "W4281756923": "35cfc53a93c01dcfb72f14665b4b6ca4a95d4a2bed75d987eded6da62e28447b",
+        "W4391216288": "479b0fbb405d667db48b1fb9626b352ddca5736a77147f3eff9a4d08894155a8",
+        "W4405944461": "0daf73b8728ef1899bdc05cedeb4760ca0f9ebd23bfb03c4f21af9e332029ee7",
+        "W2910159406": "b1d8b473031fb92a3cae8343eed7d99ef2fa21e29e3aa610e71464ed17ca8f63",
+        "W4394585974": "2d64c8bcc911dfe77dedf11cf680f67aacdb78c983087905203b40c00ef461d3",
+        "W4391984636": "bbfb6efd542a5e82da0b938d3582353d9082a4b7e1c8b0ea06d5847701177202",
+        "W3170058287": "c70601f5c9b68b91393246d90d3357a991d418ca65ae1e136fbc84843d745e3f",
+        "W3209510764": "a74525b12b0bd1ad0553a35e15496ca88dbad34c440088c3e64469a16418fe79",
+        "W4226098645": "77cba777aa85245aa413c83fb2593f6357719274f6c1c5f36b95948c6768b3c9"
+      },
+      "container_memory_peak": 525381632,
+      "scientific_run": false,
+      "variant": "baseline"
+    },
+    {
+      "groups": 4,
+      "wall": 12.657731172046624,
+      "cpu": 12.067472,
+      "sources": 48,
+      "conversions": 48,
+      "reused": 48,
+      "peak_anon": 271032320,
+      "body_hashes": {
+        "W4281756923": "0d8134e81e1ed47120ff70ec00171b4a2e0736c880d9a0f4445bcbd6794345b4",
+        "W4392132413": "a60ed00459afa887d3c3b9df2c5dff7598cbdb665b6c7c6458ee5dad6b27bd54",
+        "W3209510764": "00072c7488d436cff0b2b34ba2a00385dcc370ef3a378539d51f6221d0038c33",
+        "W2910159406": "f34773f4174ec306d0b51c4e65908259464ec979f726749379ebe6d1e420dda4",
+        "W7128472017": "45580b25c49fd9304147acf08665f59c8f85c294c112658af5ec4ffcba8e0f60",
+        "W7211895836": "eccc0d7c78cdc38b930b7eb5b8b9fe204f33716203c20088d15dd23df3b50c9d",
+        "W4405944461": "eadb32d85cef29a4531f1d024d806e199e2166faaa4008870b8a1eb2d7d09448",
+        "W4391984636": "5a6cd4bb3d145aeb877d3f6616decbda4d2725893b275a8bd902f88e1400753a",
+        "W4391216288": "d1a00f76ddc058461e2852d7f58063d619241b89cd113e592a440a4715eb93cc",
+        "W4226098645": "6a9033d884d7b31b744cf0640f6c138615f4320b4987936b23169e1ae47a4068",
+        "W4394585974": "e9f9f7ce6da595bde1d23f9959ca5c28617cbb42b526c689dfa6bc95521f5a14",
+        "W3170058287": "43360ef9136352af15935b1586647d319ed777fc54bd5982dbd38220f8d0a350"
+      },
+      "text_hashes": {
+        "W4281756923": "35cfc53a93c01dcfb72f14665b4b6ca4a95d4a2bed75d987eded6da62e28447b",
+        "W4392132413": "cbef29e4f76cddd00ebf3dbfca396e83590bf53748aae9868a633651f20365c3",
+        "W3209510764": "a74525b12b0bd1ad0553a35e15496ca88dbad34c440088c3e64469a16418fe79",
+        "W2910159406": "b1d8b473031fb92a3cae8343eed7d99ef2fa21e29e3aa610e71464ed17ca8f63",
+        "W7128472017": "b5327a227ca123a41dc41bf060f17ba95928bb37620c28d3d66bf77ff009a8f2",
+        "W7211895836": "f6ccd790e457f123a1584a3e206c3987d62f93481fd2801bc39d3f5b91d82d82",
+        "W4405944461": "0daf73b8728ef1899bdc05cedeb4760ca0f9ebd23bfb03c4f21af9e332029ee7",
+        "W4391984636": "bbfb6efd542a5e82da0b938d3582353d9082a4b7e1c8b0ea06d5847701177202",
+        "W4391216288": "479b0fbb405d667db48b1fb9626b352ddca5736a77147f3eff9a4d08894155a8",
+        "W4226098645": "77cba777aa85245aa413c83fb2593f6357719274f6c1c5f36b95948c6768b3c9",
+        "W4394585974": "2d64c8bcc911dfe77dedf11cf680f67aacdb78c983087905203b40c00ef461d3",
+        "W3170058287": "c70601f5c9b68b91393246d90d3357a991d418ca65ae1e136fbc84843d745e3f"
+      },
+      "container_memory_peak": 307630080,
+      "scientific_run": false,
+      "variant": "candidate"
+    },
+    {
+      "groups": 4,
+      "wall": 12.926354548078962,
+      "cpu": 12.266724,
+      "sources": 48,
+      "conversions": 48,
+      "reused": 48,
+      "peak_anon": 288428032,
+      "body_hashes": {
+        "W4281756923": "0d8134e81e1ed47120ff70ec00171b4a2e0736c880d9a0f4445bcbd6794345b4",
+        "W4392132413": "a60ed00459afa887d3c3b9df2c5dff7598cbdb665b6c7c6458ee5dad6b27bd54",
+        "W7128472017": "45580b25c49fd9304147acf08665f59c8f85c294c112658af5ec4ffcba8e0f60",
+        "W3209510764": "00072c7488d436cff0b2b34ba2a00385dcc370ef3a378539d51f6221d0038c33",
+        "W4391984636": "5a6cd4bb3d145aeb877d3f6616decbda4d2725893b275a8bd902f88e1400753a",
+        "W2910159406": "f34773f4174ec306d0b51c4e65908259464ec979f726749379ebe6d1e420dda4",
+        "W7211895836": "eccc0d7c78cdc38b930b7eb5b8b9fe204f33716203c20088d15dd23df3b50c9d",
+        "W4405944461": "eadb32d85cef29a4531f1d024d806e199e2166faaa4008870b8a1eb2d7d09448",
+        "W4391216288": "d1a00f76ddc058461e2852d7f58063d619241b89cd113e592a440a4715eb93cc",
+        "W3170058287": "43360ef9136352af15935b1586647d319ed777fc54bd5982dbd38220f8d0a350",
+        "W4226098645": "6a9033d884d7b31b744cf0640f6c138615f4320b4987936b23169e1ae47a4068",
+        "W4394585974": "e9f9f7ce6da595bde1d23f9959ca5c28617cbb42b526c689dfa6bc95521f5a14"
+      },
+      "text_hashes": {
+        "W4281756923": "35cfc53a93c01dcfb72f14665b4b6ca4a95d4a2bed75d987eded6da62e28447b",
+        "W4392132413": "cbef29e4f76cddd00ebf3dbfca396e83590bf53748aae9868a633651f20365c3",
+        "W7128472017": "b5327a227ca123a41dc41bf060f17ba95928bb37620c28d3d66bf77ff009a8f2",
+        "W3209510764": "a74525b12b0bd1ad0553a35e15496ca88dbad34c440088c3e64469a16418fe79",
+        "W4391984636": "bbfb6efd542a5e82da0b938d3582353d9082a4b7e1c8b0ea06d5847701177202",
+        "W2910159406": "b1d8b473031fb92a3cae8343eed7d99ef2fa21e29e3aa610e71464ed17ca8f63",
+        "W7211895836": "f6ccd790e457f123a1584a3e206c3987d62f93481fd2801bc39d3f5b91d82d82",
+        "W4405944461": "0daf73b8728ef1899bdc05cedeb4760ca0f9ebd23bfb03c4f21af9e332029ee7",
+        "W4391216288": "479b0fbb405d667db48b1fb9626b352ddca5736a77147f3eff9a4d08894155a8",
+        "W3170058287": "c70601f5c9b68b91393246d90d3357a991d418ca65ae1e136fbc84843d745e3f",
+        "W4226098645": "77cba777aa85245aa413c83fb2593f6357719274f6c1c5f36b95948c6768b3c9",
+        "W4394585974": "2d64c8bcc911dfe77dedf11cf680f67aacdb78c983087905203b40c00ef461d3"
+      },
+      "container_memory_peak": 342441984,
+      "scientific_run": false,
+      "variant": "candidate"
+    },
+    {
+      "groups": 4,
+      "wall": 21.13213721709326,
+      "cpu": 20.805546,
+      "sources": 48,
+      "conversions": 96,
+      "reused": 0,
+      "peak_anon": 458735616,
+      "body_hashes": {
+        "W2910159406": "f34773f4174ec306d0b51c4e65908259464ec979f726749379ebe6d1e420dda4",
+        "W4392132413": "a60ed00459afa887d3c3b9df2c5dff7598cbdb665b6c7c6458ee5dad6b27bd54",
+        "W7128472017": "45580b25c49fd9304147acf08665f59c8f85c294c112658af5ec4ffcba8e0f60",
+        "W4281756923": "0d8134e81e1ed47120ff70ec00171b4a2e0736c880d9a0f4445bcbd6794345b4",
+        "W4391216288": "d1a00f76ddc058461e2852d7f58063d619241b89cd113e592a440a4715eb93cc",
+        "W7211895836": "eccc0d7c78cdc38b930b7eb5b8b9fe204f33716203c20088d15dd23df3b50c9d",
+        "W4405944461": "eadb32d85cef29a4531f1d024d806e199e2166faaa4008870b8a1eb2d7d09448",
+        "W3209510764": "00072c7488d436cff0b2b34ba2a00385dcc370ef3a378539d51f6221d0038c33",
+        "W4391984636": "5a6cd4bb3d145aeb877d3f6616decbda4d2725893b275a8bd902f88e1400753a",
+        "W3170058287": "43360ef9136352af15935b1586647d319ed777fc54bd5982dbd38220f8d0a350",
+        "W4394585974": "e9f9f7ce6da595bde1d23f9959ca5c28617cbb42b526c689dfa6bc95521f5a14",
+        "W4226098645": "6a9033d884d7b31b744cf0640f6c138615f4320b4987936b23169e1ae47a4068"
+      },
+      "text_hashes": {
+        "W2910159406": "b1d8b473031fb92a3cae8343eed7d99ef2fa21e29e3aa610e71464ed17ca8f63",
+        "W4392132413": "cbef29e4f76cddd00ebf3dbfca396e83590bf53748aae9868a633651f20365c3",
+        "W7128472017": "b5327a227ca123a41dc41bf060f17ba95928bb37620c28d3d66bf77ff009a8f2",
+        "W4281756923": "35cfc53a93c01dcfb72f14665b4b6ca4a95d4a2bed75d987eded6da62e28447b",
+        "W4391216288": "479b0fbb405d667db48b1fb9626b352ddca5736a77147f3eff9a4d08894155a8",
+        "W7211895836": "f6ccd790e457f123a1584a3e206c3987d62f93481fd2801bc39d3f5b91d82d82",
+        "W4405944461": "0daf73b8728ef1899bdc05cedeb4760ca0f9ebd23bfb03c4f21af9e332029ee7",
+        "W3209510764": "a74525b12b0bd1ad0553a35e15496ca88dbad34c440088c3e64469a16418fe79",
+        "W4391984636": "bbfb6efd542a5e82da0b938d3582353d9082a4b7e1c8b0ea06d5847701177202",
+        "W3170058287": "c70601f5c9b68b91393246d90d3357a991d418ca65ae1e136fbc84843d745e3f",
+        "W4394585974": "2d64c8bcc911dfe77dedf11cf680f67aacdb78c983087905203b40c00ef461d3",
+        "W4226098645": "77cba777aa85245aa413c83fb2593f6357719274f6c1c5f36b95948c6768b3c9"
+      },
+      "container_memory_peak": 477446144,
+      "scientific_run": false,
+      "variant": "baseline"
+    }
+  ],
+  "source_file_sha256": {
+    "src/canary/coverage_runtime.py": "8c72ddba6d9ef890857a0eb0fd28491556c5f9549fda1df4a8cdade0df7570ab",
+    "src/canary/coverage_sources.py": "c1b870e562a05704b4ab16de1fa4e59e1bfff1c7977bd047838ed190f700e6a7",
+    "src/canary/pdf_capacity.py": "6cc56e756fbd1b658d0915af8e87bf9b7ef83a9e0888a4c9793b44e9d6ef7941",
+    "src/canary/dashboard.py": "6cd03b9ee69285a6ea02c6314d2bb14b7bb12532919510008070925820fe7825",
+    "src/canary/service_status.py": "81f27aa0dd396a197d344cbb3ce57d3063048ef585a9a12c3e6032428b11190e"
+  },
+  "limits": [
+    "Paper-processing burst only. No model reasoning, audit or external download latency.",
+    "One directly listed public copy per paper; competing-copy and metadata races are covered separately by regression tests.",
+    "Two repeats per version; host activity can affect timings and peaks. No full-question concurrency capacity is claimed."
+  ]
+}

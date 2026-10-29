@@ -16,12 +16,23 @@ import shutil
 import socket
 import subprocess
 import unicodedata
+from typing import NamedTuple
 from urllib.parse import quote, unquote, urljoin, urlsplit
 from xml.etree import ElementTree
 import xml.etree.ElementTree as ET
 
 import httpx
 from pypdf import PdfReader
+
+from .pdf_capacity import conversion_slot
+
+
+class PaperCopy(NamedTuple):
+    raw: bytes
+    kind: str
+    url: str
+    extraction: tuple[str, int, list[int], str]
+
 
 PUBLIC_DOWNLOAD_TIMEOUT_SECONDS = 10
 MAX_HTML_TABLE_EXPANSION = 100_000
@@ -443,6 +454,11 @@ def repository_pdf_urls(raw, expected):
 
 def pdf_matches_work(raw, expected):
     """Check newly discovered PDFs against their actual first-page identity."""
+    with conversion_slot():
+        return _pdf_matches_work(raw, expected)
+
+
+def _pdf_matches_work(raw, expected):
     from pypdf import PdfReader
     try:
         reader = PdfReader(io.BytesIO(raw))
@@ -462,17 +478,21 @@ def pdf_matches_work(raw, expected):
 def _validate_paper_copy(raw, kind, expected):
     """Validate before selecting a copy, including PDFs found on HTML landings."""
     if kind == "application/pdf":
-        text = _pdf_text(raw)[0]
+        text, pages, blank = _pdf_text(raw)
+        extraction = text, pages, list(blank), "pdf"
     elif kind in ("application/xml", "text/xml", "application/tei+xml"):
         text = _xml_text(raw)
+        extraction = text, 0, [], "xml"
     elif kind == "text/html":
         text = article_text(raw, expected)
+        extraction = text, 0, [], "html"
     else:
         raise ValueError("Unsupported paper body")
     if PREVIEW_MARKER.search(text):
         raise ValueError("Paper copy is a subscription preview")
     if len(text.strip()) < 500:
         raise ValueError("Too little source text for paper investigation")
+    return extraction
 
 
 def public_download(client, url, resolver, expected=None, discover_pdf=True):
@@ -511,15 +531,15 @@ def public_download(client, url, resolver, expected=None, discover_pdf=True):
                         except (httpx.HTTPError, ValueError, OSError, AccessFailure):
                             continue
                 try:
-                    _validate_paper_copy(raw, "text/html", expected)
+                    extraction = _validate_paper_copy(raw, "text/html", expected)
                 except ValueError:
                     if linked_timeout is not None:
                         raise linked_timeout
                     raise
                 kind = "text/html"
             else:
-                _validate_paper_copy(raw, kind, expected)
-            return raw, kind, url
+                extraction = _validate_paper_copy(raw, kind, expected)
+            return PaperCopy(raw, kind, url, extraction)
     raise ValueError("Too many content redirects")
 
 
@@ -759,13 +779,14 @@ def _readable_unicode(text: str) -> str:
     return re.sub(r"[\ud800-\udfff]", "\ufffd", text)
 
 
-def _native_pdf_text(raw: bytes) -> tuple[str, int, tuple[int, ...]] | None:
+def _native_pdf_text(raw: bytes, *, slot_fd: int) -> tuple[str, int, tuple[int, ...]] | None:
     executable = shutil.which("pdftotext")
     if executable is None:
         return None
     try:
         output = subprocess.run([executable, "-layout", "-enc", "UTF-8", "-eol", "unix", "-", "-"],
-                                input=raw, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True).stdout
+                                input=raw, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
+                                pass_fds=(slot_fd,)).stdout
     except (OSError, subprocess.CalledProcessError):
         return None  # Retain the existing reader when the native tool cannot read this file.
     pages = _readable_unicode(output.decode("utf-8", errors="replace")).split("\f")
@@ -780,9 +801,14 @@ def _native_pdf_text(raw: bytes) -> tuple[str, int, tuple[int, ...]] | None:
 
 
 def _pdf_text(raw: bytes) -> tuple[str, int, tuple[int, ...]]:
+    with conversion_slot() as slot_fd:
+        return _pdf_text_in_slot(raw, slot_fd)
+
+
+def _pdf_text_in_slot(raw: bytes, slot_fd: int) -> tuple[str, int, tuple[int, ...]]:
     if not raw.lstrip().startswith(b"%PDF"):
         raise AccessFailure("download was not a PDF")
-    native = _native_pdf_text(raw)
+    native = _native_pdf_text(raw, slot_fd=slot_fd)
     if native is not None:
         return native
     try:

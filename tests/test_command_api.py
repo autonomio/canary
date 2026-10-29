@@ -86,6 +86,23 @@ def test_reading_finished_source_through_tool_api_does_not_change_bundle(api, ca
     assert client.post('/api/runs/synthetic/tools/acquire',json={'ids':['W1']}).status_code == 400
 
 
+def test_tool_worker_uses_its_own_service_capacity_directory(api, monkeypatch):
+    server, client, root = api
+    workspace = root / 'active'; workspace.mkdir()
+    (workspace / 'run.json').write_text(json.dumps({'status': 'researching'}))
+    registry = server.RequestHandlerClass.supervisor.registry
+    runs.register_start('active', 'active', '', bundle=str(workspace), status='researching', path=registry)
+    monkeypatch.setenv('CANARY_DATA_DIR', str(root / 'unrelated-service'))
+    original, seen = dashboard.subprocess.Popen, []
+    def launch(*args, **kwargs):
+        if 'env' in kwargs: seen.append(kwargs['env']['CANARY_DATA_DIR'])
+        return original(*args, **kwargs)
+    monkeypatch.setattr(dashboard.subprocess, 'Popen', launch)
+    response = client.post('/api/runs/active/tools/discover', json={'plan': {}})
+    assert response.status_code == 400  # Invalid plan; no provider call.
+    assert seen == [str(root.resolve())]
+
+
 def test_legacy_worker_copies_input_before_engine_writes(tmp_path, monkeypatch):
     source = tmp_path/'original';source.mkdir();(source/'note.txt').write_text('original')
     target = tmp_path/'new-action'
