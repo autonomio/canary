@@ -22,15 +22,17 @@ def test_service_details_show_the_api_reported_shared_pdf_capacity(tmp_path):
     run_dashboard(tmp_path, {}, r'''
 const element={innerHTML:''};
 global.document={getElementById:()=>element};
-const status={data_directory:'/isolated/service',pdf_extraction:{engine:'pdftotext',concurrent_pdf_conversions:1}};
+const status={data_directory:'/isolated/service',pdf_extraction:{engine:'pdftotext',concurrent_pdf_conversions:1,skip_superseded_copies:true}};
 global.fetch=async path=>{assert.equal(path,'/api/status');return {ok:true,json:async()=>status};};
 (async()=>{
   await refreshService();
   assert.match(element.innerHTML,/pdftotext/);
   assert.match(element.innerHTML,/1 shared conversion slot; downloads remain concurrent/);
+  assert.match(element.innerHTML,/Queued alternate copies skipped after a usable copy is found/);
   delete status.pdf_extraction.concurrent_pdf_conversions;
+  delete status.pdf_extraction.skip_superseded_copies;
   await refreshService();
-  assert.doesNotMatch(element.innerHTML,/shared conversion slot/);
+  assert.doesNotMatch(element.innerHTML,/shared conversion slot|Queued alternate copies/);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 ''')
 

@@ -2,7 +2,8 @@
 import io
 import socket
 import textwrap
-from threading import Event
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event, Lock
 from types import SimpleNamespace
 from xml.etree import ElementTree
 
@@ -106,17 +107,91 @@ def test_raw_source_pdf_hint_must_match_the_selected_paper(monkeypatch):
                           {"raw_source_name": "file:///private/paper.pdf"}]}
     assert sources.public_candidates(work) == [url]
     seen = []
-    def download(client, requested, resolver, expected):
+    def download(client, requested, resolver, expected, **kwargs):
         seen.append((requested, expected))
         sources.public_url(requested, resolver)
         return b"%PDF synthetic", "application/pdf", requested
     monkeypatch.setattr(sources, "public_download", download)
-    monkeypatch.setattr(sources, "_pdf_text", lambda raw: ("Synthetic readable paper. " * 30, 1, ()))
-    monkeypatch.setattr(sources, "pdf_matches_work", lambda raw, expected: False)
+    monkeypatch.setattr(sources, "_pdf_text", lambda raw, **kwargs: ("Synthetic readable paper. " * 30, 1, ()))
+    monkeypatch.setattr(sources, "pdf_matches_work", lambda raw, expected, **kwargs: False)
     assert sources.public_work_download(work, None, public_resolver)[0] is None
-    monkeypatch.setattr(sources, "pdf_matches_work", lambda raw, expected: True)
+    monkeypatch.setattr(sources, "pdf_matches_work", lambda raw, expected, **kwargs: True)
     assert sources.public_work_download(work, None, public_resolver)[0][2] == url
     assert seen == [(url, work), (url, work)]
+
+
+def test_usable_xml_winner_releases_pdf_losers_without_taking_conversion_capacity(monkeypatch):
+    raw_pdf = _paper_pdf('Methods\n' + 'Synthetic measured results. ' * 30)
+    raw_xml = b'<article><body><p>' + b'Synthetic measured results. ' * 30 + b'</p></body></article>'
+    queued, released, guard = Event(), Event(), Lock()
+    counts = {'queued': 0, 'released': 0}
+    original = sources._pdf_text
+    def pdf(raw, **kwargs):
+        with guard:
+            counts['queued'] += 1
+            if counts['queued'] == 2: queued.set()
+        try:
+            return original(raw, **kwargs)
+        finally:
+            with guard:
+                counts['released'] += 1
+                if counts['released'] == 2: released.set()
+    monkeypatch.setattr(sources, '_pdf_text', pdf)
+    def handler(request):
+        if request.url.path == '/winner.xml':
+            assert queued.wait(5)
+            return httpx.Response(200, content=raw_xml)
+        return httpx.Response(200, content=raw_pdf)
+    work = {'locations':[{'is_oa':True,'pdf_url':'https://example.org/'+name}
+                         for name in ('first.pdf','second.pdf','winner.xml')]}
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        monkeypatch.setattr(sources, '_PUBLIC_DOWNLOAD_POOL', pool)
+        # Neither PDF can start. Both must be released before this holder exits.
+        with sources.conversion_slot():
+            result, timeout = sources.public_work_download(work, httpx.MockTransport(handler), public_resolver)
+            assert result[:3] == (raw_xml, 'application/xml', 'https://example.org/winner.xml')
+            assert not timeout and released.wait(2)
+
+
+def test_readable_but_wrong_identity_does_not_stop_the_valid_alternative(monkeypatch):
+    wrong = _paper_pdf('An unrelated study\nMethods\n' + 'Synthetic measured results. ' * 30)
+    valid = b'<article><body><p>' + b'Synthetic measured results. ' * 30 + b'</p></body></article>'
+    rejected = Event()
+    original = sources.pdf_matches_work
+    def identity(raw, expected, **kwargs):
+        result = original(raw, expected, **kwargs)
+        assert result is False
+        rejected.set()
+        return result
+    monkeypatch.setattr(sources, 'pdf_matches_work', identity)
+    def handler(request):
+        if request.url.path == '/valid.xml':
+            assert rejected.wait(5)
+            return httpx.Response(200, content=valid)
+        return httpx.Response(200, content=wrong)
+    work = {'display_name':'The selected study','locations':[
+        {'raw_source_name':'https://example.org/wrong.pdf'},
+        {'is_oa':True,'pdf_url':'https://example.org/valid.xml'}]}
+    result, timeout = sources.public_work_download(work, httpx.MockTransport(handler), public_resolver)
+    assert result[:3] == (valid, 'application/xml', 'https://example.org/valid.xml')
+    assert not timeout
+
+
+def test_superseded_stream_stops_consumption_and_closes_the_response():
+    selected, closed, consumed_rest = Event(), Event(), Event()
+    class Stream(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b'%PDF-1.7\n'
+            selected.set()
+            yield b'Another downloaded chunk.'
+            consumed_rest.set()
+            yield b'Remaining body. %%EOF'
+        def close(self):
+            closed.set()
+    with httpx.Client(transport=httpx.MockTransport(lambda request:httpx.Response(200,stream=Stream()))) as client:
+        with pytest.raises(sources.CopySuperseded):
+            sources.public_download(client,'https://example.org/paper.pdf',public_resolver,cancelled=selected)
+    assert closed.is_set() and not consumed_rest.is_set()
 
 
 def test_unreadable_fast_pdf_does_not_discard_readable_copy_or_wait_for_loser(monkeypatch):
@@ -130,9 +205,9 @@ def test_unreadable_fast_pdf_does_not_discard_readable_copy_or_wait_for_loser(mo
     monkeypatch.setattr(sources, "_native_pdf_text", lambda raw, **kwargs: None)
     extract_pdf = sources._pdf_text
 
-    def reject_blank_pdf(raw):
+    def reject_blank_pdf(raw, **kwargs):
         try:
-            return extract_pdf(raw)
+            return extract_pdf(raw, **kwargs)
         finally:
             unreadable_rejected.set()
 
@@ -184,7 +259,7 @@ def test_readable_preview_cannot_win_race_over_complete_copy(monkeypatch, kind):
             preview_extracted.set()
         return text
 
-    def pdf_text(raw):
+    def pdf_text(raw, **kwargs):
         assert raw == raw_preview
         preview_extracted.set()
         return preview_text, 1, ()
@@ -299,9 +374,9 @@ def test_healthy_metadata_linked_pdf_extracts_once_and_does_not_wait_for_losing_
     loser_started, release_loser = Event(), Event()
     extracted = []
     extract_pdf = sources._pdf_text
-    def count_extraction(raw):
+    def count_extraction(raw, **kwargs):
         extracted.append(raw)
-        return extract_pdf(raw)
+        return extract_pdf(raw, **kwargs)
     monkeypatch.setattr(sources, "_pdf_text", count_extraction)
     def handler(request):
         if request.url.path == "/landing":
