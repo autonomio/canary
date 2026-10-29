@@ -62,7 +62,9 @@ def test_native_converter_retains_slot_if_its_parent_is_killed(tmp_path):
 from pathlib import Path
 import os, time
 root = Path(os.environ['CANARY_DATA_DIR'])
-(root / 'native-ready').write_text(str(os.getpid()))
+ready = root / 'native-ready.tmp'
+ready.write_text(str(os.getpid()))
+ready.replace(root / 'native-ready')
 while not (root / 'release-native').exists(): time.sleep(.01)
 print('Extractable PDF source text.\f')
 ''')
