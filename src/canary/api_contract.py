@@ -84,7 +84,9 @@ def schemas():
         'gaps':arr(O),'residue':arr(O),'contradictions':arr(O),'study_results':arr(O),
         'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O)},closed=False)
     research = obj({'kind':S,'answer':ref('Findings'),'run':O,'peer_review':O,'query_net':O,
-        'access':O,'profile':O,'coverage':obj({'candidate_metadata':ref('CandidateMetadata')},closed=False),
+        'access':O,'profile':obj({'progress':obj({'updated_at':S,'findings_updated_at':nullable(S),
+            'findings_refreshed':B,'final_refresh':B},closed=False)},closed=False),
+        'coverage':obj({'candidate_metadata':ref('CandidateMetadata')},closed=False),
         'paper_selection':O,'usage':O,'synthesis_md':nullable(S),
         'seed':S,'stopped':S,'model':nullable(S),'papers':arr(O),'iterations':arr(O),
         'startup_error':nullable(S),'retention':typed(BundleRetention)},closed=False)

@@ -14,12 +14,18 @@ class PdfExtractionStatus(TypedDict):
     capacity_scope: str
 
 
+class SourceReadStatus(TypedDict):
+    simple_queries: str
+    complex_patterns: str
+
+
 class ServiceStatus(TypedDict):
     service: str
     data_directory: str
     dashboard_enabled: bool
     codex: dict
     pdf_extraction: PdfExtractionStatus
+    source_reads: SourceReadStatus
     execution: ExecutionStatus
     readiness_note: str
 
@@ -41,4 +47,5 @@ def service_status(root: Path, dashboard_enabled: bool, *, execution=None) -> Se
             'pdf_extraction': {'engine': 'pdftotext' if shutil.which('pdftotext') else 'pypdf',
                                'layout_preserved': bool(shutil.which('pdftotext')),
                                'concurrent_pdf_conversions': 1, 'capacity_scope': 'service_data_directory'},
+            'source_reads': {'simple_queries': 'api_process', 'complex_patterns': 'isolated_worker'},
             'readiness_note': 'Runtime availability only. See /api/auth/status for login; model access and source availability are checked during research.'}

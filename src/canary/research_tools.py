@@ -1,5 +1,6 @@
 """Run-scoped scientific tools. Only the API resolves workspaces and providers."""
 import json
+import re
 from pathlib import Path
 from typing import TypedDict
 
@@ -24,6 +25,19 @@ class ToolRequest(TypedDict, total=False):
 FIELDS = {'discover': {'plan', 'pages'}, 'acquire': {'ids', 'workers', 'retry_failed'},
           'catalog': set(), 'source': {'reference_id', 'match', 'page', 'context', 'limit'},
           'finalize': {'investigation'}}
+
+
+def inline_source_read(action, body):
+    """Ordinary text/alternation queries cannot trigger regex backtracking.
+
+    Routing only: other expressions retain the existing cancellable worker.
+    The same execute/source functions still validate and answer every query.
+    """
+    if action != 'source' or not isinstance(body, dict):
+        return False
+    match = body.get('match')
+    return match is None or (isinstance(match, str) and len(match) <= 512
+                             and re.fullmatch(r'[\w\s|.,:%/=<>-]*', match) is not None)
 
 
 def execute(row, action: str, body: ToolRequest, root: Path):

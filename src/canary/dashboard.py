@@ -450,7 +450,7 @@ class Supervisor:
         return receipt
 
     def execute_tool(self, key, action, body):
-        from .research_tools import execute
+        from .research_tools import execute, inline_source_read
         with self.lock:
             row = runs.get(key, self.registry)
             if row is None: raise KeyError(key)
@@ -463,6 +463,10 @@ class Supervisor:
                 raise ValueError('Run is stopped; committed sources remain readable')
             if action in ('discover','acquire','finalize') and not (Path(row['bundle'])/'run.json').is_file():
                 raise ValueError('The run has not initialized its research workspace yet')
+            if inline_source_read(action, body):
+                # Keep the read and its reading receipt inside admission's lock.
+                # Finish/cancel cannot release working files beneath this reader.
+                return execute(row, action, body, self.root)
             directory = self.root/'run-tools'/key/uuid.uuid4().hex
             directory.mkdir(parents=True)
             from .coverage_runtime import write

@@ -117,16 +117,48 @@ def test_legacy_worker_copies_input_before_engine_writes(tmp_path, monkeypatch):
     assert (target/'note.txt').read_text() == 'new assessment'
 
 
-def test_active_source_tool_runs_in_owned_process_and_records_reads(api):
+@pytest.mark.parametrize('match,process_count', [(None,0), ('Synthetic|excerpt',0), ('Synthetic.*',1)])
+def test_active_source_tool_preserves_results_and_read_receipts(api, match, process_count):
     server, client, root = api
     source = root/'active-source';(source/'passages').mkdir(parents=True)
     paragraph = {'id':'W2-p1','reference_id':'W2','page':1,'start':0,'end':18,'text':'Synthetic excerpt.'}
     (source/'passages/W2.jsonl').write_text(json.dumps(paragraph)+'\n')
     registry = server.RequestHandlerClass.supervisor.registry
     runs.register_start('active-source','fixture','',bundle=str(source),path=registry)
-    response = client.post('/api/runs/active-source/tools/source',json={'reference_id':'W2'})
+    response = client.post('/api/runs/active-source/tools/source',json={'reference_id':'W2','match':match})
     assert response.status_code == 200, response.text
     assert response.json() == [paragraph]
     assert json.loads((source/'source-reads.jsonl').read_text())['passage_ids'] == ['W2-p1']
     receipts = list((root/'run-tools/active-source').glob('*/ownership.json'))
-    assert len(receipts) == 1 and json.loads(receipts[0].read_text())['pid'] > 0
+    assert len(receipts) == process_count
+    if receipts: assert json.loads(receipts[0].read_text())['pid'] > 0
+
+
+def test_inline_source_read_finishes_before_the_api_closes_writers(api, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    server, client, root = api
+    source = root/'reader'; (source/'passages').mkdir(parents=True)
+    (source/'run.json').write_text(json.dumps({'status':'researching'}))
+    passage = {'id':'W1-p1','reference_id':'W1','page':1,'start':0,'end':4,'text':'Text'}
+    (source/'passages/W1.jsonl').write_text(json.dumps(passage)+'\n')
+    runs.register_start('reader','reader','',bundle=str(source),status='researching',
+                        path=server.RequestHandlerClass.supervisor.registry)
+    original, entered, release = research_tools.engine.source, threading.Event(), threading.Event()
+    def read(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(research_tools.engine, 'source', read)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        reading = pool.submit(client.post, '/api/runs/reader/tools/source', json={'reference_id':'W1'})
+        try:
+            assert entered.wait(5)
+            closing = pool.submit(client.post, '/api/runs/reader/execution/finish', json={'cancelled':False})
+            assert not closing.done()
+        finally:
+            release.set()
+        assert reading.result(5).json() == [passage]
+        assert closing.result(5).status_code == 200
+    before = (source/'source-reads.jsonl').read_bytes()
+    assert client.post('/api/runs/reader/tools/source', json={'reference_id':'W1'}).status_code == 200
+    assert (source/'source-reads.jsonl').read_bytes() == before
