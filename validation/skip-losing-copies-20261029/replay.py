@@ -87,7 +87,7 @@ else:
     finally:
         stop.set(); monitor.join()
     assert all(row['text_hashes'] == results[0]['text_hashes'] for row in results)
-    print(json.dumps({'groups': groups, 'copies_per_paper': int(os.environ['CANARY_REPLAY_COPIES']), 'wall': time.monotonic()-started,
+    print(json.dumps({'groups': groups, 'copies_per_paper': int(os.environ.get('CANARY_REPLAY_COPIES', '1')), 'wall': time.monotonic()-started,
         'after_winner_conversions': sum(row['after_winner'] for row in results),
         'peak_held_pdf_bytes_per_worker': [row['peak_held_pdf_bytes'] for row in results],
         'cpu': sum(row['cpu'] for row in results), 'sources': sum(row['sources'] for row in results),
