@@ -3147,7 +3147,9 @@
     const unfinished=(Array.isArray(p?.queries) ? p.queries : Object.values(p?.queries || {})).filter(q=>q?.complete===false).length;
     if(!p || (p.complete!==false && !paused && !unfinished)) return '';
     const pending=Array.isArray(p.pending_query_ids) ? p.pending_query_ids : [], retry=paused ? p.backoff.retry_not_before : null;
-    return `<p class="hint" role="status">Search incomplete${paused ? ' · OpenAlex rate limited' : ''}${retry ? ` · Retry not before <time datetime="${esc(retry)}">${esc(retry)}</time>` : ''}${pending.length ? ` · Pending branches: ${esc(pending.join(' · '))}` : unfinished ? ` · ${unfinished} unfinished branches` : ''}</p><details data-detail="search-progress"><summary>Query progress and deferred requests</summary><pre class="search-query">${esc(JSON.stringify(p,null,2))}</pre></details>`;
+    const reason={rate_limited:'OpenAlex rate limited',service_unavailable:'OpenAlex service unavailable',legacy_scope_unknown:'OpenAlex pause · original allowance unknown'}[p.backoff?.reason] || 'OpenAlex rate limited';
+    const scope={anonymous:'Anonymous allowance',configured_key:'Configured API key allowance',provider:'Provider-wide pause',legacy_unknown:'Legacy shared pause'}[p.backoff?.scope];
+    return `<p class="hint" role="status">Search incomplete${paused ? ` · ${esc(reason)}${scope ? ` · ${esc(scope)}` : ''}${p.backoff.scope_source==='operator_attribution' ? ' · Historical allowance attributed by operator' : ''}` : ''}${retry ? ` · Retry not before <time datetime="${esc(retry)}">${esc(retry)}</time>` : ''}${pending.length ? ` · Pending branches: ${esc(pending.join(' · '))}` : unfinished ? ` · ${unfinished} unfinished branches` : ''}</p><details data-detail="search-progress"><summary>Query progress and deferred requests</summary><pre class="search-query">${esc(JSON.stringify(p,null,2))}</pre></details>`;
   }
   function coverageSelectionHtml(d) {
     const c=d.coverage || d.answer?.coverage || d.run?.coverage || {}, p=d.paper_selection || {}, s=p.selection || {}, q=d.query_net || {};

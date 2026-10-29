@@ -7,6 +7,8 @@ import httpx
 import pytest
 
 from canary import cli, dashboard, research_tools, runs, service_commands, tools_cli
+from canary import coverage_runtime
+from jsonschema import Draft202012Validator
 
 
 @pytest.fixture
@@ -101,6 +103,36 @@ def test_tool_worker_uses_its_own_service_capacity_directory(api, monkeypatch):
     response = client.post('/api/runs/active/tools/discover', json={'plan': {}})
     assert response.status_code == 400  # Invalid plan; no provider call.
     assert seen == [str(root.resolve())]
+
+
+def test_discovery_pause_contract_reaches_cli_through_real_api_worker(api, monkeypatch, capsys):
+    server, client, root = api
+    monkeypatch.setenv('OPENALEX_API_KEY', 'synthetic-private-key')
+    workspace = root/'paused';workspace.mkdir()
+    (workspace/'run.json').write_text(json.dumps({'status':'researching'}))
+    registry = server.RequestHandlerClass.supervisor.registry
+    runs.register_start('paused','paused','',bundle=str(workspace),status='researching',path=registry)
+    import time
+    pause = coverage_runtime._openalex_backoff(root, allowance='configured_key',
+        deadline=time.time()+3600, retry_after='3600', source='retry_after')
+    plan = {'question':'Synthetic quota test?', 'concepts':[], 'outcomes':[], 'comparators':[],
+            'conditions':[], 'coverage_aspects':[], 'eligibility':{},
+            'queries':[{'id':'q1','search':'synthetic quota test','coverage_aspect_ids':[]}]}
+    response = client.post('/api/runs/paused/tools/discover',json={'plan':plan})
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result['backoff'] == pause
+    assert result['openalex_allowance'] == 'configured_key'
+    contract = client.get('/openapi.json').json()
+    schema = contract['components']['schemas']['DiscoverResult']
+    Draft202012Validator(dict(schema,components=contract['components'])).validate(result)
+    plan_path = root/'client-plan.json';plan_path.write_text(json.dumps(plan))
+    assert tools_cli.main(['--run','paused','--port',str(server.server_port),'discover','--plan',str(plan_path)]) == 0
+    assert json.loads(capsys.readouterr().out) == result
+    # Worker output, API responses and CLI must expose no key or key fingerprint.
+    assert 'synthetic-private-key' not in response.text
+    for path in (root/'run-tools').rglob('*'):
+        if path.is_file(): assert b'synthetic-private-key' not in path.read_bytes()
 
 
 def test_legacy_worker_copies_input_before_engine_writes(tmp_path, monkeypatch):

@@ -554,6 +554,20 @@ def test_incomplete_search_distinguishes_active_backoff_and_preserves_committed_
     run_dashboard(tmp_path, data, r"""
 const before=JSON.stringify(graph),realNow=Date.now;
 Date.now=()=>Date.parse("2026-10-14T14:03:00Z");
+for(const [scope,reason,label,why] of [
+  ['anonymous','rate_limited','Anonymous allowance','OpenAlex rate limited'],
+  ['configured_key','rate_limited','Configured API key allowance','OpenAlex rate limited'],
+  ['provider','service_unavailable','Provider-wide pause','OpenAlex service unavailable'],
+  ['legacy_unknown','legacy_scope_unknown','Legacy shared pause','original allowance unknown']]) {
+  const scoped={...graph,coverage:{...graph.coverage,search_progress:{...graph.coverage.search_progress,
+    backoff:{...graph.coverage.search_progress.backoff,scope,reason}}}};
+  for(const html of [coverageSelectionHtml(scoped),queryNetHtml(scoped)]) {
+    assert.ok(html.includes(label));assert.ok(html.includes(why));
+    assert.match(html,/Retry not before/);
+  }
+  scoped.coverage.search_progress.backoff.scope_source='operator_attribution';
+  assert.match(searchProgressHtml(scoped),/Historical allowance attributed by operator/);
+}
 for(const html of [coverageSelectionHtml(graph),queryNetHtml(graph)]) {
   assert.match(html,/Search incomplete/);assert.match(html,/OpenAlex rate limited/);
   assert.match(html,/Retry not before <time datetime="2026-10-14T14:05:00Z">2026-10-14T14:05:00Z/);
