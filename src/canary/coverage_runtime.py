@@ -161,22 +161,40 @@ def _openalex_retry_after(value, timestamp):
         return timestamp + 60, "default_60_seconds"
 
 
-def _openalex_backoff(root, *, deadline=None, retry_after=None, source=None):
-    """Short shared DB transactions; healthy concurrent searches remain parallel."""
+def _openalex_backoff(root, *, allowance="anonymous", scope=None, deadline=None,
+                      retry_after=None, source=None) -> protocol.OpenAlexBackoff | None:
+    """Share pauses by allowance, without storing keys or resetting older limits.
+
+    Configured keys share one conservative bucket: replacing a key does not
+    establish a new account allowance. Old unscoped rows cannot safely be
+    attributed to anonymous use and remain applicable until their deadline.
+    """
+    if allowance not in ("anonymous", "configured_key"):
+        raise ValueError("Unknown OpenAlex allowance")
+    scope = scope or allowance
+    if scope not in (allowance, "provider"):
+        raise ValueError("Unknown OpenAlex backoff scope")
     path = root / "out" / "coverage-openalex-usage.sqlite"
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path, timeout=10) as db:
         db.execute("CREATE TABLE IF NOT EXISTS searches(at TEXT NOT NULL)")
         db.execute("CREATE TABLE IF NOT EXISTS provider_backoff(provider TEXT PRIMARY KEY, retry_not_before REAL NOT NULL, retry_after TEXT, retry_after_source TEXT NOT NULL)")
+        db.execute("CREATE TABLE IF NOT EXISTS provider_backoff_scoped(provider TEXT NOT NULL, scope TEXT NOT NULL, retry_not_before REAL NOT NULL, retry_after TEXT, retry_after_source TEXT NOT NULL, PRIMARY KEY(provider,scope))")
         if deadline is not None:
-            db.execute("INSERT INTO provider_backoff VALUES(?,?,?,?) ON CONFLICT(provider) DO UPDATE SET retry_not_before=excluded.retry_not_before, retry_after=excluded.retry_after, retry_after_source=excluded.retry_after_source WHERE excluded.retry_not_before > provider_backoff.retry_not_before",
-                       ("openalex", deadline, retry_after, source))
-        row = db.execute("SELECT retry_not_before,retry_after,retry_after_source FROM provider_backoff WHERE provider=?", ("openalex",)).fetchone()
+            db.execute("INSERT INTO provider_backoff_scoped VALUES(?,?,?,?,?) ON CONFLICT(provider,scope) DO UPDATE SET retry_not_before=excluded.retry_not_before, retry_after=excluded.retry_after, retry_after_source=excluded.retry_after_source WHERE excluded.retry_not_before > provider_backoff_scoped.retry_not_before",
+                       ("openalex", scope, deadline, retry_after, source))
+        rows = db.execute("SELECT retry_not_before,retry_after,retry_after_source,scope FROM provider_backoff_scoped WHERE provider=? AND scope IN (?,?)",
+                          ("openalex", allowance, "provider")).fetchall()
+        legacy = db.execute("SELECT retry_not_before,retry_after,retry_after_source FROM provider_backoff WHERE provider=?", ("openalex",)).fetchone()
+        if legacy:
+            rows.append((*legacy, "legacy_unknown"))
+    row = max(rows, key=lambda item: (item[0], item[3] == "provider"), default=None)
     if row is None:
         return None
     return {"provider": "openalex", "retry_not_before": datetime.fromtimestamp(row[0], timezone.utc).isoformat(),
             "retry_not_before_epoch": row[0], "retry_after": row[1], "retry_after_source": row[2],
-            "active": row[0] > time.time(), "scope": "coverage_operator_shared"}
+            "active": row[0] > time.time(), "scope": row[3],
+            "reason": {"provider": "service_unavailable", "legacy_unknown": "legacy_scope_unknown"}.get(row[3], "rate_limited")}
 
 
 def _commit_discovery(workspace, index, progress, plan):
@@ -234,6 +252,11 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
             progress["queries"].setdefault(query["id"], {"search": query["search"], "pages": 0, "cursor": "*", "complete": False})
         headers = {"User-Agent": "Canary/coverage-native", "Cache-Control": "no-cache", "Pragma": "no-cache"}
         key = operator_key(root)
+        allowance = "configured_key" if key else "anonymous"
+        progress["openalex_allowance"] = allowance
+        # Recompute the effective pause for this request's actual credentials.
+        # Historical request receipts and other allowances stay unchanged.
+        progress.pop("backoff", None)
         if key:
             headers["Authorization"] = "Bearer " + key
         own = client is None
@@ -250,15 +273,15 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                     if not cursor or cursor in seen:
                         break
                     seen.add(cursor)
-                    backoff = _openalex_backoff(root)
+                    backoff = _openalex_backoff(root, allowance=allowance)
                     if backoff is not None:
                         progress["backoff"] = backoff
                     if backoff and backoff["active"]:
                         stopped_for_backoff = True
-                        progress["incomplete_reason"] = "openalex_rate_limited"
-                        event(workspace, "search_backoff", query_id=query["id"], retry_not_before=backoff["retry_not_before"], scope=backoff["scope"])
+                        progress["incomplete_reason"] = "openalex_" + backoff["reason"]
+                        event(workspace, "search_backoff", query_id=query["id"], retry_not_before=backoff["retry_not_before"], scope=backoff["scope"], reason=backoff["reason"])
                         break
-                    if progress.get("incomplete_reason") == "openalex_rate_limited":
+                    if progress.get("incomplete_reason") in ("openalex_rate_limited", "openalex_service_unavailable", "openalex_legacy_scope_unknown"):
                         progress.pop("incomplete_reason", None)
                     started = time.monotonic()
                     try:
@@ -274,11 +297,13 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                         write(workspace / "search-progress.json", progress)
                         event(workspace, "search_failed", query_id=query["id"], error=receipt["error"])
                         break
-                    if response.status_code == 429:
+                    if response.status_code == 429 or (response.status_code == 503 and response.headers.get("Retry-After")):
                         retry_after = response.headers.get("Retry-After")
                         deadline, delay_source = _openalex_retry_after(retry_after, time.time())
-                        progress["backoff"] = _openalex_backoff(root, deadline=deadline, retry_after=retry_after, source=delay_source)
-                        progress["incomplete_reason"] = "openalex_rate_limited"
+                        progress["backoff"] = _openalex_backoff(root, allowance=allowance,
+                            scope="provider" if response.status_code == 503 else allowance,
+                            deadline=deadline, retry_after=retry_after, source=delay_source)
+                        progress["incomplete_reason"] = "openalex_" + progress["backoff"]["reason"]
                         stopped_for_backoff = True
                     receipt = {"query_id": query["id"], "search": query["search"], "page": state["pages"] + 1,
                         "requested_at": now(), "status": response.status_code, "url": str(response.request.url),
@@ -290,7 +315,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                         progress["queries"][query["id"]] = state; progress["complete"] = False
                         write(workspace / "search-progress.json", progress)
                         event(workspace, "search_failed", query_id=query["id"], status=response.status_code)
-                        break  # A 429 stops the whole net; unrelated failures leave other branches usable.
+                        break  # Applicable backoff stops the net; other failures leave other branches usable.
                     # A successful upstream search is billable even if local
                     # metadata interpretation subsequently fails.
                     progress["keyword_requests"] = sum(r["status"] == 200 for r in requests)

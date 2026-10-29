@@ -1,12 +1,25 @@
 """Typed source-first coverage research contracts, independent of saved experiments."""
 from __future__ import annotations
 
+from typing import Literal, TypedDict
+
 from .claim_freshness import schema as freshness_schema
 
 RESEARCH_MODEL = "gpt-6.1-sol"
 RESEARCH_EFFORT = "xhigh"
 AUDIT_MODEL = "gpt-6-astra"
 AUDIT_EFFORT = "ultra"
+
+
+class OpenAlexBackoff(TypedDict):
+    provider: Literal['openalex']
+    scope: Literal['anonymous', 'configured_key', 'provider', 'legacy_unknown']
+    reason: Literal['rate_limited', 'service_unavailable', 'legacy_scope_unknown']
+    retry_not_before: str
+    retry_not_before_epoch: float
+    retry_after: str | None
+    retry_after_source: str
+    active: bool
 
 
 def obj(properties):

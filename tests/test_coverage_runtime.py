@@ -6,6 +6,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from email.utils import format_datetime
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -134,6 +135,7 @@ def test_openalex_429_stops_whole_net_and_resumes_committed_cursor(tmp_path, mon
 
 
 def test_openalex_http_date_backoff_is_shared_with_new_workspace(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
     clock = [1_800_000_000.0]
     monkeypatch.setattr(runtime.time, "time", lambda: clock[0])
     retry_after = format_datetime(datetime.fromtimestamp(clock[0] + 120, timezone.utc), usegmt=True)
@@ -150,7 +152,7 @@ def test_openalex_http_date_backoff_is_shared_with_new_workspace(tmp_path, monke
         second = runtime.discover(tmp_path / "second", plan_path, root=tmp_path, client=client)
         assert len(calls) == 1
         assert first["backoff"] == second["backoff"]
-        assert second["backoff"]["scope"] == "coverage_operator_shared"
+        assert second["backoff"]["scope"] == "anonymous"
         assert second["backoff"]["retry_not_before_epoch"] == clock[0] + 120
         assert second["backoff"]["retry_after"] == retry_after
         assert second["complete"] is False and second["pending_query_ids"] == ["q1"]
@@ -171,6 +173,121 @@ def test_openalex_shared_backoff_keeps_latest_deadline(tmp_path, monkeypatch):
     # An earlier in-flight response arriving later must not shorten the boundary.
     later = runtime._openalex_backoff(tmp_path, deadline=clock[0] + 30, retry_after="30", source="retry_after")
     assert later == longer and later["retry_not_before_epoch"] == clock[0] + 120
+
+
+def test_openalex_anonymous_pause_does_not_block_configured_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    plan = tmp_path / "input-plan.json"
+    runtime.write(plan, rich_plan())
+    workspace = tmp_path / "research"
+    calls = []
+    def handler(request):
+        calls.append(request)
+        if "Authorization" not in request.headers:
+            return httpx.Response(429, headers={"Retry-After": "3600"})
+        return httpx.Response(200, json={"results": [work("W1")], "meta": {"count": 1}})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        paused = runtime.discover(workspace, plan, root=tmp_path, client=client)
+        assert paused["status"] == "backoff"
+        before = (workspace / "openalex-requests.json").read_bytes()
+        (tmp_path / ".env").write_text("OPENALEX_API_KEY=synthetic-added-key\n")
+        # Same workspace must not keep a stale projection of the anonymous pause.
+        recovered = runtime.discover(workspace, plan, root=tmp_path, client=client)
+        assert recovered["complete"] is True
+        assert recovered.get("backoff", {}).get("active", False) is False
+        assert recovered["openalex_allowance"] == "configured_key"
+        assert len(calls) == 2
+        assert calls[1].headers["Authorization"] == "Bearer synthetic-added-key"
+        assert runtime.read(workspace / "openalex-requests.json")[:1] == json.loads(before)
+        # Removing the key still encounters the original anonymous deadline.
+        (tmp_path / ".env").unlink()
+        again = runtime.discover(tmp_path / "anonymous-again", plan, root=tmp_path, client=client)
+        assert again["status"] == "backoff" and len(calls) == 2
+        assert again["backoff"] == paused["backoff"]
+    for path in (tmp_path / "out").iterdir():
+        assert b"synthetic-added-key" not in path.read_bytes()
+    for path in workspace.glob("*.json*"):
+        assert "synthetic-added-key" not in path.read_text()
+
+
+def test_openalex_provider_pause_applies_to_both_allowances(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    plan = tmp_path / "input-plan.json"
+    runtime.write(plan, rich_plan())
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(503, headers={"Retry-After": "120"})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        first = runtime.discover(tmp_path / "first", plan, root=tmp_path, client=client)
+        monkeypatch.setenv("OPENALEX_API_KEY", "synthetic-authorized-key")
+        second = runtime.discover(tmp_path / "second", plan, root=tmp_path, client=client)
+    assert len(calls) == 1
+    assert first["backoff"] == second["backoff"]
+    assert second["backoff"]["scope"] == "provider"
+    assert second["backoff"]["reason"] == "service_unavailable"
+
+
+def test_openalex_configured_pause_survives_key_replacement_and_restart(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENALEX_API_KEY", "synthetic-first-key")
+    plan = tmp_path / "input-plan.json"
+    runtime.write(plan, rich_plan())
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(429, headers={"Retry-After": "3600"})
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        first = runtime.discover(tmp_path / "first", plan, root=tmp_path, client=client)
+        monkeypatch.setenv("OPENALEX_API_KEY", "synthetic-replacement-key")
+        # A separate process reads the persisted boundary, not process memory.
+        import subprocess
+        import sys
+        result = subprocess.run([sys.executable, "-c",
+            "import json,sys; from pathlib import Path; from canary.coverage_runtime import _openalex_backoff; "
+            "print(json.dumps(_openalex_backoff(Path(sys.argv[1]), allowance='configured_key')))", str(tmp_path)],
+            capture_output=True, text=True, timeout=15, check=True)
+        assert json.loads(result.stdout) == first["backoff"]
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            paused = list(pool.map(lambda n: runtime.discover(tmp_path / str(n), plan, root=tmp_path, client=client), range(4)))
+    assert len(calls) == 1
+    assert all(row["backoff"] == first["backoff"] and row["status"] == "backoff" for row in paused)
+    assert first["backoff"]["scope"] == "configured_key"
+    for path in (tmp_path / "out").iterdir():
+        assert b"synthetic-first-key" not in path.read_bytes()
+        assert b"synthetic-replacement-key" not in path.read_bytes()
+
+
+def test_openalex_legacy_pause_is_not_falsely_attributed_or_erased(tmp_path, monkeypatch):
+    clock = [1_800_000_000.0]
+    monkeypatch.setattr(runtime.time, "time", lambda: clock[0])
+    path = tmp_path / "out" / "coverage-openalex-usage.sqlite"
+    path.parent.mkdir()
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE provider_backoff(provider TEXT PRIMARY KEY, retry_not_before REAL NOT NULL, retry_after TEXT, retry_after_source TEXT NOT NULL)")
+        db.execute("INSERT INTO provider_backoff VALUES('openalex',?,'120','retry_after')", (clock[0] + 120,))
+        db.execute("CREATE TABLE searches(at TEXT NOT NULL)")
+        db.execute("INSERT INTO searches VALUES('historical-search-receipt')")
+    for allowance in ("anonymous", "configured_key"):
+        paused = runtime._openalex_backoff(tmp_path, allowance=allowance)
+        assert paused["active"] is True
+        assert paused["scope"] == "legacy_unknown"
+        assert paused["reason"] == "legacy_scope_unknown"
+    clock[0] += 120
+    assert runtime._openalex_backoff(tmp_path, allowance="configured_key")["active"] is False
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT * FROM provider_backoff").fetchall() == [("openalex", clock[0], "120", "retry_after")]
+        assert db.execute("SELECT at FROM searches").fetchall() == [("historical-search-receipt",)]
+
+
+def test_openalex_effective_pause_is_latest_applicable_deadline(tmp_path, monkeypatch):
+    clock = [1_800_000_000.0]
+    monkeypatch.setattr(runtime.time, "time", lambda: clock[0])
+    runtime._openalex_backoff(tmp_path, deadline=clock[0] + 600, source="retry_after")
+    runtime._openalex_backoff(tmp_path, allowance="configured_key", deadline=clock[0] + 120, source="retry_after")
+    effective = runtime._openalex_backoff(tmp_path, allowance="configured_key", scope="provider",
+                                         deadline=clock[0] + 180, source="retry_after")
+    assert effective["scope"] == "provider" and effective["retry_not_before_epoch"] == clock[0] + 180
+    assert runtime._openalex_backoff(tmp_path)["retry_not_before_epoch"] == clock[0] + 600
 
 
 @pytest.mark.parametrize("retry_after", [None, "not a date", "-1", "1.5", "999999999999999999999999999999999999999"])
