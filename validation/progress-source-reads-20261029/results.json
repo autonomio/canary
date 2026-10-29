@@ -1,0 +1,181 @@
+{
+  "baseline_commit": "f6d493a6e3953e2c2efd26afc485916806e9a9ca",
+  "environment": {
+    "cpu_quota": 1,
+    "memory_limit_gib": 2,
+    "network": "disabled; in-container loopback only",
+    "original_volume": "read_only",
+    "replays_per_version": 1,
+    "progress_refreshes_per_replay": 10,
+    "source_reads_per_replay": 10,
+    "native_usage": "synthetic changing counter; native-journal scanning excluded equally in both versions",
+    "timed_inputs": "existing full-paper Bitcoin workload copied into separate disposable containers",
+    "source_patterns": [
+      null,
+      "methods|results"
+    ]
+  },
+  "baseline": {
+    "progress": {
+      "median_cpu": 0.6058047899999996,
+      "median_wall": 0.609003416961059,
+      "samples": [
+        {
+          "wall": 0.4212367089930922,
+          "cpu": 0.41881266500000036
+        },
+        {
+          "wall": 0.47390633390750736,
+          "cpu": 0.47277866599999996
+        },
+        {
+          "wall": 0.7031418329570442,
+          "cpu": 0.7025389569999998
+        },
+        {
+          "wall": 0.7103542500408366,
+          "cpu": 0.7041891219999998
+        },
+        {
+          "wall": 0.6157923339633271,
+          "cpu": 0.6144186650000005
+        },
+        {
+          "wall": 0.6999210419598967,
+          "cpu": 0.6941222050000002
+        },
+        {
+          "wall": 1.0281546670012176,
+          "cpu": 0.889658871
+        },
+        {
+          "wall": 0.4705893750069663,
+          "cpu": 0.4658518730000001
+        },
+        {
+          "wall": 0.5742764170281589,
+          "cpu": 0.574261914
+        },
+        {
+          "wall": 0.6022144999587908,
+          "cpu": 0.5971909149999988
+        }
+      ],
+      "paper_text_passage_bytes_read": 1365621860,
+      "refreshes": 10
+    },
+    "source_api": {
+      "median_wall": 0.6596572919515893,
+      "samples": [
+        0.6731132089626044,
+        0.6420623329468071,
+        0.6462013749405742,
+        0.7921260830480605,
+        0.8621217920444906,
+        0.704033249989152,
+        0.49234329210594296,
+        0.5761580000398681,
+        0.5529737080214545,
+        0.994312126073055
+      ],
+      "cpu_seconds": 6.825512000000003,
+      "requests": 10,
+      "worker_launches": 10,
+      "results_match_direct_source": true
+    },
+    "final_scientific_graph_sha256": "6f8f62aa5bedfd1430a3ffb30309b976dc123432cbe7c789a900d4c2624d02e5",
+    "scientific_run": false,
+    "provider_calls": 0
+  },
+  "candidate": {
+    "progress": {
+      "median_cpu": 0.010693021000000025,
+      "median_wall": 0.01077610399806872,
+      "samples": [
+        {
+          "wall": 0.010825333069078624,
+          "cpu": 0.010823625000000003
+        },
+        {
+          "wall": 0.010374250006861985,
+          "cpu": 0.010377542000000073
+        },
+        {
+          "wall": 0.011858624988235533,
+          "cpu": 0.01173766700000023
+        },
+        {
+          "wall": 0.010726874927058816,
+          "cpu": 0.01044899999999993
+        },
+        {
+          "wall": 0.010316167026758194,
+          "cpu": 0.010319250000000224
+        },
+        {
+          "wall": 0.010559333022683859,
+          "cpu": 0.010562417000000046
+        },
+        {
+          "wall": 0.010450750007294118,
+          "cpu": 0.010454374999999683
+        },
+        {
+          "wall": 0.011351916007697582,
+          "cpu": 0.011278290999999996
+        },
+        {
+          "wall": 0.050377334002405405,
+          "cpu": 0.05024850000000036
+        },
+        {
+          "wall": 0.021909917006269097,
+          "cpu": 0.021855875000000413
+        }
+      ],
+      "paper_text_passage_bytes_read": 0,
+      "refreshes": 10
+    },
+    "source_api": {
+      "median_wall": 0.0026592289796099067,
+      "samples": [
+        0.007113000028766692,
+        0.0023297499865293503,
+        0.003167875111103058,
+        0.002026124973781407,
+        0.003208708018064499,
+        0.0025021659675985575,
+        0.003006832906976342,
+        0.0023844579700380564,
+        0.002816291991621256,
+        0.0021440419368445873
+      ],
+      "cpu_seconds": 0.11377399999999938,
+      "requests": 10,
+      "worker_launches": 0,
+      "results_match_direct_source": true
+    },
+    "final_scientific_graph_sha256": "6f8f62aa5bedfd1430a3ffb30309b976dc123432cbe7c789a900d4c2624d02e5",
+    "scientific_run": false,
+    "provider_calls": 0
+  },
+  "final_scientific_graph_matches": true,
+  "reductions_percent": {
+    "progress_cpu": 98.23490649520946,
+    "source_api_latency": 99.59687719486242
+  },
+  "source_file_sha256": {
+    "coverage_runtime.py": "ecd790237a5d6b7f194cb8369b51db8782007640217ca8f16a03b21b4465c6e8",
+    "coverage_export.py": "278c8d23c545e5003714e70f662307ba7d3867d1b6ba0a7288eb332dce844bc1",
+    "research_tools.py": "54a00f5293f7bed7b04ab9916156c90683f3f2a687a8bf9c923d1231087b8223",
+    "dashboard.py": "f7235ef17e47fc2483a7542bd1553332d7f5f49607b14dd53f9f76e8ae976ba1",
+    "service_status.py": "949753b3d0a2610ec41073ef31c442905047dde439192b1725d57acafbd2a7b2",
+    "api_contract.py": "cedd23e6d000b063b559b870ea44877112428d833a098ba29f2491c01b5736e3"
+  },
+  "limitations": [
+    "One baseline/candidate pair; medians from ten operations each. Not an end-to-end research capacity or runtime benchmark.",
+    "Complex regex retains cancellable workers; source API timing excludes the scientist client CLI startup.",
+    "Source CPU includes untimed direct-source oracle reads used to verify returned windows.",
+    "Initial harness attempt was discarded because it retained old completed native receipts while injecting active-session usage. No production or scientific failure is inferred."
+  ]
+}

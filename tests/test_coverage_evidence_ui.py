@@ -35,6 +35,18 @@ global.fetch=async path=>{assert.equal(path,'/api/status');return {ok:true,json:
 ''')
 
 
+def test_usage_and_findings_freshness_are_distinct_in_receipt_details(tmp_path):
+    run_dashboard(tmp_path, {}, r'''
+const html=coverageTokenHtml({run:{selection_method:'coverage-guided'},profile:{roles:{},progress:{
+  updated_at:'2026-10-29T08:20:00Z', findings_updated_at:'2026-10-29T08:19:00Z',findings_refreshed:false}}});
+assert.match(html,/Usage updated/);
+assert.match(html,/Findings updated/);
+assert.match(html,/full source verification repeats at completion/);
+assert.doesNotMatch(html,/scientifically verified|research accepted/i);
+assert.doesNotMatch(coverageTokenHtml({run:{selection_method:'coverage-guided'},profile:{roles:{}}}),/Usage updated/);
+''')
+
+
 def test_grouped_packets_keep_every_passage_reachable_without_overview_button_flood(tmp_path):
     evidence, passages = [], []
     for origin, count in (("E22", 76), ("E23", 81)):

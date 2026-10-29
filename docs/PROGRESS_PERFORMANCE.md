@@ -1,0 +1,7 @@
+# Live progress and source reads
+
+Usage/timing refreshes update the profile and run accounting without rebuilding an unchanged findings graph. Each scientific session keeps a small in-memory signature of canonical research inputs and source-file metadata. Changed findings, selection, audit, acquisition, source material or candidate metadata trigger the existing complete export. If an input changes during export, it is not cached as already published. Starting a new session rebuilds. Missing generated JSON also triggers rebuilding.
+
+Live signatures are change hints, not integrity evidence. Role completion and final bundle production still force the existing complete body/text hashes and provenance checks. The API profile records separate usage-update and findings-update timestamps, shown inside the dashboard's token/timing details. A recent usage update does not imply a new scientific finding or audit.
+
+Active source reads with no filter or a short, simple text/alternative expression execute inside the API process using the existing source function. The admission lock covers reading and recording its receipt, so finalization cannot release source files beneath a reader. Queries containing complex regex syntax retain the existing tracked, cancellable worker. This is routing only: accepted query syntax, source windows, offsets and reading receipts are unchanged. Other tools retain their existing worker ownership. `/api/status` and dashboard service details disclose both paths.

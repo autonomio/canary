@@ -34,6 +34,55 @@ def _save(path: Path, value):
     temporary.replace(path)
 
 
+def projection_inputs(workspace):
+    """Cheap change detection for live projections; final export always rehashes.
+
+    Only file metadata is read for paper bodies/text/passages. Small canonical
+    JSON inputs are included; operational event logs and projections are not.
+    The signature lives only in the current scientific session, so a restart
+    rebuilds rather than trusting an earlier process's observation.
+    """
+    workspace = Path(workspace)
+    names = ('payload.json', 'investigation.json', 'selection.json', 'reviewed-papers.json',
+             'question-plan.json', 'run-context.json', 'references.json', 'efficiency.json',
+             'audit.json', 'search-progress.json', 'local-corpus.json', 'local-corpus-progress.json',
+             'openalex-requests.json', 'openalex-request-log.json', 'candidates.jsonl',
+             '.candidate-index.sqlite', '.candidate-index.sqlite-wal', 'research-receipt.json', 'audit-receipt.json')
+    entries = []
+    for root in (workspace, workspace / 'common', workspace / 'research', workspace / 'audit'):
+        paths = [root / name for name in names]
+        for folder in ('papers', 'texts', 'passages', 'download-receipts'):
+            directory = root / folder
+            if directory.is_dir():
+                paths.extend(directory.iterdir())
+        for path in paths:
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                continue
+            entries.append((str(path.relative_to(workspace)), stat.st_ino, stat.st_size, stat.st_mtime_ns))
+    run = _load(workspace / 'run.json', {})
+    status = run.get('status', 'in_progress')
+    inputs = {'question': run.get('question'), 'model': run.get('model', 'gpt-6.1-sol'),
+              'lifecycle': run.get('runtime_status', status) if status in ('in_progress', 'answered') else status,
+              'target': run.get('minimum_papers', run.get('target_papers', run.get('target_publications', 50))),
+              'local_text': run.get('local_text'), 'started_at': run.get('started_at'),
+              'ended_at': run.get('ended_at'), 'failure': run.get('failure')}
+    # This file is both an optional input and an export; compare its content,
+    # not the replacement inode written by an otherwise identical export.
+    efficiency = _load(workspace / 'source-efficiency.json', {})
+    return json.dumps([sorted(entries), inputs, efficiency], sort_keys=True)
+
+
+def refresh_profile_usage(workspace, profile):
+    """Refresh live log/API usage without rebuilding the scientific graph."""
+    path = Path(workspace) / 'run.json'
+    run = _load(path, {})
+    if run:
+        run.update(receipts=_profile_receipts(profile), llm_calls=_profile_response_count(profile))
+        _save(path, run)
+
+
 def _rows(value):
     return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
 

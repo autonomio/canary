@@ -675,9 +675,10 @@ def command_line(executable, model, effort, workspace, shape, output, *, store=N
         "--approve-for-me", "--output-schema", str(shape), "-o", str(output), "-"]
 
 
-def refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed, *, finished=False, codex_home=None, execution=None):
+def refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed, *, finished=False, codex_home=None, execution=None, progress_state=None):
     """Refresh committed artifacts and exact native receipts without another model call."""
-    from .coverage_export import export_bundle
+    from .coverage_export import export_bundle, projection_inputs, refresh_profile_usage
+    state = progress_state if progress_state is not None else {}
     try:
         profile = read(workspace / "profile.json", {}) or {}
         roles = profile.get("roles")
@@ -694,8 +695,23 @@ def refresh_committed_progress(workspace, role, model, effort, thread_id, starte
                        "started_at": started, "ended_at": now() if finished else None, "seconds": round(elapsed, 3),
                        "usage": usage, "tokens": usage.get("totals", {}), "receipts": usage.get("receipts", []),
                        **(execution or {})}
-        write(workspace / "profile.json", {"roles": roles, "active_role": None if finished else role})
-        return export_bundle(workspace)
+        profile = {"roles": roles, "active_role": None if finished else role}
+        write(workspace / "profile.json", profile)
+        refresh_profile_usage(workspace, profile)
+        before = projection_inputs(workspace)
+        outputs = ('answer.json', 'coverage.json', 'access.json', 'query-net.json',
+                   'paper-selection.json', 'peer-review.json')
+        changed = finished or before != state.get('inputs') or any(not (workspace / name).is_file() for name in outputs)
+        result = export_bundle(workspace) if changed else None
+        if changed:
+            after = projection_inputs(workspace)
+            # Do not cache newer inputs that arrived while the graph was built.
+            state['inputs'] = before if before == after else None
+            state['findings_updated_at'] = now()
+        profile['progress'] = {'updated_at': now(), 'findings_updated_at': state.get('findings_updated_at'),
+                               'findings_refreshed': bool(changed), 'final_refresh': bool(finished)}
+        write(workspace / "profile.json", profile)
+        return result
     except Exception as error:
         event(workspace, "progress_export_failed", role=role, error=type(error).__name__ + ": " + str(error))
         return None
@@ -723,6 +739,7 @@ def scientific_session(workspace, role, model, effort, prompt, shape, *, executa
 def _scientific_session(workspace, role, model, effort, prompt, shape, *, executable,
                         audit_timeout, execution, run_key, environment):
     session = None
+    progress_state = {}
     try:
         started, before = now(), time.monotonic()
         schema_path, output_path = workspace / (role + "-schema.json"), workspace / (role + "-response.json")
@@ -772,7 +789,7 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
                         elapsed = time.monotonic() - before
                         if record.get("type") == "thread.started" or elapsed - last_refresh >= 10:
                             refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed,
-                                codex_home=session.home, execution=invocation)
+                                codex_home=session.home, execution=invocation, progress_state=progress_state)
                             last_refresh = elapsed
                 exit_code = session.wait()
             finally:
@@ -815,7 +832,7 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
         if exit_code and role == "research":
             raise RuntimeError("Research session failed; existing partial investigation remains available")
         refresh_committed_progress(workspace, role, model, effort, thread_id, started, receipt["seconds"], finished=True,
-            codex_home=session.home, execution=invocation)
+            codex_home=session.home, execution=invocation, progress_state=progress_state)
         return result, receipt
     finally:
         if session is not None:
