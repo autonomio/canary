@@ -466,7 +466,12 @@ class Supervisor:
             if inline_source_read(action, body):
                 # Keep the read and its reading receipt inside admission's lock.
                 # Finish/cancel cannot release working files beneath this reader.
-                return execute(row, action, body, self.root)
+                try:
+                    return execute(row, action, body, self.root)
+                except Exception as error:
+                    # Match the worker's structured tool-error boundary, including
+                    # a valid source ID whose passages have not been acquired.
+                    raise ValueError(str(error)) from error
             directory = self.root/'run-tools'/key/uuid.uuid4().hex
             directory.mkdir(parents=True)
             from .coverage_runtime import write
