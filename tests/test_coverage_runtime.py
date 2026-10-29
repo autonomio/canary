@@ -258,6 +258,7 @@ def test_openalex_configured_pause_survives_key_replacement_and_restart(tmp_path
 
 
 def test_openalex_legacy_pause_is_not_falsely_attributed_or_erased(tmp_path, monkeypatch):
+    monkeypatch.delenv("CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE", raising=False)
     clock = [1_800_000_000.0]
     monkeypatch.setattr(runtime.time, "time", lambda: clock[0])
     path = tmp_path / "out" / "coverage-openalex-usage.sqlite"
