@@ -256,6 +256,46 @@ def test_selected_downloads_really_run_concurrently(tmp_path):
     assert all(r["status"] == "source_retrieved" for r in rows)
 
 
+@pytest.mark.parametrize('kind', ['application/pdf', 'application/xml', 'text/html'])
+def test_public_acquisition_saves_the_validated_extraction_once(tmp_path, monkeypatch, kind):
+    from canary import coverage_sources as sources
+    from test_coverage_sources import _paper_pdf, _complete_landing, public_resolver
+    monkeypatch.setenv('CANARY_DATA_DIR', str(tmp_path / 'service'))
+    setup_sources(tmp_path, ids=('W1',))
+    # An actual public-copy resolution path, with only HTTP/DNS replaced.
+    selected = dict(work('W1'), doi=None, primary_location={
+        'is_oa': True, 'pdf_url': 'https://example.org/paper'})
+    runtime.write(tmp_path / 'works.json', [selected])
+    text = 'Methods\n' + 'Measured synthetic results, with source boundaries retained. ' * 20
+    if kind == 'application/pdf':
+        raw = _paper_pdf(text)
+        name = '_pdf_text'
+    elif kind == 'application/xml':
+        raw = ('<article><body><sec><title>Results</title><p>' + text + '</p></sec></body></article>').encode()
+        name = '_xml_text'
+    else:
+        raw = _complete_landing(pdf_link=False).replace(b'Synthetic context annotation study', b'Synthetic source W1')
+        name = 'article_text'
+    original, calls = getattr(sources, name), []
+    def count(*args, **kwargs):
+        calls.append(args[0])
+        return original(*args, **kwargs)
+    monkeypatch.setattr(sources, name, count)
+    monkeypatch.setattr(runtime.socket, 'getaddrinfo', public_resolver)
+    def handler(request):
+        return httpx.Response(200, content=raw) if request.url.path == '/paper' else httpx.Response(404)
+    rows = runtime.acquire(tmp_path, ['W1'], transport=httpx.MockTransport(handler))
+    assert rows[0]['status'] == 'source_retrieved', rows
+    assert rows[0]['validated_text_reused'] is True
+    assert calls == [raw]
+    ref = rows[0]['reference']
+    saved = (tmp_path / ref['text_file']).read_text()
+    expected = runtime._extract(raw, kind, selected)[0].replace('\r\n', '\n').replace('\r', '\n')
+    assert saved == expected
+    assert (tmp_path / ref['file']).read_bytes() == raw
+    assert all(p['text'] == saved[p['start']:p['end']] for p in runtime.source(tmp_path, 'W1'))
+
+
 def test_binding_rejects_padding_foreign_spans_and_keeps_raw_research(tmp_path):
     setup_sources(tmp_path)
     def fetch(source, transport):

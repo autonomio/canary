@@ -14,6 +14,11 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from canary import coverage_sources as sources
 
 
+@pytest.fixture(autouse=True)
+def isolated_pdf_capacity(tmp_path, monkeypatch):
+    monkeypatch.setenv("CANARY_DATA_DIR", str(tmp_path / "service"))
+
+
 def public_resolver(host, port, **kwargs):
     return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", port))]
 
@@ -122,7 +127,7 @@ def test_unreadable_fast_pdf_does_not_discard_readable_copy_or_wait_for_loser(mo
     raw_pdf = pdf.getvalue()
     raw_xml = b"<article><body><sec><title>Results</title><p>" + b"Readable synthetic result. " * 30 + b"</p></sec></body></article>"
     unreadable_rejected, loser_started, release_loser = Event(), Event(), Event()
-    monkeypatch.setattr(sources, "_native_pdf_text", lambda raw: None)
+    monkeypatch.setattr(sources, "_native_pdf_text", lambda raw, **kwargs: None)
     extract_pdf = sources._pdf_text
 
     def reject_blank_pdf(raw):
@@ -148,7 +153,7 @@ def test_unreadable_fast_pdf_does_not_discard_readable_copy_or_wait_for_loser(mo
                           for name in ("unreadable.pdf", "readable.xml", "slow.pdf")]}
     try:
         result, timed_out = sources.public_work_download(work, httpx.MockTransport(handler), public_resolver)
-        assert result == (raw_xml, "application/xml", "https://example.org/readable.xml")
+        assert result[:3] == (raw_xml, "application/xml", "https://example.org/readable.xml")
         assert not timed_out and not release_loser.is_set()
     finally:
         release_loser.set()
@@ -202,7 +207,7 @@ def test_readable_preview_cannot_win_race_over_complete_copy(monkeypatch, kind):
                           for name in ("preview." + kind, "complete.xml", "slow.pdf")]}
     try:
         result, timed_out = sources.public_work_download(work, httpx.MockTransport(handler), public_resolver)
-        assert result == (complete_xml, "application/xml", "https://example.org/complete.xml")
+        assert result[:3] == (complete_xml, "application/xml", "https://example.org/complete.xml")
         assert not timed_out and preview_extracted.is_set() and not release_loser.is_set()
     finally:
         release_loser.set()
@@ -257,7 +262,7 @@ def _complete_landing(pdf_link=True):
 
 @pytest.mark.parametrize("pdf_state", ["blank", "preview", "too_short"])
 def test_unusable_metadata_linked_pdf_keeps_complete_landing_html(monkeypatch, pdf_state):
-    monkeypatch.setattr(sources, "_native_pdf_text", lambda raw: None)
+    monkeypatch.setattr(sources, "_native_pdf_text", lambda raw, **kwargs: None)
     if pdf_state == "blank":
         raw_pdf = _paper_pdf()
     elif pdf_state == "preview":
@@ -277,7 +282,7 @@ def test_unusable_metadata_linked_pdf_keeps_complete_landing_html(monkeypatch, p
     work = {"display_name": "Synthetic context annotation study",
         "primary_location": {"is_oa": True, "landing_page_url": "https://example.org/landing"}}
     result, timed_out = sources.public_work_download(work, httpx.MockTransport(handler), public_resolver)
-    assert result == (landing, "text/html", "https://example.org/landing")
+    assert result[:3] == (landing, "text/html", "https://example.org/landing")
     assert timed_out is False
     assert requested == ["https://example.org/landing", "https://example.org/paper.pdf"]
     text = sources.article_text(result[0], work)
@@ -286,7 +291,7 @@ def test_unusable_metadata_linked_pdf_keeps_complete_landing_html(monkeypatch, p
 
 
 def test_healthy_metadata_linked_pdf_extracts_once_and_does_not_wait_for_losing_copy(monkeypatch):
-    monkeypatch.setattr(sources, "_native_pdf_text", lambda raw: None)
+    monkeypatch.setattr(sources, "_native_pdf_text", lambda raw, **kwargs: None)
     raw_pdf = _paper_pdf("Synthetic context annotation study\nMethods\n" +
         "Researchers recorded subjects and circumstances before delayed retrieval. " * 9 +
         "\nResults\n" + "The comparison reports retrieval and effort separately. " * 9)
@@ -312,7 +317,7 @@ def test_healthy_metadata_linked_pdf_extracts_once_and_does_not_wait_for_losing_
         {"is_oa": True, "pdf_url": "https://example.org/slow.pdf"}]}
     try:
         result, timed_out = sources.public_work_download(work, httpx.MockTransport(handler), public_resolver)
-        assert result == (raw_pdf, "application/pdf", "https://example.org/paper.pdf")
+        assert result[:3] == (raw_pdf, "application/pdf", "https://example.org/paper.pdf")
         assert timed_out is False and not release_loser.is_set()
         assert extracted == [raw_pdf]
     finally:
@@ -320,7 +325,7 @@ def test_healthy_metadata_linked_pdf_extracts_once_and_does_not_wait_for_losing_
 
 
 def test_pdf_link_fallback_preserves_landing_title_and_doi_identity(monkeypatch):
-    monkeypatch.setattr(sources, "_native_pdf_text", lambda raw: None)
+    monkeypatch.setattr(sources, "_native_pdf_text", lambda raw, **kwargs: None)
     landing = _complete_landing(pdf_link=False)
     unrelated = _paper_pdf("A different study\nResults\n" + "Unrelated measured results and methods. " * 30)
     expected = {"title": "Synthetic context annotation study", "doi": "10.9999/contexts"}
@@ -330,7 +335,7 @@ def test_pdf_link_fallback_preserves_landing_title_and_doi_identity(monkeypatch)
         return httpx.Response(200, content=landing if request.url.path == "/landing" else unrelated)
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         result = sources.public_download(client, "https://example.org/landing", public_resolver, expected)
-        assert result == (landing, "text/html", "https://example.org/landing")
+        assert result[:3] == (landing, "text/html", "https://example.org/landing")
         assert requested == ["https://example.org/landing", "https://example.org/paper.pdf"]
         for mismatched in ({"title": "Wrong paper", "doi": expected["doi"]},
                            {"title": expected["title"], "doi": "10.9999/wrong"}):

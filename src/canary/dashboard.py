@@ -470,7 +470,8 @@ class Supervisor:
             write(packet, {'row':row,'action':action,'body':body,'root':str(self.root.resolve())})
             with (directory/'console.log').open('wb') as log:
                 proc = subprocess.Popen([sys.executable,'-m','canary.research_tools',str(packet),str(output)],
-                    stdout=log,stderr=subprocess.STDOUT,stdin=subprocess.DEVNULL,start_new_session=True)
+                    stdout=log,stderr=subprocess.STDOUT,stdin=subprocess.DEVNULL,start_new_session=True,
+                    env=dict(os.environ, CANARY_DATA_DIR=str(self.root.resolve())))
             write(directory/'ownership.json', {'pid':proc.pid,'identity':processes.identity(proc.pid)})
         proc.wait()
         if not output.is_file(): raise ValueError('Research tool stopped; committed work is preserved')

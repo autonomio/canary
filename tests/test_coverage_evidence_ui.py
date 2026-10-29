@@ -18,6 +18,23 @@ def run_dashboard(tmp_path, graph, assertions):
     assert result.returncode == 0, result.stderr
 
 
+def test_service_details_show_the_api_reported_shared_pdf_capacity(tmp_path):
+    run_dashboard(tmp_path, {}, r'''
+const element={innerHTML:''};
+global.document={getElementById:()=>element};
+const status={data_directory:'/isolated/service',pdf_extraction:{engine:'pdftotext',concurrent_pdf_conversions:1}};
+global.fetch=async path=>{assert.equal(path,'/api/status');return {ok:true,json:async()=>status};};
+(async()=>{
+  await refreshService();
+  assert.match(element.innerHTML,/pdftotext/);
+  assert.match(element.innerHTML,/1 shared conversion slot; downloads remain concurrent/);
+  delete status.pdf_extraction.concurrent_pdf_conversions;
+  await refreshService();
+  assert.doesNotMatch(element.innerHTML,/shared conversion slot/);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+''')
+
+
 def test_grouped_packets_keep_every_passage_reachable_without_overview_button_flood(tmp_path):
     evidence, passages = [], []
     for origin, count in (("E22", 76), ("E23", 81)):

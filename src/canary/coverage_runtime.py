@@ -397,6 +397,7 @@ def catalog(workspace):
 
 def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extract=None, transport=None):
     """Only explicitly selected works, concurrent failures contained, receipts committed individually."""
+    from .coverage_sources import PaperCopy
     workspace = Path(workspace).resolve()
     ids = list(dict.fromkeys(ids))
     if not ids or any(not SOURCE_ID.fullmatch(identifier) for identifier in ids):
@@ -428,8 +429,10 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
                 if result is None:
                     receipt.update(status="unavailable", public_timeout_seen=timeout_seen)
                 else:
-                    raw, kind, url = result
-                    text, pages, blank, extension = extract(raw, kind, work)
+                    raw, kind, url = result[:3]
+                    reused = isinstance(result, PaperCopy) and extract is _extract
+                    text, pages, blank, extension = result.extraction if reused else extract(raw, kind, work)
+                    receipt['validated_text_reused'] = reused
                     text = text.replace("\r\n", "\n").replace("\r", "\n")
                     if len(text.strip()) < 500:
                         raise ValueError("Too little source text for paper investigation")
