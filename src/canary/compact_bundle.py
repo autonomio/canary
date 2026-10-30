@@ -54,7 +54,7 @@ def manifest(workspace):
     if encoding is not None:
         value['encoding'] = {'format': encoding['format'], 'version': encoding['version'],
                              'stored_bytes': (Path(workspace) / NAME).stat().st_size,
-                             'expanded_bytes': encoding['expanded_bytes']}
+                             'expanded_bytes': len(bundle_encoding.dumps(decoded).encode('utf-8'))}
     return value
 
 

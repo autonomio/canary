@@ -111,6 +111,18 @@ def test_old_plain_compact_bundles_reexport_smaller_without_rewriting_history(tm
     assert (tmp_path/compact_bundle.CHECKSUM).read_text() == checksum
 
 
+def test_manifest_sizes_include_context_added_by_a_consumer(tmp_path):
+    prepared(tmp_path);compact_bundle.retain(tmp_path)
+    value = compact_bundle.read(tmp_path)
+    value['method_metadata']['consumer_context'] = {'note': 'Synthetic consumer addition. '*20}
+    body = (bundle_encoding.dumps(value)+'\n').encode()
+    (tmp_path/compact_bundle.NAME).write_bytes(body)
+    (tmp_path/compact_bundle.CHECKSUM).write_text(hashlib.sha256(body).hexdigest()+'\n')
+    manifest = compact_bundle.manifest(tmp_path)
+    assert manifest['encoding']['stored_bytes'] == len(body)
+    assert manifest['encoding']['expanded_bytes'] == len(bundle_encoding.dumps(bundle_encoding.expand(value)).encode())
+
+
 def test_api_default_releases_only_the_new_request_and_keeps_operational_metrics(api, tmp_path):
     server, client, _ = api
     historical = tmp_path/'historical'; historical.mkdir(); prepared(historical)
