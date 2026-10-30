@@ -1,6 +1,7 @@
 """Lossless delivered JSON, independent of model behavior or scientific judgment."""
 import copy
 import json
+import subprocess
 
 import jsonschema
 import pytest
@@ -18,7 +19,7 @@ def contribution(tmp_path):
     repeated = {'reading': 'Synthetic repeated reading note. ' * 40, 'unknown': None, 'values': [1, 1.5, False]}
     result['method_metadata']['canary_view'] = {'first': repeated, 'second': copy.deepcopy(repeated),
         'quote': text, 'literal': [{codec.REF: '/not/a/reference'}, {codec.VALUE: 0},
-                                  {codec.LITERAL: {codec.REF: '/still/literal'}}]}
+                                  {codec.LITERAL: {codec.REF: '/still/literal'}}, {codec.NUMBER: 'literal'}]}
     return result
 
 
@@ -47,6 +48,26 @@ def test_expansion_accepts_consumer_context_and_does_not_share_mutable_aliases(c
     decoded['method_metadata']['canary_view']['first']['values'].append(2)
     assert decoded['method_metadata']['canary_view']['second']['values'] == [1, 1.5, False]
     assert codec.expand(encoded) == expected
+
+
+def test_browser_json_roundtrip_preserves_original_numbers_and_artifact_strings(contribution):
+    numbers = {'float': 1.0, 'negative_zero': -0.0, 'padding': 'Synthetic native floating point. '*20}
+    contribution['method_metadata']['native_float_fixture'] = numbers
+    view = contribution['method_metadata']['canary_view']
+    view['floats'] = copy.deepcopy(numbers)
+    view['large_integer'] = 9007199254740993
+    artifact = contribution['result']['artifacts'][1]
+    raw = json.loads(artifact['content'])
+    raw['numeric_fixture'] = {'float': 1.0, 'large_integer': 9007199254740993, 'negative_zero': -0.0}
+    artifact['content'] = json.dumps(raw, ensure_ascii=False)
+    encoded = codec.encode(contribution)
+    browser = subprocess.run(['node', '-e',
+        "let s='';process.stdin.setEncoding('utf8');process.stdin.on('data',x=>s+=x);"
+        "process.stdin.on('end',()=>process.stdout.write(JSON.stringify(JSON.parse(s))));"],
+        input=codec.dumps(encoded), text=True, capture_output=True, timeout=15, check=True)
+    decoded = codec.expand(json.loads(browser.stdout))
+    assert decoded == contribution
+    assert decoded['result']['artifacts'][1]['content'] == artifact['content']
 
 
 def test_unrecognized_artifact_format_is_preserved_byte_for_byte(contribution):

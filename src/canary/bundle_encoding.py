@@ -5,11 +5,14 @@ from collections import Counter
 import copy
 import hashlib
 import json
+import math
 from typing import Literal, TypedDict
 
 FORMAT = 'canary.references'
 VERSION = 1
 REF, VALUE, LITERAL = '$canary_ref', '$canary_value', '$canary_literal'
+NUMBER = '$canary_number'
+JS_SAFE_INTEGER = 2**53-1
 ARTIFACTS = {'canary-bundle.json', 'canary-research.json'}
 
 
@@ -112,18 +115,24 @@ def encode(value):
 
     native, counts, values, identifiers = {}, Counter(), [], {}
     def collect(node, path=()):
-        if _immutable(path):
-            key = _key(node)
-            if key is not None:
-                native.setdefault(key, '/' + '/'.join(p.replace('~', '~0').replace('/', '~1') for p in path))
+        # A browser may normalize 1.0/-0.0 or round large integers in native
+        # JSON. Encoded extensions must retain their original numeric spelling.
+        if type(node) is float or (type(node) is int and abs(node) > JS_SAFE_INTEGER):
+            return False
+        safe = True
         if isinstance(node, dict):
             for name, child in node.items():
                 if (path == ('result',) and name == 'artifacts'):
                     continue
-                collect(child, (*path, name))
+                safe = collect(child, (*path, name)) and safe
         elif isinstance(node, list):
             for index, child in enumerate(node):
-                collect(child, (*path, str(index)))
+                safe = collect(child, (*path, str(index))) and safe
+        if safe and _immutable(path):
+            key = _key(node)
+            if key is not None:
+                native.setdefault(key, '/' + '/'.join(p.replace('~', '~0').replace('/', '~1') for p in path))
+        return safe
     collect(result)
 
     def count(node):
@@ -141,12 +150,14 @@ def encode(value):
     def children(node):
         if isinstance(node, dict):
             encoded = {key: pack(child) for key, child in node.items()}
-            return {LITERAL: encoded} if len(node) == 1 and next(iter(node)) in (REF, VALUE, LITERAL) else encoded
+            return {LITERAL: encoded} if len(node) == 1 and next(iter(node)) in (REF, VALUE, LITERAL, NUMBER) else encoded
         if isinstance(node, list):
             return [pack(child) for child in node]
         return node
 
     def pack(node):
+        if type(node) is float or (type(node) is int and abs(node) > JS_SAFE_INTEGER):
+            return {NUMBER: json.dumps(node, allow_nan=False)}
         key = _key(node)
         if key in native:
             return {REF: native[key]}
@@ -203,6 +214,13 @@ def expand(value):
 
     def unpack(node):
         if isinstance(node, dict):
+            if set(node) == {NUMBER}:
+                if not isinstance(node[NUMBER], str):
+                    raise ValueError('Invalid encoded Canary number')
+                number = json.loads(node[NUMBER])
+                if type(number) not in (int, float) or (type(number) is float and not math.isfinite(number)):
+                    raise ValueError('Invalid encoded Canary number')
+                return number
             if set(node) == {REF}:
                 return pointer(node[REF])
             if set(node) == {VALUE}:
