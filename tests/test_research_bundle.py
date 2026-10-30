@@ -232,6 +232,12 @@ def test_api_cli_compile_execute_read_archive_and_repeat_exact_settings(api,tmp_
     assert saved.status_code==200 and zipfile.is_zipfile(io.BytesIO(saved.content))
     exported=client.get(f"/api/runs/{started['key']}/exports/resolvent")
     assert exported.status_code==200 and exported.json()['claims'][0]['statement']=='A synthetic attributed finding.'
+    for representation in ('compact', 'expanded'):
+        assert cli.main(['bundle',started['key'],'--connector','resolvent','--representation',representation,
+                         '--port',str(server.server_port)]) == 0
+        contribution=json.loads(capsys.readouterr().out)
+        assert contribution['claims'] == exported.json()['claims']
+        assert ('canary_encoding' in contribution['method_metadata']) == (representation == 'compact')
     repeated=client.post(f"/api/runs/{started['key']}/rerun",json={}).json()
     assert repeated['key']!=started['key']
     second=wait_bundle(client,repeated['key'])

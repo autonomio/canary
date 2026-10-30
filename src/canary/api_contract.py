@@ -11,6 +11,7 @@ from .research_bundle import ResearchBundle, BundleRetention
 from .service_status import ServiceStatus
 from .connection import ConnectionStatus
 from .candidate_index import CandidateMetadata
+from .bundle_encoding import ReferenceEncoding
 from .codex_execution import ExecutionRequest, ExecutionReceipt, ExecutionFinish, ExecutionFinished
 
 S = {'type':'string'}
@@ -126,6 +127,10 @@ def schemas():
         'RunStarted':obj({'key':S,'bundle':S,'spec_sha256':S,'bundle_url':S},['key'],closed=False),
         'RunControl':obj({'key':S,'status':nullable(S)},['key','status'],closed=False),
         'Research':research,'ResearchResponse':obj({'key':S,'live':B,'research':ref('Research')},['key','live','research']),
+        'ReferenceEncoding':typed(ReferenceEncoding),
+        'ResolventExport':obj({'schema_version':S,'sources':arr(O),'evidence':arr(O),'claims':arr(O),
+            'result':O,'method_metadata':obj({'canary_encoding':ref('ReferenceEncoding')},closed=False)},
+            ['schema_version','sources','evidence','claims','result','method_metadata'],closed=False),
         'BundleResponse':obj({'key':S,'live':B,'bundle':ref('BundleManifest'),'research':ref('Research')},['key','live','bundle','research']),
         'Findings':findings,'RecordedClaim':claim,'RecordedEvidence':evidence,'Passage':passage,
         'SourceContext':context,'GeneratedInvestigation':generated,'QuestionPlan':protocol.question_plan_schema(),
@@ -192,7 +197,11 @@ def document():
     op('bundle','get','/api/runs/{key}/bundle','Read bundle settings, artifact hashes and findings','BundleResponse',params=[key],mcp=True)
     op('archive','get','/api/runs/{key}/bundle/archive','Download a finished bundle with exact saved materials',params=[key],media='application/zip')
     op('artifact','get','/api/runs/{key}/bundle/artifacts/{artifact_path}','Download one hash-checked inventoried artifact',params=[key,('artifact_path','path',S,True)],media='application/octet-stream')
-    op('export','get','/api/runs/{key}/exports/{connector}','Normalize a bundle; destination admission remains separate',params=[key,('connector','path',{'enum':['resolvent']},True)],mcp=True)
+    op('export','get','/api/runs/{key}/exports/{connector}',
+       'Export native Resolvent records with lossless Canary references; expanded reconstructs original extension JSON',
+       response='ResolventExport',
+       params=[key,('connector','path',{'enum':['resolvent']},True),
+               ('representation','query',{'enum':['compact','expanded'],'default':'compact'},False)],mcp=True)
     op('source_context','get','/api/runs/{key}/sources/{source_id}/context','Read exact passages and broader saved section or paper','SourceContext',
        params=[key,source,('paragraph_id','query',S,False),('scope','query',{'enum':['section','paper'],'default':'section'},False)],mcp=True)
     op('source_file','get','/api/runs/{key}/sources/{source_id}/file','Download the saved original source; never an abstract substitute',params=[key,source],media='application/octet-stream')

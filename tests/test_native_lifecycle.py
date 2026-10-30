@@ -138,7 +138,7 @@ time.sleep(60)
             bundle = client.get('/api/runs/'+key+'/bundle').json()['bundle']
             assert bundle['state'] == 'finished'
             assert bundle['execution']['status'] == 'cancelled'
-            output = client.get('/api/runs/'+key+'/exports/resolvent').json()
+            output = client.get('/api/runs/'+key+'/exports/resolvent?representation=expanded').json()
             receipt = output['method_metadata']['canary_view']['profile']['roles']['research']
             assert receipt['thread_id']=='fixture-thread'
             assert receipt['backend']==backend

@@ -12,7 +12,7 @@ from jsonschema import Draft202012Validator
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from canary import api_client, api_contract, cli, coverage_export, dashboard, research_bundle, runs
+from canary import api_client, api_contract, bundle_encoding, cli, coverage_export, dashboard, research_bundle, runs
 from canary.mcp_server import tool_catalog
 from test_research_bundle import seed
 
@@ -52,6 +52,10 @@ def test_live_openapi_cli_and_responses_share_the_contract(api,capsys):
         for method,operation in methods.items(): ids.append(operation['operationId'])
     assert len(ids)==len(set(ids))
     for schema in contract['components']['schemas'].values(): Draft202012Validator.check_schema(schema)
+    export = contract['paths']['/api/runs/{key}/exports/{connector}']['get']
+    representation = next(p for p in export['parameters'] if p['name']=='representation')
+    assert representation['schema'] == {'enum':['compact','expanded'],'default':'compact'}
+    assert contract['components']['schemas']['ReferenceEncoding']['properties']['version']['enum'] == [1]
     assert cli.main(['api','--port',str(server.server_port)]) == 0
     assert json.loads(capsys.readouterr().out) == contract
     for path in ('/api/status','/api/connection','/api/auth/status','/api/runs','/api/log','/api/usage'):
@@ -94,6 +98,10 @@ def test_mcp_lists_live_schemas_and_navigates_claim_to_original_over_api(api):
                 started=await session.call_tool('canary_ask',{'spec':{'question':'Synthetic MCP fixture?'}})
                 assert not started.isError,started.content
                 key=started.structuredContent['key']
+                compact=await session.call_tool('canary_export',{'key':key,'connector':'resolvent'})
+                expanded=await session.call_tool('canary_export',{'key':key,'connector':'resolvent','representation':'expanded'})
+                assert not compact.isError and not expanded.isError
+                assert bundle_encoding.expand(compact.structuredContent) == expanded.structuredContent
                 research=await session.call_tool('canary_research',{'key':key})
                 assert not research.isError,research.content
                 graph=research.structuredContent['research']['answer']

@@ -1385,7 +1385,10 @@ class Handler(BaseHTTPRequestHandler):
                 row = runs.get(unquote(parts[3]), self.supervisor.registry)
                 if row is None:
                     raise KeyError(parts[3])
-                self._send(200, bundle_connectors.export(row['bundle'], unquote(parts[5])))
+                from .bundle_encoding import dumps
+                contribution = bundle_connectors.export(row['bundle'], unquote(parts[5]),
+                    representation=query.get('representation', ['compact'])[0])
+                self._send(200, dumps(contribution).encode('utf-8'))
             elif re.fullmatch(r"/api/runs/[^/]+/bundle(?:/archive|/artifacts/.+)?", parsed.path):
                 parts = parsed.path.split('/')
                 key = unquote(parts[3])

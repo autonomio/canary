@@ -13,6 +13,7 @@ from typing import TypedDict
 
 from .research_spec import verify_compiled, digest
 from .runtime_paths import resource_root
+from .bundle_encoding import BundleEncoding
 
 BUNDLE_VERSION = 1
 _finalizing = False
@@ -29,6 +30,7 @@ class BundleRetention(TypedDict):
 
 class _BundleOptions(TypedDict, total=False):
     retention: BundleRetention
+    encoding: BundleEncoding
 
 
 class ResearchBundle(_BundleOptions):
@@ -72,7 +74,7 @@ def initialize(workspace, packet):
     report['engine'] = {'python': sys.version.split()[0], 'sources': {
         name: file_hash(Path(__file__).parent / name) for name in
         ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'candidate_index.py', 'codex_execution.py', 'codex_auth.py', 'claim_freshness.py',
-         'research_spec.py', 'research_bundle.py', 'bundle_connectors.py', 'compact_bundle.py', 'local_text.py',
+         'research_spec.py', 'research_bundle.py', 'bundle_connectors.py', 'compact_bundle.py', 'bundle_encoding.py', 'local_text.py',
          'processes.py', 'pdf_capacity.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py', 'api_client.py')}}
     lock = resource_root() / 'uv.lock'
     report['engine']['dependency_lock_sha256'] = file_hash(lock) if lock.is_file() else None

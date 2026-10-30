@@ -1,0 +1,31 @@
+{
+  "scope": "Offline packaging only; no model calls or full-question timing claim.",
+  "samples": [
+    {
+      "expanded_bytes": 2639126,
+      "encoded_bytes": 1303106,
+      "saved_percent": 50.62,
+      "encode_cpu_ms_median": 299.19,
+      "expand_cpu_ms_median": 45.47,
+      "exact_value_roundtrip": true,
+      "embedded_artifact_strings_unchanged": true,
+      "browser_json_roundtrip": true,
+      "native_claims_evidence_sources_unchanged": true,
+      "canonical_expanded_sha256": "87c7124051890d4683e92d3f1257f5afa7e81f6b501701dd78ff37cb872e005b"
+    },
+    {
+      "expanded_bytes": 1986628,
+      "encoded_bytes": 960705,
+      "saved_percent": 51.64,
+      "encode_cpu_ms_median": 253.86,
+      "expand_cpu_ms_median": 41.99,
+      "exact_value_roundtrip": true,
+      "embedded_artifact_strings_unchanged": true,
+      "browser_json_roundtrip": true,
+      "native_claims_evidence_sources_unchanged": true,
+      "canonical_expanded_sha256": "ea938e498f9d116bb76a90d2647cc40d14d97f2b4c643fa6eba72a208aafba27"
+    }
+  ],
+  "inputs": "Read-only packaging replays from two real HTTP API responses (51 and 50 reviewed papers), with the current retained dashboard projection; small canary_record metadata excluded. No private source content is committed.",
+  "timing": "Host process CPU, three repeats; includes exact reconstruction verification during encoding. Browser JSON round-trip checked separately. Not one-vCPU throughput or full-question runtime."
+}
