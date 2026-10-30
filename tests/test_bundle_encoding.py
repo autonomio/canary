@@ -19,7 +19,8 @@ def contribution(tmp_path):
     repeated = {'reading': 'Synthetic repeated reading note. ' * 40, 'unknown': None, 'values': [1, 1.5, False]}
     result['method_metadata']['canary_view'] = {'first': repeated, 'second': copy.deepcopy(repeated),
         'quote': text, 'literal': [{codec.REF: '/not/a/reference'}, {codec.VALUE: 0},
-                                  {codec.LITERAL: {codec.REF: '/still/literal'}}, {codec.NUMBER: 'literal'}]}
+                                  {codec.LITERAL: {codec.REF: '/still/literal'}}, {codec.NUMBER: 'literal'},
+                                  {codec.OBJECT: 'literal'}]}
     return result
 
 
@@ -56,9 +57,13 @@ def test_browser_json_roundtrip_preserves_original_numbers_and_artifact_strings(
     view = contribution['method_metadata']['canary_view']
     view['floats'] = copy.deepcopy(numbers)
     view['large_integer'] = 9007199254740993
+    ordered = {'10': 'First numeric key. '*20, '2': 'Second numeric key. '*20, 'tail': 'Keep insertion order.'}
+    contribution['method_metadata']['native_order_fixture'] = ordered
+    view['ordered_fixture'] = copy.deepcopy(ordered)
     artifact = contribution['result']['artifacts'][1]
     raw = json.loads(artifact['content'])
     raw['numeric_fixture'] = {'float': 1.0, 'large_integer': 9007199254740993, 'negative_zero': -0.0}
+    raw['ordered_fixture'] = copy.deepcopy(ordered)
     artifact['content'] = json.dumps(raw, ensure_ascii=False)
     encoded = codec.encode(contribution)
     browser = subprocess.run(['node', '-e',

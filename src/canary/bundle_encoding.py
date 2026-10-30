@@ -12,6 +12,7 @@ FORMAT = 'canary.references'
 VERSION = 1
 REF, VALUE, LITERAL = '$canary_ref', '$canary_value', '$canary_literal'
 NUMBER = '$canary_number'
+OBJECT = '$canary_object'
 JS_SAFE_INTEGER = 2**53-1
 ARTIFACTS = {'canary-bundle.json', 'canary-research.json'}
 
@@ -49,6 +50,14 @@ def _key(value):
         if len(body) >= 100:
             return hashlib.sha256(body).digest()
     return None
+
+
+def _js_reorders(node):
+    keys = list(node)
+    indices = [key for key in keys if isinstance(key, str) and len(key) <= 10 and key.isascii() and key.isdigit()
+               and str(int(key)) == key and int(key) < 2**32-1]
+    index_set = set(indices)
+    return keys != sorted(indices, key=int) + [key for key in keys if key not in index_set]
 
 
 def _immutable(path):
@@ -119,7 +128,7 @@ def encode(value):
         # JSON. Encoded extensions must retain their original numeric spelling.
         if type(node) is float or (type(node) is int and abs(node) > JS_SAFE_INTEGER):
             return False
-        safe = True
+        safe = not (isinstance(node, dict) and _js_reorders(node))
         if isinstance(node, dict):
             for name, child in node.items():
                 if (path == ('result',) and name == 'artifacts'):
@@ -149,8 +158,10 @@ def encode(value):
 
     def children(node):
         if isinstance(node, dict):
+            if _js_reorders(node):
+                return {OBJECT: [[key, pack(child)] for key, child in node.items()]}
             encoded = {key: pack(child) for key, child in node.items()}
-            return {LITERAL: encoded} if len(node) == 1 and next(iter(node)) in (REF, VALUE, LITERAL, NUMBER) else encoded
+            return {LITERAL: encoded} if len(node) == 1 and next(iter(node)) in (REF, VALUE, LITERAL, NUMBER, OBJECT) else encoded
         if isinstance(node, list):
             return [pack(child) for child in node]
         return node
@@ -214,6 +225,15 @@ def expand(value):
 
     def unpack(node):
         if isinstance(node, dict):
+            if set(node) == {OBJECT}:
+                if not isinstance(node[OBJECT], list):
+                    raise ValueError('Invalid ordered Canary object')
+                result = {}
+                for pair in node[OBJECT]:
+                    if not isinstance(pair, list) or len(pair) != 2 or not isinstance(pair[0], str) or pair[0] in result:
+                        raise ValueError('Invalid ordered Canary object entry')
+                    result[pair[0]] = unpack(pair[1])
+                return result
             if set(node) == {NUMBER}:
                 if not isinstance(node[NUMBER], str):
                     raise ValueError('Invalid encoded Canary number')

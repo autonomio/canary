@@ -51,6 +51,8 @@ Applications receiving a standalone compact contribution can call
 `canary.bundle_encoding.expand(contribution)`; native Resolvent records require
 no decoding. Consumers inspecting embedded Canary JSON must use this reader or
 the expanded API response, rather than ask an agent to resolve references.
+Number spelling, integers beyond JavaScript's safe range and numeric object-key
+order in encoded extensions survive a browser JSON parse/stringify round trip.
 
 The dashboard always receives reconstructed findings through the API. Bundle
 details show stored/expanded byte counts and the lossless saving, plus an expanded
