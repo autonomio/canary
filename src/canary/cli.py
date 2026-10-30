@@ -116,6 +116,8 @@ def argument_parser():
     bundle = sub.add_parser("bundle", help="read a research bundle or connector handoff through the API")
     bundle.add_argument("key")
     bundle.add_argument("--connector", choices=['resolvent'])
+    bundle.add_argument("--representation", choices=['compact','expanded'], default='compact',
+                        help='connector JSON: lossless references (default) or fully expanded')
     bundle.add_argument("--port", type=int, default=None)
     compiled = sub.add_parser("run", help="compile a YAML declaration and submit it through the API")
     compiled.add_argument("declaration", help="research YAML file")

@@ -33,6 +33,35 @@ The retained output is one standalone Resolvent-compatible JSON contribution and
 a SHA-256 sidecar. Registry rows retain small operational summaries for polling
 and the log; native Codex account/session storage remains vendor-managed.
 
+New contributions remove duplicate Canary values with `method_metadata.canary_encoding`
+(`format: canary.references`, `version: 1`). Resolvent's native `claims`, `evidence`,
+`sources`, uncertainty/freshness metadata, audit limitations, gaps and residue stay
+readable and unchanged. Only the embedded Canary JSON artifacts and dashboard
+projection use in-document references and a shared value table. The API rebuilds
+their original values and exact embedded JSON strings in code, checking a SHA-256
+of the reconstructed extensions. It rejects unsupported versions, missing/cyclic
+references and changed content; no model interprets the encoding. Consumer-added
+metadata remains supported.
+
+`GET /api/runs/{key}/exports/resolvent` and `canary bundle RUN_KEY --connector resolvent`
+return compact UTF-8 JSON. For readers requiring the previous fully expanded
+Canary artifacts, use `?representation=expanded` or CLI `--representation expanded`.
+The MCP export tool advertises the same optional parameter through OpenAPI.
+Applications receiving a standalone compact contribution can call
+`canary.bundle_encoding.expand(contribution)`; native Resolvent records require
+no decoding. Consumers inspecting embedded Canary JSON must use this reader or
+the expanded API response, rather than ask an agent to resolve references.
+
+The dashboard always receives reconstructed findings through the API. Bundle
+details show stored/expanded byte counts and the lossless saving, plus an expanded
+download for compatibility. Manifest `encoding` fields are typed in OpenAPI.
+Old plain bundles remain readable; re-export can encode them without rewriting
+their stored files or checksums. Encoding is omitted when it would increase size.
+There is no universal byte ceiling promised: larger research remains complete.
+The [offline replay](../validation/bundle-references-20261030/results.json) records
+size and component CPU measurements, exact value/embedded-string round trips and
+unchanged native records. It makes no full-question runtime or scientific-quality claim.
+
 The JSON includes the original/resolved YAML settings, bound research payload,
 claims/evidence/verbatim/reference links, uncertainty, freshness, gaps, residue,
 audit scope and usage, plus the existing researcher-facing projection. No new

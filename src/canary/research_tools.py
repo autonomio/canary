@@ -49,7 +49,7 @@ def execute(row, action: str, body: ToolRequest, root: Path):
             raise ValueError(field + ' is outside its integer range')
     from . import compact_bundle
     if compact_bundle.exists(workspace):
-        contribution = compact_bundle.read(workspace)
+        contribution = compact_bundle.read(workspace, expanded=True)
         if action == 'catalog':
             return [dict(r, source_bytes_retained=False) for r in compact_bundle.payload(contribution).get('references', [])]
         if action == 'source':

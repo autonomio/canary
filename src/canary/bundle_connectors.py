@@ -131,7 +131,11 @@ def resolvent(workspace):
 EXPORTERS = {'resolvent': resolvent}
 
 
-def export(workspace, connector):
+def export(workspace, connector, *, representation='compact'):
+    from . import bundle_encoding
     if connector not in EXPORTERS:
         raise ValueError('Unsupported connector: ' + connector)
-    return EXPORTERS[connector](workspace)
+    if representation not in ('compact', 'expanded'):
+        raise ValueError('Unsupported bundle representation')
+    result = EXPORTERS[connector](workspace)
+    return bundle_encoding.encode(result) if representation == 'compact' else bundle_encoding.expand(result)

@@ -32,14 +32,19 @@ def run(args, port):
 def fetch_bundle(args, port):
     from urllib.parse import quote
     suffix = '/exports/' + args.connector if args.connector else '/bundle'
+    if not args.connector and args.representation != 'compact':
+        print('--representation requires --connector', file=sys.stderr)
+        return 1
     try:
         with httpx.Client(base_url=endpoint(port), timeout=30, trust_env=False) as client:
-            response = client.get('/api/runs/' + quote(args.key, safe='') + suffix)
+            response = client.get('/api/runs/' + quote(args.key, safe='') + suffix,
+                params={'representation': args.representation} if args.connector else None)
         value = response.json()
         if response.is_error:
             print(value.get('error', f'HTTP {response.status_code}'), file=sys.stderr)
             return 1
-        print(json.dumps(value, ensure_ascii=False, indent=2))
+        print(json.dumps(value, ensure_ascii=False, separators=(',', ':')) if args.connector
+              else json.dumps(value, ensure_ascii=False, indent=2))
         return 0
     except (httpx.HTTPError, ValueError):
         print('Cannot read the research bundle from the API.', file=sys.stderr)

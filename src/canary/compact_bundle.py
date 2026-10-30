@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 import shutil
 
+from . import bundle_encoding
+
 NAME = 'resolvent.json'
 CHECKSUM = '.resolvent.sha256'
 LIMITATION = ('Only the research bundle, exact cited excerpts and source locators/hashes are retained. '
@@ -18,7 +20,7 @@ def exists(workspace):
     return (Path(workspace) / NAME).is_file()
 
 
-def read(workspace):
+def read(workspace, *, expanded=False):
     workspace = Path(workspace)
     body = (workspace / NAME).read_bytes()
     if hashlib.sha256(body).hexdigest() != (workspace / CHECKSUM).read_text().strip():
@@ -27,10 +29,12 @@ def read(workspace):
     metadata = result['method_metadata']
     if metadata.get('retention', {}).get('mode') != 'bundle_only':
         raise ValueError('Unsupported retained research bundle')
-    return result
+    bundle_encoding.header(result)
+    return bundle_encoding.expand(result) if expanded else result
 
 
 def payload(contribution):
+    contribution = bundle_encoding.expand(contribution)
     return json.loads(next(a['content'] for a in contribution['result']['artifacts']
                            if a['name'] == 'canary-research.json'))
 
@@ -38,19 +42,25 @@ def payload(contribution):
 def manifest(workspace):
     from .research_spec import verify_compiled
     result = read(workspace)
-    value = json.loads(next(a['content'] for a in result['result']['artifacts']
+    decoded = bundle_encoding.expand(result)
+    value = json.loads(next(a['content'] for a in decoded['result']['artifacts']
                             if a['name'] == 'canary-bundle.json'))
     verify_compiled(value['specification'])
     value['artifacts'] = [{'path': NAME, 'bytes': (Path(workspace) / NAME).stat().st_size,
                           'sha256': (Path(workspace) / CHECKSUM).read_text().strip()}]
     value['retention'] = result['method_metadata']['retention']
     value['limitations'] = list(dict.fromkeys([*value['limitations'], LIMITATION]))
+    encoding = bundle_encoding.header(result)
+    if encoding is not None:
+        value['encoding'] = {'format': encoding['format'], 'version': encoding['version'],
+                             'stored_bytes': (Path(workspace) / NAME).stat().st_size,
+                             'expanded_bytes': encoding['expanded_bytes']}
     return value
 
 
 def projection(workspace):
     from .coverage_export import render_markdown
-    contribution = read(workspace)
+    contribution = read(workspace, expanded=True)
     saved = contribution['method_metadata']['canary_view']
     raw = payload(contribution)
     graph, run = saved['answer'], saved['run']
@@ -103,7 +113,8 @@ def retain(workspace):
     contribution['result']['limitations'] = [line for line in contribution['result']['limitations']
         if not line.startswith('Preserve the accompanying neutral bundle archive')]
     contribution['result']['limitations'].append(LIMITATION)
-    body = (json.dumps(contribution, ensure_ascii=False, separators=(',', ':')) + '\n').encode()
+    contribution = bundle_encoding.encode(contribution)
+    body = (bundle_encoding.dumps(contribution) + '\n').encode()
     temporary = workspace / (NAME + '.tmp')
     with temporary.open('wb') as stream:
         stream.write(body)
@@ -112,7 +123,7 @@ def retain(workspace):
         os.fsync(stream.fileno())
     (workspace / CHECKSUM).write_text(hashlib.sha256(body).hexdigest() + '\n')
     temporary.replace(workspace / NAME)
-    read(workspace)  # No release on a failed output commit.
+    read(workspace, expanded=True)  # No release on a failed output commit/reconstruction.
     for path in workspace.iterdir():
         if path.name in (NAME, CHECKSUM):
             continue

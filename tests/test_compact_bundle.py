@@ -8,7 +8,7 @@ import zipfile
 import jsonschema
 import pytest
 
-from canary import bundle_connectors, compact_bundle, coverage_export, dashboard, research_bundle, research_tools, runs
+from canary import bundle_connectors, bundle_encoding, compact_bundle, coverage_export, dashboard, research_bundle, research_tools, runs
 from test_research_bundle import completed, api, wait_bundle
 from test_coverage_evidence_ui import run_dashboard
 
@@ -35,6 +35,8 @@ def test_release_retains_exact_findings_and_standalone_consumer_contract(tmp_pat
     jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker()).validate(after)
     assert compact_bundle.payload(after) == original
     assert manifest['retention']['source_bytes_retained'] is False
+    assert manifest['encoding']['format'] == 'canary.references'
+    assert manifest['encoding']['stored_bytes'] < manifest['encoding']['expanded_bytes']
     original_manifest = json.loads(before['result']['artifacts'][0]['content'])
     assert manifest['specification'] == original_manifest['specification']
     assert manifest['id'] == before['method_metadata']['bundle_id']
@@ -92,6 +94,23 @@ def test_release_never_follows_working_directory_symlinks_and_detects_corruption
         research_bundle.read(workspace)
 
 
+def test_old_plain_compact_bundles_reexport_smaller_without_rewriting_history(tmp_path):
+    prepared(tmp_path);compact_bundle.retain(tmp_path)
+    plain = compact_bundle.read(tmp_path, expanded=True)
+    body = (json.dumps(plain, ensure_ascii=False, separators=(',', ':'))+'\n').encode()
+    (tmp_path/compact_bundle.NAME).write_bytes(body)
+    checksum = hashlib.sha256(body).hexdigest()+'\n'
+    (tmp_path/compact_bundle.CHECKSUM).write_text(checksum)
+    old_manifest = compact_bundle.manifest(tmp_path)
+    assert 'encoding' not in old_manifest
+    result = bundle_connectors.export(tmp_path, 'resolvent')
+    assert bundle_encoding.header(result) is not None
+    assert bundle_encoding.expand(result) == plain
+    assert compact_bundle.projection(tmp_path)['answer'] == plain['method_metadata']['canary_view']['answer']
+    assert (tmp_path/compact_bundle.NAME).read_bytes() == body
+    assert (tmp_path/compact_bundle.CHECKSUM).read_text() == checksum
+
+
 def test_api_default_releases_only_the_new_request_and_keeps_operational_metrics(api, tmp_path):
     server, client, _ = api
     historical = tmp_path/'historical'; historical.mkdir(); prepared(historical)
@@ -103,8 +122,14 @@ def test_api_default_releases_only_the_new_request_and_keeps_operational_metrics
     assert row['retention']['mode'] == 'bundle_only' and row['answered']
     assert client.get('/api/log').json()['runs'][0]['answered']
     assert client.get('/api/runs/'+created['key']+'/research').json()['research']['answer']['claims']
-    body = client.get('/api/runs/'+created['key']+'/exports/resolvent').json()
-    assert body['method_metadata']['canary_view']['answer']['claims']
+    response = client.get('/api/runs/'+created['key']+'/exports/resolvent')
+    body = response.json()
+    assert bundle_encoding.header(body)['format'] == 'canary.references'
+    assert response.content == bundle_encoding.dumps(body).encode('utf-8')
+    expanded = client.get('/api/runs/'+created['key']+'/exports/resolvent?representation=expanded').json()
+    assert expanded == bundle_encoding.expand(body)
+    assert expanded['method_metadata']['canary_view']['answer']['claims']
+    assert client.get('/api/runs/'+created['key']+'/exports/resolvent?representation=invalid').status_code == 400
     assert client.get('/api/runs/'+created['key']+'/sources/W1/context?scope=paper').json()['scope']=='excerpts'
     assert client.get('/api/runs/'+created['key']+'/sources/W1/file').status_code==404
     assert (historical/'papers/W1.txt').read_bytes() == protected
@@ -140,6 +165,9 @@ S.selected='synthetic';
 const data=""" + json.dumps(view) + """;
 assert.match(bundleHtml(data),/Bundle only; full papers released/);
 assert.match(bundleHtml(data),/Download research bundle/);
+assert.match(bundleHtml(data),/Lossless bundle/);
+assert.match(bundleHtml(data),/findings and exact excerpts unchanged/);
+assert.match(bundleHtml(data),/representation=expanded/);
 const state={sourceId:'W1',scope:'paper'};
 S.sourceContexts={[contextKey('W1',undefined,'paper')]:{scope:'excerpts',paragraphs:[],text_available:true}};
 const html=sourceInspector(graph,state);
