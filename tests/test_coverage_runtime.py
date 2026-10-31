@@ -412,6 +412,79 @@ def test_discovery_readiness_provider_and_legacy_pauses_stay_paused(tmp_path, mo
     assert provider["openalex_allowance"] == "configured_key"
 
 
+def _recheck_client(handler):
+    return httpx.Client(transport=httpx.MockTransport(handler), trust_env=False)
+
+
+def test_recheck_releases_only_the_actual_allowance_hold(tmp_path, monkeypatch):
+    import time as real_time
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    runtime._openalex_backoff(tmp_path, deadline=real_time.time() + 3600, retry_after="3600", source="retry_after")
+    runtime._openalex_backoff(tmp_path, allowance="configured_key", deadline=real_time.time() + 3600,
+                               retry_after="3600", source="retry_after")
+    calls = []
+    def handler(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, json={"id": "W2741809807"})
+    result = runtime.recheck_openalex(tmp_path, client=_recheck_client(handler))
+    assert result["status"] == "released" and result["probe_made"] is True
+    assert result["released_backoff"]["scope"] == "anonymous"
+    assert result["current_backoff"] is None
+    assert runtime.discovery_readiness(tmp_path)["status"] == "available"
+    with sqlite3.connect(tmp_path / "out" / "coverage-openalex-usage.sqlite") as db:
+        assert db.execute("SELECT scope FROM provider_backoff_scoped").fetchall() == [("configured_key",)]
+        assert db.execute("SELECT outcome FROM provider_rechecks ORDER BY rowid").fetchall() == [("requested",), ("released",)]
+        assert db.execute("SELECT COUNT(*) FROM searches").fetchone()[0] == 0
+    assert len(calls) == 1 and "/works/W2741809807" in calls[0]
+    # A duplicate operator action inside the cooldown makes no second probe.
+    runtime._openalex_backoff(tmp_path, deadline=real_time.time() + 3600, retry_after="3600", source="retry_after")
+    again = runtime.recheck_openalex(tmp_path, client=_recheck_client(handler))
+    assert again["status"] == "cooldown" and again["probe_made"] is False
+    assert again["next_recheck_not_before_epoch"] > real_time.time()
+    assert len(calls) == 1
+
+
+def test_recheck_still_limited_records_the_fresh_hold(tmp_path, monkeypatch):
+    import time as real_time
+    monkeypatch.setenv("OPENALEX_API_KEY", "synthetic-source-key")
+    runtime._openalex_backoff(tmp_path, allowance="configured_key", deadline=real_time.time() + 3600,
+                               retry_after="3600", source="retry_after")
+    before = real_time.time()
+    result = runtime.recheck_openalex(
+        tmp_path, client=_recheck_client(lambda request: httpx.Response(429, headers={"Retry-After": "120"})))
+    assert result["status"] == "still_paused" and result["http_status"] == 429
+    assert result["current_backoff"]["scope"] == "configured_key"
+    assert before + 100 < result["current_backoff"]["retry_not_before_epoch"] < before + 200
+    assert "synthetic-source-key" not in json.dumps(result)
+
+
+def test_recheck_without_a_releasable_hold_makes_no_probe(tmp_path, monkeypatch):
+    import time as real_time
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    calls = []
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, json={"id": "W2741809807"})
+    assert runtime.recheck_openalex(tmp_path, client=_recheck_client(handler))["status"] == "no_hold"
+    runtime._openalex_backoff(tmp_path, allowance="anonymous", scope="provider",
+                              deadline=real_time.time() + 3600, source="retry_after")
+    blocked = runtime.recheck_openalex(tmp_path, client=_recheck_client(handler))
+    assert blocked["status"] == "not_releasable_scope" and blocked["probe_made"] is False
+    assert runtime.discovery_readiness(tmp_path)["status"] == "paused"
+    assert calls == []
+
+
+def test_recheck_transient_failure_releases_nothing(tmp_path, monkeypatch):
+    import time as real_time
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    runtime._openalex_backoff(tmp_path, deadline=real_time.time() + 3600, retry_after="3600", source="retry_after")
+    def handler(request):
+        raise httpx.ConnectError("down", request=request)
+    result = runtime.recheck_openalex(tmp_path, client=_recheck_client(handler))
+    assert result["status"] == "unavailable" and result["released_backoff"] is None
+    assert runtime.discovery_readiness(tmp_path)["status"] == "paused"
+
+
 def test_discovery_readiness_unreadable_state_is_unknown_never_available(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
     path = tmp_path / "out" / "coverage-openalex-usage.sqlite";path.parent.mkdir()

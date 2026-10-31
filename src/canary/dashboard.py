@@ -1486,6 +1486,10 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path == '/api/footprint/refresh':
                 if body: raise ValueError('Footprint refresh uses the configured server roots; expected an empty object')
                 self._send(200,self.supervisor.footprint(refresh=True))
+            elif parsed.path == '/api/sources/openalex/recheck':
+                if body: raise ValueError('Recheck uses the service data root and its configured allowance; expected an empty object')
+                from .coverage_runtime import recheck_openalex
+                self._send(200, recheck_openalex(self.supervisor.root), headers={'Cache-Control': 'no-store'})
             elif parsed.path == '/api/runs/import':
                 if set(body) - {'server_path','name','brief'} or not isinstance(body.get('server_path'), str):
                     raise ValueError('Expected a server-side bundle path')

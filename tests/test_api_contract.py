@@ -65,6 +65,11 @@ def test_live_openapi_cli_and_responses_share_the_contract(api,capsys):
     discovery=client.get('/api/sources/openalex/status').json()['discovery']
     assert discovery['status']=='available' and discovery['backoff'] is None
     assert discovery['probe_request_made'] is False and discovery['basis']=='recorded_backoff_only'
+    recheck=client.post('/api/sources/openalex/recheck',json={})
+    assert recheck.status_code==200,recheck.text
+    validate_response(contract,'/api/sources/openalex/recheck','post',200,recheck.json())
+    assert recheck.json()['status']=='no_hold' and recheck.json()['probe_made'] is False
+    assert 'x-canary-mcp' not in contract['paths']['/api/sources/openalex/recheck']['post']
     extraction = client.get('/api/status').json()['pdf_extraction']
     assert extraction['concurrent_pdf_conversions'] == 1
     assert extraction['capacity_scope'] == 'service_data_directory'

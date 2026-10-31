@@ -260,6 +260,121 @@ def discovery_readiness(root) -> protocol.DiscoveryReadiness:
             "openalex_allowance": allowance, "backoff": backoff, "unknown_reason": None}
 
 
+RECHECK_COOLDOWN_SECONDS = 60.0
+
+
+def _recheck_audit(db, allowance, outcome, http_status=None, released_epoch=None):
+    epoch = time.time()
+    db.execute("INSERT INTO provider_rechecks VALUES(?,?,?,?,?,?,?)",
+               ("openalex", allowance, outcome, http_status, released_epoch, epoch,
+                datetime.fromtimestamp(epoch, timezone.utc).isoformat()))
+    return epoch
+
+
+def recheck_openalex(root, client=None) -> protocol.OpenAlexRecheck:
+    """Operator-requested recheck of the actual allowance's recorded hold.
+
+    At most one provider probe per cooldown, audit-recorded either way. A
+    successful fresh response deletes only that allowance's own scoped hold;
+    provider-wide and legacy holds and every usage record stay untouched. A
+    still-limited response records the new applicable hold exactly as
+    discovery would. No account, allowance or root can be selected here.
+    """
+    root = Path(root)
+    observed = now()
+    base = {"provider": "openalex", "observed_at": observed, "probe_made": False,
+            "http_status": None, "released_backoff": None, "current_backoff": None,
+            "next_recheck_not_before": None, "next_recheck_not_before_epoch": None}
+    try:
+        key = operator_key(root)
+    except (OSError, ValueError):
+        return {**base, "status": "unavailable", "openalex_allowance": None}
+    allowance = "configured_key" if key else "anonymous"
+    readiness = discovery_readiness(root)
+    if readiness["status"] == "unknown":
+        return {**base, "status": "unavailable", "openalex_allowance": allowance}
+    before = readiness["backoff"]
+    base["current_backoff"] = before
+    if before is None or not before["active"]:
+        return {**base, "status": "no_hold", "openalex_allowance": allowance}
+    if before["scope"] != allowance:
+        return {**base, "status": "not_releasable_scope", "openalex_allowance": allowance}
+    path = root / "out" / "coverage-openalex-usage.sqlite"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(path, timeout=10) as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("CREATE TABLE IF NOT EXISTS provider_rechecks(provider TEXT NOT NULL, allowance TEXT NOT NULL, outcome TEXT NOT NULL, http_status INTEGER, released_retry_not_before REAL, at_epoch REAL NOT NULL, at TEXT NOT NULL)")
+            last = db.execute(
+                "SELECT MAX(at_epoch) FROM provider_rechecks WHERE provider='openalex' AND outcome='requested'"
+            ).fetchone()[0]
+            if last is not None and time.time() - last < RECHECK_COOLDOWN_SECONDS:
+                nxt = last + RECHECK_COOLDOWN_SECONDS
+                return {**base, "status": "cooldown", "openalex_allowance": allowance,
+                        "next_recheck_not_before": datetime.fromtimestamp(nxt, timezone.utc).isoformat(),
+                        "next_recheck_not_before_epoch": nxt}
+            _recheck_audit(db, allowance, "requested")
+    except (OSError, OverflowError, sqlite3.Error):
+        return {**base, "status": "unavailable", "openalex_allowance": allowance}
+    headers = {"User-Agent": "Canary/coverage-native", "Cache-Control": "no-cache", "Pragma": "no-cache"}
+    if key:
+        headers["Authorization"] = "Bearer " + key
+    own = client is None
+    client = client or httpx.Client(timeout=35, trust_env=False, follow_redirects=False)
+    status, http_status, current = "unavailable", None, before
+    try:
+        # One single-work read on the same route: never a counted keyword search.
+        response = client.get("https://api.openalex.org/works/W2741809807",
+                              params={"select": "id"}, headers=headers)
+        http_status = response.status_code
+        if http_status == 200:
+            with sqlite3.connect(path, timeout=10) as db:
+                db.execute("DELETE FROM provider_backoff_scoped WHERE provider='openalex' AND scope=?",
+                           (allowance,))
+                _recheck_audit(db, allowance, "released", http_status,
+                               before["retry_not_before_epoch"])
+            status, current = "released", discovery_readiness(root)["backoff"]
+        elif http_status == 429 or (http_status == 503 and response.headers.get("Retry-After")):
+            retry_after = response.headers.get("Retry-After")
+            deadline, delay_source = _openalex_retry_after(retry_after, time.time())
+            if http_status == 503:
+                current = _openalex_backoff(root, allowance=allowance, scope="provider",
+                                             deadline=deadline, retry_after=retry_after,
+                                             source=delay_source)
+            else:
+                # The fresh keyed observation supersedes this allowance's stale
+                # deadline, guarded so a racing discovery write is never shortened.
+                with sqlite3.connect(path, timeout=10) as db:
+                    replaced = db.execute(
+                        "UPDATE provider_backoff_scoped SET retry_not_before=?, retry_after=?, retry_after_source=? WHERE provider='openalex' AND scope=? AND retry_not_before=?",
+                        (deadline, retry_after, delay_source, allowance,
+                         before["retry_not_before_epoch"])).rowcount
+                if not replaced:
+                    _openalex_backoff(root, allowance=allowance, scope=allowance,
+                                      deadline=deadline, retry_after=retry_after,
+                                      source=delay_source)
+                current = discovery_readiness(root)["backoff"]
+            with sqlite3.connect(path, timeout=10) as db:
+                _recheck_audit(db, allowance, "still_paused", http_status)
+            status = "still_paused"
+        else:
+            with sqlite3.connect(path, timeout=10) as db:
+                _recheck_audit(db, allowance, "unavailable", http_status)
+    except httpx.HTTPError:
+        try:
+            with sqlite3.connect(path, timeout=10) as db:
+                _recheck_audit(db, allowance, "unavailable")
+        except (OSError, sqlite3.Error):
+            pass
+    finally:
+        if own:
+            client.close()
+    return {**base, "status": status, "openalex_allowance": allowance, "probe_made": True,
+            "http_status": http_status,
+            "released_backoff": before if status == "released" else None,
+            "current_backoff": current}
+
+
 def _commit_discovery(workspace, index, progress, plan):
     """Commit usable candidates even when the provider pauses remaining branches."""
     progress["unique_candidates"] = index.count()
