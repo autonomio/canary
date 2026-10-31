@@ -12,7 +12,7 @@ import httpx
 import jsonschema
 import pytest
 
-from canary import api_contract, codex_auth, codex_execution, coverage_runtime as engine, dashboard, runs
+from canary import api_contract, codex_auth, codex_execution, coverage_export, coverage_runtime as engine, dashboard, runs
 from test_coverage_evidence_ui import run_dashboard
 
 
@@ -50,6 +50,15 @@ if sys.argv[1]=='exec':
  cwd=pathlib.Path.cwd();tid='exec-'+cwd.name;threads[tid]={'cwd':str(cwd),'model':sys.argv[sys.argv.index('-m')+1],'effort':'xhigh','cancelled':False}
  log('exec',{'argv':sys.argv,'cwd':str(cwd),'api_url':os.environ.get('CANARY_API_URL')})
  print(json.dumps({'type':'thread.started','thread_id':tid}),flush=True)
+ if (home/'capacity').exists():
+  # codex-cli prints only the message; the code stays in the session's terminal task_complete.
+  capacity='Selected model is at capacity. Please try a different model.';sys.stdin.read()
+  (cwd/'synthetic-committed.txt').write_text('Synthetic fixture only.')
+  print(json.dumps({'type':'item.completed','item':{'id':'item_0','type':'command_execution','command':'canary catalog','exit_code':0,'status':'completed'}}),flush=True)
+  persist(tid)
+  with (home/(tid+'.jsonl')).open('a') as f:f.write(json.dumps({'type':'event_msg','payload':{'type':'task_complete','last_agent_message':None,'error':{'message':capacity,'codex_error_info':'server_overloaded'}}})+'\n')
+  print(json.dumps({'type':'error','message':capacity}),flush=True)
+  print(json.dumps({'type':'turn.failed','error':{'message':capacity}}),flush=True);raise SystemExit(1)
  pathlib.Path(sys.argv[sys.argv.index('-o')+1]).write_text(json.dumps({'marker':cwd.name,'value':17}));persist(tid)
  print(json.dumps({'type':'turn.completed','usage':{}}),flush=True);raise SystemExit()
 for line in sys.stdin:
@@ -240,6 +249,58 @@ assert.match(html,/thread-1/);
 ''')
     finally:
         server.shutdown();server.server_close();thread.join(5)
+
+
+def test_native_capacity_failure_reaches_run_research_and_frontend(native):
+    # Issue #148: terminal server_overloaded after research activity, codex exec exit 1.
+    pool,home,root=native
+    (home/'personal').write_text('PERSONAL-SENTINEL');(home/'capacity').touch()
+    capacity='Selected model is at capacity. Please try a different model.'
+    expected={'code':'server_overloaded','message':capacity,'category':'transient_provider_capacity','same_run_retryable':False}
+    server=dashboard.make_server(0,registry=root/'registry.json',root=root)
+    supervisor=server.RequestHandlerClass.supervisor
+    supervisor.auth.close();supervisor.auth=pool.auth;supervisor.execution=pool;pool.can_start=supervisor._can_execute
+    workspace=root/'capacity';workspace.mkdir()
+    engine.write(workspace/'run.json',{'kind':'question','question':'Synthetic capacity fixture?','status':'researching','minimum_papers':50})
+    runs.register_start('capacity','Fixture','',kind='question',bundle=str(workspace),status='running',path=supervisor.registry)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        with httpx.Client(base_url=f'http://127.0.0.1:{server.server_port}',timeout=20,trust_env=False) as client:
+            failed=client.post('/api/runs/capacity/execution',json={'role':'research'})
+            assert failed.status_code==400 and 'native Codex error server_overloaded: '+capacity in failed.json()['error']
+            receipt=json.loads((workspace/'research-receipt.json').read_text())
+            assert receipt['backend']==codex_execution.LEGACY and receipt['exit_code']==1 and receipt['timed_out'] is False
+            assert receipt['native_error']==expected and (workspace/'synthetic-committed.txt').exists()
+            jsonschema.validate(receipt,api_contract.schemas()['ExecutionReceipt'])
+            # The worker records its failure and finalizes as run_compiled does.
+            engine.write(workspace/'run.json',dict(engine.read(workspace/'run.json'),status='failed',failure='RuntimeError: '+failed.json()['error']))
+            coverage_export.export_bundle(workspace)
+            runs.register_finish('capacity','failed',str(workspace),path=supervisor.registry)
+            row=client.get('/api/runs/capacity').json()
+            research=client.get('/api/runs/capacity/research').json()
+            contract=client.get('/openapi.json').json()
+    finally:
+        server.shutdown();server.server_close();thread.join(5)
+    assert row['status']=='failed' and row['native_error']==expected
+    role=research['research']['profile']['roles']['research']
+    assert role['exit_code']==1 and role['timed_out'] is False and role['native_error']==expected
+    assert 'server_overloaded: '+capacity in research['research']['run']['failure']
+    for path,value in (('/api/runs/{key}',row),('/api/runs/{key}/research',research)):
+        schema=contract['paths'][path]['get']['responses']['200']['content']['application/json']['schema']
+        jsonschema.Draft202012Validator(dict(schema,components=contract['components'])).validate(value)
+    # One bounded attempt with the selected model; no silent retry or model switch.
+    launches=[c['params']['argv'] for c in calls(home) if c['method']=='exec']
+    assert len(launches)==1 and launches[0][launches[0].index('-m')+1]=='gpt-6.1-sol'
+    run_dashboard(root,{'row':row,'research':research['research']},r'''
+const html=answerHtml(graph.row,graph.research), issue=diagnoseRun(graph.row,{});
+assert.match(html,/Model capacity unavailable · research · <code>server_overloaded<\/code>/);
+assert.match(html,/Selected model is at capacity\. Please try a different model\./);
+assert.match(html,/not a scientific refusal or a research error/);
+assert.match(html,/does not retry a scientific role within this run/);
+assert.equal(issue.title,'Model capacity was unavailable');
+assert.equal(issue.text,'server_overloaded: Selected model is at capacity. Please try a different model.');
+assert.match(issue.next,/new run with the same saved model and settings/);
+''')
 
 
 def test_duplicate_role_does_not_interrupt_the_original_and_shutdown_seals_receipts(native):

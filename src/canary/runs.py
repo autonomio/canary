@@ -332,6 +332,8 @@ def parse_bundle(bundle: str | Path) -> dict:
                              "receipts_available": len(receipts)},
                       source_usage_before=run.get("usage_before", {}),
                       source_usage_after=run.get("usage_after", {}))
+        research = _load_json(bundle / "research-receipt.json", {})
+        record["native_error"] = research.get("native_error") if isinstance(research, dict) else None
     receipt = _load_json(Path(str(bundle) + ".receipt.json"), {})
     if isinstance(receipt, dict) and receipt:
         record["container"] = receipt.get("NAME")
