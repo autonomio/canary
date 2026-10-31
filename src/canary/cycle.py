@@ -67,7 +67,8 @@ SYNTHESIS_SYSTEM = (
     "You are a senior researcher. Synthesize the iteration findings below into a "
     "final report: headline answer, supporting evidence per iteration, limits, "
     "and the single most important next question. Under 400 words. Never invent "
-    "numbers; cite iterations as (iter N)."
+    "numbers; cite iterations as (iter N). "
+    + synthesize.QUANTITATIVE_FIDELITY
 )
 
 # Output budgets by role. Generation time grows with the cap, so short

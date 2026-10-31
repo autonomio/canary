@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Literal, TypedDict
 
 from .claim_freshness import schema as freshness_schema
+from .synthesize import QUANTITATIVE_FIDELITY
 
 RESEARCH_MODEL = "gpt-6.1-sol"
 RESEARCH_EFFORT = "xhigh"
@@ -149,7 +150,7 @@ Report publication counts separately from independent study families and core co
 No universal absence/recall assertion from this selected corpus. Keep output question-driven and compact, usually several dozen claims maximum.
 Do not manually copy quotations into the final evidence; cite canonical passage IDs so code binds reproducible verbatim.
 Preserve raw findings; the subsequent independent audit is separate, with checked and unchecked scope explicit.
-"""
+""" + QUANTITATIVE_FIDELITY
 
 
 LOCAL_TEXT_SCOPE = """

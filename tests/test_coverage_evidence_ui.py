@@ -774,3 +774,20 @@ assert.doesNotMatch(html,/<entry\b|<tgroup\b/,'Source XML is displayed as litera
 assert.ok(paragraphInspector(graph.answer,selected.id).includes(esc(selected.text)));
 assert.equal(JSON.stringify(graph),before);
 """)
+
+
+def test_study_result_explains_quantity_fidelity_and_retains_source_navigation(tmp_path):
+    graph = {"study_results": [{"id": "SR1", "result_type": "observed_measurement",
+        "fields": {"outcome": {"value": "Spatial air-temperature variability", "paragraph_ids": ["p1"]},
+                   "value": {"value": "3.5°C (range 1.1–5.7°C)", "paragraph_ids": ["p1"]}}}],
+        "passages": [{"id": "p1", "text": "Daytime variability averaged 3.5°C.", "source_id": "R1"}],
+        "references": [{"id": "R1", "paper": {"title": "Ziter et al. (2019)"}}]}
+    run_dashboard(tmp_path, graph, r"""
+const html=studyResultInspector(graph,'SR1');
+assert.match(html,/Descriptive variability is not an estimated effect/);
+assert.match(html,/comparator, spatial\/temporal scope and study design/);
+assert.match(html,/Spatial air-temperature variability/);
+assert.match(html,/3.5°C \(range 1.1–5.7°C\)/);
+assert.match(html,/data-qa-passage="p1"/);
+assert.match(paragraphInspector(graph,'p1'),/<blockquote[^>]*>Daytime variability averaged 3.5°C\.<\/blockquote>/);
+""")
