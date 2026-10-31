@@ -57,6 +57,16 @@ for line in sys.stdin:
         else:
             result={'type':'chatgpt','loginId':login_id,'authUrl':'https://auth.openai.com/oauth/authorize?state=fixture'}
         if (home/'bad-url').exists():result['authUrl']='javascript:alert(1)'
+    elif method=='account/rateLimits/read':
+        if not credential.exists():
+            send({'id':m['id'],'error':{'message':'not signed in'}});continue
+        (home/'usage-reads').write_text(str(int((home/'usage-reads').read_text())+1) if (home/'usage-reads').exists() else '1')
+        result={'ordinaryUsageAllowed':True,'accountId':'DO-NOT-EXPOSE',
+          'rateLimits':{'limitId':'codex','planType':'pro','rateLimitReachedType':None,
+            'credits':{'hasCredits':True,'unlimited':False,'balance':'DO-NOT-EXPOSE'},
+            'primary':{'usedPercent':20.0,'windowDurationMins':300,'resetsAt':1893456000},
+            'secondary':{'usedPercent':34.5,'windowDurationMins':10080,'resetsAt':1894060800}},
+          'rateLimitsByLimitId':None,'rateLimitResetCredits':{'availableCount':1},'rateLimitUpsell':{'text':'DO-NOT-EXPOSE'}}
     elif method=='account/logout':
         credential.unlink(missing_ok=True)
     elif method=='account/login/cancel':
@@ -113,6 +123,33 @@ def test_login_http_cli_restart_and_logout_share_persistent_context(auth_server,
     finally:
         restarted.close()
     assert not (home/'fixture-account').exists()
+
+
+def test_usage_windows_are_sanitized_cached_and_honest_when_unavailable(auth_server, capsys):
+    server, client, home = auth_server
+    signed_out = client.get('/api/auth/usage')
+    assert signed_out.status_code == 200 and signed_out.headers['cache-control'] == 'no-store'
+    assert signed_out.json()['available'] is False and signed_out.json()['windows'] == []
+    (home/'fixture-account').write_text('fixture')
+    # The signed-out observation is cached for the minute; a fresh process reads anew.
+    auth = codex_auth.CodexAuth(str(home))
+    try:
+        usage = auth.usage()
+        assert usage['available'] is True and usage['plan_type'] == 'pro'
+        assert usage['limit_reached'] is False and usage['ordinary_usage_allowed'] is True
+        assert [(w['used_percent'], w['window_duration_mins']) for w in usage['windows']] == [(20.0, 300), (34.5, 10080)]
+        assert usage['windows'][1]['resets_at_epoch'] == 1894060800.0
+        assert usage['windows'][1]['resets_at'].startswith('2030-01-08')
+        assert 'DO-NOT-EXPOSE' not in json.dumps(usage)
+        assert auth.usage() == usage  # cached observation, not a second backend read
+        assert (home/'usage-reads').read_text() == '1'
+        auth.logout()
+        after = auth.usage()
+        assert after['available'] is False and after['windows'] == []
+    finally:
+        auth.close()
+    assert cli.main(['auth','usage','--port',str(server.server_port),'--json']) == 1
+    assert json.loads(capsys.readouterr().out)['available'] is False
 
 
 def test_browser_cancel_unknown_login_and_concurrent_reuse(auth_server):

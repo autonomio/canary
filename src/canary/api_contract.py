@@ -5,7 +5,7 @@ import typing
 
 from . import coverage_protocol as protocol
 from .claim_freshness import schema as freshness_schema
-from .codex_auth import AuthStatus, Login
+from .codex_auth import AuthStatus, AuthUsage, Login
 from .research_spec import CompiledResearch
 from .research_bundle import ResearchBundle, BundleRetention
 from .service_status import ServiceStatus
@@ -116,6 +116,8 @@ def schemas():
             obj({'kind':fixed('question'),'question':S,'name':S,'brief':S},['kind','question'],closed=False),
             obj({'name':S,'brief':S,'argv':arr(S),'env':obj({name:S for name in ('CANARY_STAGE','CANARY_TIMEOUT_S','CANARY_WHEELS')})},['name','argv'],closed=False)]},
         'CompiledResearch':compiled,'BundleManifest':manifest,'AuthStatus':typed(AuthStatus),'Login':typed(Login),
+        'AuthUsage':{**typed(AuthUsage),
+            'description':'Provider-reported rate-limit windows for the connected account, observed at observed_at and cached by the service for up to a minute. Windows carry used_percent and reset only when the provider supplies them; unavailable stays explicit and never blocks research.'},
         'ServiceStatus':typed(ServiceStatus),'ConnectionStatus':typed(ConnectionStatus),'Run':run,'Runs':obj({'runs':arr(ref('Run'))},['runs']),
         'Footprint':obj({'roots':arr(obj({'path':S,'exists':B},['path','exists'])),
             'registered_runs':nullable(I),'missing_bundles':nullable(I),'registry_error':nullable(S),'scope':S,
@@ -187,6 +189,7 @@ def document():
     op('footprint','get','/api/footprint','Read configured local research footprint and last scan','Footprint',mcp=True)
     op('refresh_footprint','post','/api/footprint/refresh','Index existing research without modifying sources','Footprint',body='FootprintRefreshRequest',mcp=True)
     op('auth_status','get','/api/auth/status','Inspect the service-owned Codex login','AuthStatus',mcp=True)
+    op('auth_usage','get','/api/auth/usage','Read provider-reported rate-limit windows for the connected account; cached for up to a minute and never a research gate','AuthUsage',mcp=True)
     op('auth_login','post','/api/auth/login','Start native Codex login; a human completes the challenge','Login',body='LoginRequest',mcp=True)
     op('auth_progress','get','/api/auth/login/{id}','Read pending native login','Login',params=[('id','path',S,True)],mcp=True)
     op('auth_cancel','post','/api/auth/login/{id}/cancel','Cancel pending native login','Login',body='Object',params=[('id','path',S,True)],mcp=True)
