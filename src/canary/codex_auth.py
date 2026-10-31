@@ -283,6 +283,29 @@ class CodexAuth:
                 self._stop()
             raise
 
+    def _call_advisory(self, method, params=None):
+        """A best-effort read that can never stop the shared app-server.
+
+        Scientific sessions multiplex on this transport, so an advisory
+        call must not own its lifecycle: timeouts and transport errors are
+        the caller's to report, while the owning status/execution paths
+        still stop a genuinely broken process on their own calls.
+        """
+        self._start()
+        return self._rpc(method, params)
+
+    def _drain_events(self) -> None:
+        """Apply queued notifications (sign-in completion clears usage)."""
+        while True:
+            try:
+                event = self.messages.get_nowait()
+            except queue.Empty:
+                return
+            if event is None:
+                self._usage_cache = None
+                return
+            self._event(event)
+
     def status(self) -> AuthStatus:
         with self.lock:
             try:
@@ -324,12 +347,15 @@ class CodexAuth:
         restamp. Unavailable is a successful read, like status.
         """
         with self.lock:
+            # A queued sign-in completion belongs to a newer account than
+            # the cache; apply it (and any close) before trusting the cache.
+            self._drain_events()
             if self._usage_cache and time.monotonic() - self._usage_cache[0] < 60:
                 return dict(self._usage_cache[1])
             observed = datetime.now(timezone.utc).isoformat()
             try:
-                result = self._call('account/rateLimits/read',
-                                    {'excludeResetCreditDetails': True})
+                result = self._call_advisory('account/rateLimits/read',
+                                              {'excludeResetCreditDetails': True})
                 snapshot = result.get('rateLimits') or {}
                 windows = []
                 for name in ('primary', 'secondary'):
@@ -359,9 +385,8 @@ class CodexAuth:
                              limit_reached=snapshot.get('rateLimitReachedType') is not None,
                              ordinary_usage_allowed=allowed if isinstance(allowed, bool) else None,
                              error=None)
-            except (AuthError, OverflowError, OSError, ValueError) as error:
-                if isinstance(error, AuthError) and error.code != 'codex_request_failed':
-                    self._stop()
+            except (AuthError, OverflowError, OSError, ValueError):
+                # Advisory: never stop the shared app-server over usage.
                 usage = dict(available=False, observed_at=observed, windows=[], plan_type=None,
                              limit_reached=None, ordinary_usage_allowed=None,
                              error='Provider usage status is unavailable.')

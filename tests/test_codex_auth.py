@@ -58,6 +58,7 @@ for line in sys.stdin:
             result={'type':'chatgpt','loginId':login_id,'authUrl':'https://auth.openai.com/oauth/authorize?state=fixture'}
         if (home/'bad-url').exists():result['authUrl']='javascript:alert(1)'
     elif method=='account/rateLimits/read':
+        if (home/'usage-stall').exists(): time.sleep(2)
         if not credential.exists():
             send({'id':m['id'],'error':{'message':'not signed in'}});continue
         (home/'usage-reads').write_text(str(int((home/'usage-reads').read_text())+1) if (home/'usage-reads').exists() else '1')
@@ -150,6 +151,43 @@ def test_usage_windows_are_sanitized_cached_and_honest_when_unavailable(auth_ser
         auth.close()
     assert cli.main(['auth','usage','--port',str(server.server_port),'--json']) == 1
     assert json.loads(capsys.readouterr().out)['available'] is False
+
+
+def test_usage_timeout_never_stops_the_shared_app_server(auth_server):
+    _, _, home = auth_server
+    (home/'fixture-account').write_text('fixture')
+    auth = codex_auth.CodexAuth(str(home))
+    try:
+        assert auth.usage()['available'] is True
+        proc = auth.proc
+        (home/'usage-stall').touch()
+        auth.timeout = 0.2
+        auth._usage_cache = None  # force the stalled backend read
+        stalled = auth.usage()
+        assert stalled['available'] is False and stalled['windows'] == []
+        # The advisory read timed out; the shared process and its sessions live on.
+        assert auth.proc is proc and proc.poll() is None
+        (home/'usage-stall').unlink()
+        auth.timeout = 15.0
+        assert auth.status()['authenticated']
+    finally:
+        (home/'usage-stall').unlink(missing_ok=True)
+        auth.close()
+
+
+def test_usage_cache_yields_to_a_queued_sign_in_completion(auth_server):
+    _, _, home = auth_server
+    auth = codex_auth.CodexAuth(str(home))
+    try:
+        assert auth.usage()['available'] is False  # signed-out observation, now cached
+        (home/'fixture-account').write_text('fixture')
+        # The completion notification is queued but no other RPC has drained it.
+        auth.messages.put({'method':'account/login/completed',
+                           'params':{'loginId':'login-1','success':True}})
+        fresh = auth.usage()
+        assert fresh['available'] is True and fresh['windows'][1]['used_percent'] == 34.5
+    finally:
+        auth.close()
 
 
 def test_browser_cancel_unknown_login_and_concurrent_reuse(auth_server):
