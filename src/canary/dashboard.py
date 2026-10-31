@@ -1588,6 +1588,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if method == "GET" and path == "/api/auth/status":
                 result = auth.status()
+            elif method == "GET" and path == "/api/auth/usage":
+                result = auth.usage()
             elif method == "GET" and re.fullmatch(r"/api/auth/login/[^/]+", path):
                 result = auth.progress(unquote(path.rsplit("/", 1)[1]))
             elif method == "POST":

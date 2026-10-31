@@ -61,6 +61,7 @@ login-free; use `canary connect` for sign-in. Its status is refreshed on menu op
 | Method | Path | Body / response |
 | --- | --- | --- |
 | GET | `/api/auth/status` | `AuthStatus` |
+| GET | `/api/auth/usage` | `AuthUsage` |
 | POST | `/api/auth/login` | `{"method":"browser"}` or `{"method":"device"}`; omitted method defaults to browser. Returns `Login`. Reuses the current pending flow. |
 | GET | `/api/auth/login/{id}` | `Login` progress; unknown/restarted IDs return 404. |
 | POST | `/api/auth/login/{id}/cancel` | `{}` → terminal `Login` |
@@ -70,8 +71,10 @@ login-free; use `canary connect` for sign-in. Its status is refreshed on menu op
 
 `Login` contains `id`, `method` (`browser` or `device`), `state` (`pending`, `complete`, `failed`, `cancelled`), `url`, `user_code`, and `error`. Only a pending login has a URL/code. Completion is reported by Codex, not inferred from opening a browser. Poll progress/status while pending; no scientific session is started.
 
+`AuthUsage` reports the rate-limit windows the provider backend returns for the connected account: each window's `used_percent`, `window_duration_mins` (10080 is the weekly window) and reset time when supplied, plus `plan_type`, `limit_reached`, the backend's `ordinary_usage_allowed` permission, and `observed_at`. The service reads the backend at most once a minute and returns the cached observation with its original `observed_at`; signing in or out clears it. Only those fields are relayed — credits, balances, account identifiers, upsells and reset-credit detail never leave the native CLI. Unavailable usage is a successful read (`available: false`), never a gate on research and never an inferred quota. `canary auth usage` relays the same observation.
+
 Errors use `{"error":"safe message","code":"machine_code"}` with HTTP 400/415 (invalid request), 403 (foreign origin), 404 (unknown login/action), 502 (native rejection) or 503 (missing/unavailable Codex). Raw provider error text is withheld. Clients must distinguish unavailable service, unavailable CLI, signed out and pending login.
 
-The adapter uses native stdio JSON-RPC `initialize`, `account/read`, `account/login/start`, `account/login/completed`, `account/login/cancel`, and `account/logout`. Account actions do not create research threads. The same service-owned transport
+The adapter uses native stdio JSON-RPC `initialize`, `account/read`, `account/rateLimits/read`, `account/login/start`, `account/login/completed`, `account/login/cancel`, and `account/logout`. Account actions do not create research threads. The same service-owned transport
 also supports [isolated scientific execution](SHARED_CODEX.md); request IDs and
 thread IDs keep account replies separate from scientific events. See the [native protocol](https://learn.chatgpt.com/docs/app-server) and [Codex authentication](https://learn.chatgpt.com/docs/auth).

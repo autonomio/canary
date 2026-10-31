@@ -1,6 +1,7 @@
 """Service-owned native Codex authentication; never handles OAuth tokens itself."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -45,6 +46,29 @@ class AuthStatus(TypedDict):
     error: str | None
 
 
+class UsageWindow(TypedDict):
+    used_percent: float
+    window_duration_mins: int | None
+    resets_at: str | None
+    resets_at_epoch: float | None
+
+
+class AuthUsage(TypedDict):
+    """Provider-reported rate-limit windows for the connected account.
+
+    Only window percentages, durations and reset times, the plan name, and
+    the backend's own usage permission are relayed — never credits,
+    balances, account identifiers, upsells, or reset-credit detail.
+    """
+    available: bool
+    observed_at: str
+    windows: list[UsageWindow]
+    plan_type: str | None
+    limit_reached: bool | None
+    ordinary_usage_allowed: bool | None
+    error: str | None
+
+
 class AuthError(RuntimeError):
     def __init__(self, message: str, code: str = 'codex_unavailable', status: int = 503):
         super().__init__(message)
@@ -82,6 +106,7 @@ class CodexAuth:
         self.timeout = 15.0
         self.store: str | None = None
         self.executable: str | None = None
+        self._usage_cache: tuple[float, AuthUsage] | None = None
 
     def _stop(self) -> None:
         proc, self.proc = self.proc, None
@@ -192,6 +217,7 @@ class CodexAuth:
     def _event(self, message: dict) -> None:
         with self.lock:
             if message.get('method') == 'account/login/completed':
+                self._usage_cache = None  # A different account may have signed in.
                 event = message.get('params', {})
                 login_id = event.get('loginId')
                 if isinstance(login_id, str):
@@ -257,6 +283,29 @@ class CodexAuth:
                 self._stop()
             raise
 
+    def _call_advisory(self, method, params=None):
+        """A best-effort read that can never stop the shared app-server.
+
+        Scientific sessions multiplex on this transport, so an advisory
+        call must not own its lifecycle: timeouts and transport errors are
+        the caller's to report, while the owning status/execution paths
+        still stop a genuinely broken process on their own calls.
+        """
+        self._start()
+        return self._rpc(method, params)
+
+    def _drain_events(self) -> None:
+        """Apply queued notifications (sign-in completion clears usage)."""
+        while True:
+            try:
+                event = self.messages.get_nowait()
+            except queue.Empty:
+                return
+            if event is None:
+                self._usage_cache = None
+                return
+            self._event(event)
+
     def status(self) -> AuthStatus:
         with self.lock:
             try:
@@ -289,6 +338,60 @@ class CodexAuth:
                 return dict(available=False, authenticated=False, state='unavailable', mode=None,
                             email=None,
                             login=dict(self.login) if self.login else None, error=str(error))
+
+    def usage(self) -> AuthUsage:
+        """Rate-limit windows the provider backend reports for this account.
+
+        A backend read at most once a minute; callers get the cached
+        observation with its original observed_at, never a fresher-looking
+        restamp. Unavailable is a successful read, like status.
+        """
+        with self.lock:
+            # A queued sign-in completion belongs to a newer account than
+            # the cache; apply it (and any close) before trusting the cache.
+            self._drain_events()
+            if self._usage_cache and time.monotonic() - self._usage_cache[0] < 60:
+                return dict(self._usage_cache[1])
+            observed = datetime.now(timezone.utc).isoformat()
+            try:
+                result = self._call_advisory('account/rateLimits/read',
+                                              {'excludeResetCreditDetails': True})
+                snapshot = result.get('rateLimits') or {}
+                windows = []
+                for name in ('primary', 'secondary'):
+                    window = snapshot.get(name)
+                    if not isinstance(window, dict):
+                        continue
+                    used = window.get('usedPercent')
+                    if isinstance(used, bool) or not isinstance(used, (int, float)):
+                        continue
+                    resets = window.get('resetsAt')
+                    if isinstance(resets, bool) or not isinstance(resets, (int, float)):
+                        resets = None
+                    duration = window.get('windowDurationMins')
+                    if isinstance(duration, bool) or not isinstance(duration, int):
+                        duration = None
+                    windows.append(dict(
+                        used_percent=float(used), window_duration_mins=duration,
+                        resets_at=datetime.fromtimestamp(resets, timezone.utc).isoformat()
+                        if resets is not None else None,
+                        resets_at_epoch=float(resets) if resets is not None else None))
+                plan = snapshot.get('planType')
+                if not isinstance(plan, str) or not plan or len(plan) > 80:
+                    plan = None
+                allowed = result.get('ordinaryUsageAllowed')
+                usage = dict(available=True, observed_at=observed, windows=windows,
+                             plan_type=plan,
+                             limit_reached=snapshot.get('rateLimitReachedType') is not None,
+                             ordinary_usage_allowed=allowed if isinstance(allowed, bool) else None,
+                             error=None)
+            except (AuthError, OverflowError, OSError, ValueError):
+                # Advisory: never stop the shared app-server over usage.
+                usage = dict(available=False, observed_at=observed, windows=[], plan_type=None,
+                             limit_reached=None, ordinary_usage_allowed=None,
+                             error='Provider usage status is unavailable.')
+            self._usage_cache = (time.monotonic(), usage)
+            return dict(usage)
 
     def start_login(self, method: str = 'browser') -> Login:
         if method not in ('browser', 'device'):
@@ -343,4 +446,5 @@ class CodexAuth:
                 self.cancel(self.login['id'])
             self._call('account/logout')
             self.login = None
+            self._usage_cache = None
             return self.status()

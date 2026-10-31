@@ -127,7 +127,8 @@ def argument_parser():
     auth_sub = auth.add_subparsers(dest="auth_cmd", required=True)
     login = auth_sub.add_parser("login", help="sign in on the service host")
     login.add_argument("--device", action="store_true", help="use a device code (headless service)")
-    for command in (login, auth_sub.add_parser("status"), auth_sub.add_parser("logout")):
+    usage = auth_sub.add_parser("usage", help="provider-reported rate-limit windows for the connected account")
+    for command in (login, auth_sub.add_parser("status"), auth_sub.add_parser("logout"), usage):
         command.add_argument("--port", type=int, default=None)
         if command is not login:
             command.add_argument("--json", action="store_true")

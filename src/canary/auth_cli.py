@@ -37,6 +37,21 @@ def run(args, port: int) -> int:
                     if data['error']:
                         print(data['error'], file=sys.stderr)
                 return 0 if data['available'] else 1
+            if args.auth_cmd == 'usage':
+                data = request('GET', '/api/auth/usage')
+                if args.json:
+                    print(json.dumps(data))
+                elif data['available'] and data['windows']:
+                    for window in data['windows']:
+                        label = ('weekly' if window['window_duration_mins'] == 10080
+                                 else f"{window['window_duration_mins']} min window"
+                                 if window['window_duration_mins'] else 'window')
+                        print(f"{label}: {window['used_percent']:g}% used" +
+                              (f", resets {window['resets_at']}" if window['resets_at'] else '') +
+                              f" (observed {data['observed_at']})")
+                else:
+                    print(data['error'] or 'Provider usage status is unavailable.', file=sys.stderr)
+                return 0 if data['available'] else 1
             # Keep the create request alive long enough to receive the ID needed
             # to cancel it. SIGINT belongs to the main CLI process, not the API.
             interrupted = False
