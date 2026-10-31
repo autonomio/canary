@@ -1154,8 +1154,8 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
     return payload
 
 
-def _coverage_search_status() -> dict | None:
-    path = runs.ROOT / "out" / "coverage-openalex-usage.sqlite"
+def _coverage_search_status(root=None) -> dict | None:
+    path = (runs.ROOT if root is None else Path(root)) / "out" / "coverage-openalex-usage.sqlite"
     if not path.is_file():
         return None
     date = runs.utcnow()[:10]
@@ -1171,11 +1171,17 @@ def _coverage_search_status() -> dict | None:
         return None
 
 
-def openalex_status() -> dict:
-    """Use the gateway's narrow token only inside its runtime, never in the browser."""
-    native = _coverage_search_status()
+def openalex_status(root=None) -> dict:
+    """Use the gateway's narrow token only inside its runtime, never in the browser.
+
+    `discovery` always reports native coverage readiness for the service
+    data root's actual allowance; counts may still come from the gateway.
+    """
+    from .coverage_runtime import discovery_readiness
+    discovery = discovery_readiness(runs.ROOT if root is None else Path(root))
+    native = _coverage_search_status(root)
     if native is not None:
-        return native
+        return {**native, "discovery": discovery}
     script = ("import json,urllib.request;from pathlib import Path;"
               "token=Path('/state/access.key').read_text().strip();"
               "request=urllib.request.Request('http://127.0.0.1:8787/v1/sources/openalex/status',"
@@ -1184,7 +1190,7 @@ def openalex_status() -> dict:
     try:
         response = _docker("exec", "canary-gate", "python", "-c", script, timeout=15)
         if response.returncode != 0:
-            return {"available": False, "warning": "OpenAlex source status is unavailable."}
+            return {"available": False, "warning": "OpenAlex source status is unavailable.", "discovery": discovery}
         data = json.loads(response.stdout)
         if not isinstance(data, dict):
             raise ValueError("Invalid status")
@@ -1197,9 +1203,9 @@ def openalex_status() -> dict:
                      "resets_in_seconds", "onetime_credits_balance", "onetime_credits_remaining"}
             safe["rate_limit"] = {k: v for k, v in quota.items() if k in names and isinstance(v, (int, float, str))}
         safe.setdefault("available", True)
-        return safe
+        return {**safe, "discovery": discovery}
     except (OSError, ValueError, subprocess.TimeoutExpired):
-        return {"available": False, "warning": "OpenAlex source status is unavailable."}
+        return {"available": False, "warning": "OpenAlex source status is unavailable.", "discovery": discovery}
 
 
 def merged_timeline(bundle: str | Path, tail: int = 0) -> list[dict]:
@@ -1356,7 +1362,7 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path == "/assets/Finlandica-LICENSE.txt":
                 self._send(200, FINLANDICA_LICENSE_PATH.read_bytes(), "text/plain; charset=utf-8")
             elif parsed.path == "/api/sources/openalex/status":
-                self._send(200, openalex_status())
+                self._send(200, openalex_status(self.supervisor.root), headers={'Cache-Control': 'no-store'})
             elif re.fullmatch(r"/api/runs/[^/]+/sources/[^/]+/(?:context|file)", parsed.path):
                 parts = parsed.path.split("/")
                 key, source_id, action = unquote(parts[3]), unquote(parts[5]), parts[6]

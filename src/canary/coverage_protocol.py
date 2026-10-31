@@ -23,6 +23,22 @@ class OpenAlexBackoff(TypedDict):
     active: bool
 
 
+class DiscoveryReadiness(TypedDict):
+    """Read-only recorded-pause observation for the allowance now selected.
+
+    `available` means no recorded applicable pause blocks that allowance; it
+    is not a provider guarantee. No discovery or probe request is made.
+    """
+    provider: Literal['openalex']
+    status: Literal['available', 'paused', 'unknown']
+    openalex_allowance: Literal['anonymous', 'configured_key'] | None
+    backoff: OpenAlexBackoff | None
+    unknown_reason: str | None
+    observed_at: str
+    basis: Literal['recorded_backoff_only']
+    probe_request_made: bool
+
+
 def obj(properties):
     return {"type": "object", "properties": properties, "required": list(properties),
             "additionalProperties": False}

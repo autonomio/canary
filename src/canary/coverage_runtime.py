@@ -178,10 +178,7 @@ def _openalex_backoff(root, *, allowance="anonymous", scope=None, deadline=None,
     scope = scope or allowance
     if scope not in (allowance, "provider"):
         raise ValueError("Unknown OpenAlex backoff scope")
-    legacy_scope = _operator_setting(root, "CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE")
-    if legacy_scope and legacy_scope not in ("anonymous", "configured_key"):
-        raise ValueError("CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE must be anonymous or configured_key")
-    legacy_scope = legacy_scope or "legacy_unknown"
+    legacy_scope = _legacy_backoff_scope(root)
     path = root / "out" / "coverage-openalex-usage.sqlite"
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path, timeout=10) as db:
@@ -191,13 +188,34 @@ def _openalex_backoff(root, *, allowance="anonymous", scope=None, deadline=None,
         if deadline is not None:
             db.execute("INSERT INTO provider_backoff_scoped VALUES(?,?,?,?,?) ON CONFLICT(provider,scope) DO UPDATE SET retry_not_before=excluded.retry_not_before, retry_after=excluded.retry_after, retry_after_source=excluded.retry_after_source WHERE excluded.retry_not_before > provider_backoff_scoped.retry_not_before",
                        ("openalex", scope, deadline, retry_after, source))
+        rows = _applicable_backoff_rows(db, allowance, legacy_scope,
+                                        {"provider_backoff", "provider_backoff_scoped"})
+    return _openalex_backoff_record(rows)
+
+
+def _legacy_backoff_scope(root):
+    legacy_scope = _operator_setting(root, "CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE")
+    if legacy_scope and legacy_scope not in ("anonymous", "configured_key"):
+        raise ValueError("CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE must be anonymous or configured_key")
+    return legacy_scope or "legacy_unknown"
+
+
+def _applicable_backoff_rows(db, allowance, legacy_scope, tables):
+    """Rows that apply to one allowance; other allowances never leak in."""
+    rows = []
+    if "provider_backoff_scoped" in tables:
         rows = [(*row, "recorded_request") for row in db.execute(
             "SELECT retry_not_before,retry_after,retry_after_source,scope FROM provider_backoff_scoped WHERE provider=? AND scope IN (?,?)",
             ("openalex", allowance, "provider"))]
+    if "provider_backoff" in tables:
         legacy = db.execute("SELECT retry_not_before,retry_after,retry_after_source FROM provider_backoff WHERE provider=?", ("openalex",)).fetchone()
         if legacy and legacy_scope in (allowance, "legacy_unknown"):
             rows.append((*legacy, legacy_scope,
                          "legacy_unknown" if legacy_scope == "legacy_unknown" else "operator_attribution"))
+    return rows
+
+
+def _openalex_backoff_record(rows) -> protocol.OpenAlexBackoff | None:
     row = max(rows, key=lambda item: (item[0], item[3] == "provider"), default=None)
     if row is None:
         return None
@@ -206,6 +224,40 @@ def _openalex_backoff(root, *, allowance="anonymous", scope=None, deadline=None,
             "active": row[0] > time.time(), "scope": row[3],
             "scope_source": row[4],
             "reason": {"provider": "service_unavailable", "legacy_unknown": "legacy_scope_unknown"}.get(row[3], "rate_limited")}
+
+
+def discovery_readiness(root) -> protocol.DiscoveryReadiness:
+    """Observe whether a recorded pause blocks the allowance now selected.
+
+    Service-owned root only: callers cannot select a root, allowance or
+    ledger. Read-only: creates nothing, resets nothing, and makes no
+    provider request. `available` therefore means only that no recorded
+    applicable pause blocks the actual allowance, not that OpenAlex will
+    accept the next request.
+    """
+    root = Path(root)
+    base = {"provider": "openalex", "observed_at": now(),
+            "basis": "recorded_backoff_only", "probe_request_made": False}
+    try:
+        allowance = "configured_key" if operator_key(root) else "anonymous"
+    except (OSError, ValueError):
+        return {**base, "status": "unknown", "openalex_allowance": None, "backoff": None,
+                "unknown_reason": "allowance_unavailable"}
+    try:
+        legacy_scope = _legacy_backoff_scope(root)
+        path = root / "out" / "coverage-openalex-usage.sqlite"
+        backoff = None
+        if path.is_file():
+            with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=10) as db:
+                tables = {row[0] for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'")}
+                backoff = _openalex_backoff_record(
+                    _applicable_backoff_rows(db, allowance, legacy_scope, tables))
+    except (OSError, ValueError, TypeError, OverflowError, sqlite3.Error):
+        return {**base, "status": "unknown", "openalex_allowance": allowance, "backoff": None,
+                "unknown_reason": "recorded_backoff_unreadable"}
+    return {**base, "status": "paused" if backoff and backoff["active"] else "available",
+            "openalex_allowance": allowance, "backoff": backoff, "unknown_reason": None}
 
 
 def _commit_discovery(workspace, index, progress, plan):
