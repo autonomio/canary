@@ -225,21 +225,31 @@ def _variability_as_cooling(claim_text: str, spans: list[str]) -> list[str]:
     This is a conservative lexical check, not a general semantic verifier.
     Numbers also found in non-variability statements remain unchecked.
     """
-    variability = re.compile(r"\b(?:variability|variation|range|standard deviation)\b", re.I)
-    cooling = re.compile(r"\b(?:cooling|cooled|cooler|temperature reduction)\b", re.I)
+    variability = re.compile(r"\b(?:variability|variation|standard deviation)\b", re.I)
+    temperature_range = re.compile(
+        r"\btemperatures?\s+range\b|\brange (?:of|in) (?:air[- ]+)?temperatures?\b", re.I)
+    effect = re.compile(
+        r"\b(?:cooling|cooled|cooler|colder|reduc(?:e[ds]?|tion)|lower(?:ed|ing)?|decreas(?:e[ds]?|ing))\b", re.I)
+    temperature_values = re.compile(
+        r"\d+(?:\.\d+)?(?:\s*(?:[-\u2013\u2014]|to)\s*\d+(?:\.\d+)?)?"
+        r"\s*(?:\u00b0\s*[CF]|\u2103|\u2109|degrees?\s+(?:Celsius|Fahrenheit))", re.I)
+
+    def values(sentence):
+        return {n for match in temperature_values.finditer(sentence)
+                for n in _NUM_RE.findall(match.group())}
+
     descriptive, other = set(), set()
     for span in spans:
         for sentence in re.split(r"(?<=[.!?;])\s+", span):
-            numbers = set(_NUM_RE.findall(sentence))
-            if variability.search(sentence) and not cooling.search(sentence):
+            numbers = values(sentence)
+            if (variability.search(sentence) or temperature_range.search(sentence)) and not effect.search(sentence):
                 descriptive.update(numbers)
             else:
                 other.update(numbers)
     suspect = set()
     for sentence in re.split(r"(?<=[.!?;])\s+", claim_text):
-        if cooling.search(sentence) and not re.search(r"\b(?:variability|variation|standard deviation)\b", sentence, re.I):
-            numbers = set(_NUM_RE.findall(_CITE_RE.sub("", sentence)))
-            suspect.update(numbers & (descriptive - other))
+        if effect.search(sentence) and not variability.search(sentence):
+            suspect.update(values(sentence) & (descriptive - other))
     return [f"quantity meaning mismatch: {number} describes variability in the quoted "
             "evidence, not an established cooling magnitude" for number in sorted(suspect)]
 
