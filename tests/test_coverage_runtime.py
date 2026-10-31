@@ -359,6 +359,71 @@ def test_openalex_legacy_attribution_keeps_the_declared_allowance_paused(tmp_pat
     assert runtime._openalex_backoff(tmp_path, allowance=other) is None
 
 
+def test_discovery_readiness_without_ledger_creates_nothing(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    result = runtime.discovery_readiness(tmp_path)
+    assert result["status"] == "available" and result["openalex_allowance"] == "anonymous"
+    assert result["backoff"] is None and result["probe_request_made"] is False
+    assert result["basis"] == "recorded_backoff_only"
+    assert not (tmp_path / "out").exists()
+
+
+def test_discovery_readiness_reports_only_the_actual_allowance_pause(tmp_path, monkeypatch):
+    clock = [1_800_000_000.0]
+    monkeypatch.setattr(runtime.time, "time", lambda: clock[0])
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    runtime._openalex_backoff(tmp_path, deadline=clock[0] + 3600, retry_after="3600", source="retry_after")
+    paused = runtime.discovery_readiness(tmp_path)
+    assert paused["status"] == "paused" and paused["openalex_allowance"] == "anonymous"
+    assert paused["backoff"]["scope"] == "anonymous"
+    assert paused["backoff"]["retry_not_before_epoch"] == clock[0] + 3600
+    # A different allowance's recorded pause never becomes a global stop.
+    (tmp_path / ".env").write_text("OPENALEX_API_KEY=synthetic-source-key\n")
+    available = runtime.discovery_readiness(tmp_path)
+    assert available["status"] == "available" and available["openalex_allowance"] == "configured_key"
+    assert available["backoff"] is None
+    assert "synthetic-source-key" not in json.dumps(available)
+    runtime._openalex_backoff(tmp_path, allowance="configured_key", deadline=clock[0] + 120,
+                               retry_after="120", source="retry_after")
+    keyed = runtime.discovery_readiness(tmp_path)
+    assert keyed["status"] == "paused" and keyed["backoff"]["scope"] == "configured_key"
+    clock[0] += 121  # Expired pauses stay visible but no longer block.
+    expired = runtime.discovery_readiness(tmp_path)
+    assert expired["status"] == "available" and expired["backoff"]["active"] is False
+    with sqlite3.connect(tmp_path / "out" / "coverage-openalex-usage.sqlite") as db:
+        assert db.execute("SELECT COUNT(*) FROM searches").fetchone()[0] == 0
+
+
+def test_discovery_readiness_provider_and_legacy_pauses_stay_paused(tmp_path, monkeypatch):
+    import time as real_time
+    monkeypatch.setenv("OPENALEX_API_KEY", "synthetic-source-key")
+    legacy_root = tmp_path / "legacy"
+    path = legacy_root / "out" / "coverage-openalex-usage.sqlite";path.parent.mkdir(parents=True)
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE provider_backoff(provider TEXT PRIMARY KEY, retry_not_before REAL NOT NULL, retry_after TEXT, retry_after_source TEXT NOT NULL)")
+        db.execute("INSERT INTO provider_backoff VALUES('openalex',?,'3600','retry_after')", (real_time.time() + 3600,))
+    legacy = runtime.discovery_readiness(legacy_root)
+    assert legacy["status"] == "paused" and legacy["backoff"]["reason"] == "legacy_scope_unknown"
+    provider_root = tmp_path / "provider"
+    runtime._openalex_backoff(provider_root, allowance="anonymous", scope="provider",
+                              deadline=real_time.time() + 3600, source="retry_after")
+    provider = runtime.discovery_readiness(provider_root)
+    assert provider["status"] == "paused" and provider["backoff"]["scope"] == "provider"
+    assert provider["openalex_allowance"] == "configured_key"
+
+
+def test_discovery_readiness_unreadable_state_is_unknown_never_available(tmp_path, monkeypatch):
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    path = tmp_path / "out" / "coverage-openalex-usage.sqlite";path.parent.mkdir()
+    path.write_bytes(b"not a sqlite database")
+    result = runtime.discovery_readiness(tmp_path)
+    assert result["status"] == "unknown" and result["backoff"] is None
+    assert result["unknown_reason"] == "recorded_backoff_unreadable"
+    monkeypatch.setenv("CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE", "bogus")
+    invalid = runtime.discovery_readiness(tmp_path / "empty")
+    assert invalid["status"] == "unknown" and invalid["unknown_reason"] == "recorded_backoff_unreadable"
+
+
 @pytest.mark.parametrize("retry_after", [None, "not a date", "-1", "1.5", "999999999999999999999999999999999999999"])
 def test_openalex_429_without_valid_retry_header_still_stops_whole_net(tmp_path, monkeypatch, retry_after):
     clock = [1_800_000_000.0]

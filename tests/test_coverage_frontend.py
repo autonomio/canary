@@ -47,8 +47,36 @@ def test_operator_keyword_counter_is_read_only_and_scoped(tmp_path, monkeypatch)
     result = dashboard.openalex_status()
     assert result["keyword_searches_today"] == 2
     assert "gateway and other clients excluded" in result["count_scope"]
+    assert result["discovery"]["status"] == "available"
+    assert result["discovery"]["probe_request_made"] is False
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT COUNT(*) FROM searches").fetchone()[0] == 3
+
+
+def test_dashboard_renders_discovery_readiness(tmp_path):
+    import re, subprocess
+    script = dashboard.UI_PATH.read_text()
+    functions = []
+    for name in ("discoveryHtml", "usageHtml"):
+        match = re.search(r"(?:^|\n)\s*function " + name + r"\([^\n]*", script)
+        assert match is not None
+        end = re.search(r"\n\s*function ", script[match.end():])
+        functions.append(script[match.start():match.end() + end.start()] if end else script[match.start():])
+    probe = tmp_path / "discovery-readiness.js"
+    probe.write_text("\n".join(functions) + """
+const assert=require('node:assert/strict');
+const esc=String;
+const base={keyword_searches_today:3,date_utc:'2026-10-30',full_day_observed:false,count_scope:'scope'};
+const paused=usageHtml({...base,discovery:{status:'paused',openalex_allowance:'configured_key',
+  backoff:{retry_not_before:'2026-10-30T12:00:00+00:00',reason:'rate_limited'}}});
+assert.match(paused,/Discovery paused for configured key until 2026-10-30T12:00:00/);
+const available=usageHtml({...base,discovery:{status:'available',openalex_allowance:'anonymous',backoff:null}});
+assert.match(available,/No recorded discovery pause for anonymous/);
+const unknown=usageHtml({discovery:{status:'unknown',unknown_reason:'recorded_backoff_unreadable',backoff:null}});
+assert.match(unknown,/Discovery readiness unknown/);
+""")
+    result = subprocess.run(["node", str(probe)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 def test_coverage_run_api_keeps_audit_unknown_separate_from_answer(tmp_path):

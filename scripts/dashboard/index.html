@@ -3488,10 +3488,17 @@
       return `<article class="source"><h3>${qaButton("data-qa-source",r.id,p.title || r.id)}</h3><p class="citation">${esc((p.authors||[]).slice(0,3).join("; "))}${(p.authors||[]).length>3 ? "; et al." : ""}${p.year ? ` · ${esc(p.year)}` : ""}${p.venue ? ` · ${esc(p.venue)}` : ""}</p><div class="source-actions">${qaButton("data-qa-paper",r.id,r.source_retention==="excerpts_only" ? "Read excerpts →" : p.extra?.adapter==='local_text' ? "Read saved text →" : "Read full text →")}${p.extra?.local_file ? `<a href="${sourceFileUrl(r.id)}" target="_blank" rel="noopener">${p.extra?.adapter==='local_text' ? 'Saved text ↗' : 'Saved paper ↗'}</a>` : ""}${p.doi ? link(`https://doi.org/${String(p.doi).replace(/^https?:\/\/(?:dx\.)?doi\.org\//i,"")}`, "DOI ↗") : ""}</div>${r.review ? `<details data-detail="review-${esc(r.id)}"><summary>${esc(r.role || "Reviewed")} · Review contribution</summary><p>${esc(r.review.substantive_review_note || r.review.reason || "")}</p><p class="hint">${esc((r.review.investigated_sections || []).join(" · "))}</p>${(r.review.related_study_ids || []).length ? `<p class="hint">Related reports: ${esc(r.review.related_study_ids.join(" · "))}. Publication count is not independent study count.</p>` : ""}</details>` : ""}${localSourceHtml(r)}${sourceCopiesHtml(r)}${p.abstract ? `<details data-detail="abstract-${esc(r.id)}"><summary>Abstract</summary><p>${esc(p.abstract)}</p></details>` : ""}</article>`;
     }).join("")}`;
   }
+  function discoveryHtml(d) {
+    if (!d) return "";
+    const allowance=d.openalex_allowance ? d.openalex_allowance.replaceAll("_"," ") : "current allowance";
+    if (d.status==="paused") return `<span> · Discovery paused for ${esc(allowance)} until ${esc(d.backoff?.retry_not_before || "unknown")} (${esc(d.backoff?.reason || "recorded pause")}, recorded state only)</span>`;
+    if (d.status==="available") return `<span> · No recorded discovery pause for ${esc(allowance)}</span>`;
+    return `<span> · Discovery readiness unknown${d.unknown_reason ? ` (${esc(d.unknown_reason.replaceAll("_"," "))})` : ""}</span>`;
+  }
   function usageHtml(s) {
-    if (s?.keyword_searches_today == null) return '<span class="hint">Keyword usage unavailable.</span>';
+    if (s?.keyword_searches_today == null) return `<span class="hint">Keyword usage unavailable.</span>${discoveryHtml(s?.discovery)}`;
     const remaining=s.rate_limit?.credits_remaining;
-    return `<span>${esc(s.keyword_searches_today)} Canary keyword requests today${s.full_day_observed===false ? " · partial day observed" : ""} · ${esc(s.date_utc || "UTC")} UTC${remaining != null ? ` · ${esc(remaining)} account credits remaining` : ""}</span><details><summary>Counting scope</summary><p>${esc(s.count_scope || "Successful Canary upstream keyword requests; each result page counts once. Cache hits and other clients are excluded.")}</p>${s.logging_started_at_utc ? `<p>Logging began ${esc(s.logging_started_at_utc)}.</p>` : ""}<p>Account credits and keyword requests are separate units.</p></details>`;
+    return `<span>${esc(s.keyword_searches_today)} Canary keyword requests today${s.full_day_observed===false ? " · partial day observed" : ""} · ${esc(s.date_utc || "UTC")} UTC${remaining != null ? ` · ${esc(remaining)} account credits remaining` : ""}</span>${discoveryHtml(s.discovery)}<details><summary>Counting scope</summary><p>${esc(s.count_scope || "Successful Canary upstream keyword requests; each result page counts once. Cache hits and other clients are excluded.")}</p>${s.logging_started_at_utc ? `<p>Logging began ${esc(s.logging_started_at_utc)}.</p>` : ""}<p>Account credits and keyword requests are separate units. Discovery readiness reflects recorded pauses for the allowance now configured; no provider request is made to observe it.</p></details>`;
   }
   function queryNetHtml(d) {
     const q=d.query_net || {}, r=d.run || {}, progress=d.coverage?.search_progress || d.answer?.coverage?.search_progress;
