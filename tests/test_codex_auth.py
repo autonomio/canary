@@ -97,8 +97,9 @@ def test_login_http_cli_restart_and_logout_share_persistent_context(auth_server,
     assert cli.main(['auth','status','--port',str(server.server_port),'--json']) == 0
     status = json.loads(capsys.readouterr().out)
     assert status['authenticated'] and status['mode']=='chatgpt'
+    # The operator may see which account is connected; tokens never leave the CLI.
+    assert status['email']=='private@example.com'
     assert 'DO-NOT-EXPOSE' not in json.dumps(status)
-    assert 'private@example.com' not in json.dumps(status)
     auth = server.RequestHandlerClass.supervisor.auth
     old_proc = auth.proc
     server.server_close()
@@ -107,7 +108,8 @@ def test_login_http_cli_restart_and_logout_share_persistent_context(auth_server,
     restarted = codex_auth.CodexAuth(str(home))
     try:
         assert restarted.status()['authenticated']
-        assert restarted.logout()['state']=='signed_out'
+        signed_out = restarted.logout()
+        assert signed_out['state']=='signed_out' and signed_out['email'] is None
     finally:
         restarted.close()
     assert not (home/'fixture-account').exists()

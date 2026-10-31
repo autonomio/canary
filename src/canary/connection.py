@@ -14,7 +14,8 @@ class ConnectionStatus(TypedDict):
 
 
 def connection_status(auth: CodexAuth) -> ConnectionStatus:
-    status = dict(auth.status(), login=None)  # Challenges stay on the same-origin auth routes.
+    # Challenges and the account email stay on the same-origin auth routes.
+    status = dict(auth.status(), login=None, email=None)
     version = None
     if status['available'] and auth.executable:
         try:

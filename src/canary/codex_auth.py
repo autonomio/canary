@@ -37,6 +37,10 @@ class AuthStatus(TypedDict):
     authenticated: bool
     state: Literal['signed_in', 'signed_out', 'unavailable']
     mode: str | None
+    # The verified account email the native CLI itself reports, for operator
+    # identity display only. Null when signed out, on API-key sign-in, or when
+    # the CLI does not report one. No other account field is ever relayed.
+    email: str | None
     login: Login | None
     error: str | None
 
@@ -272,14 +276,18 @@ class CodexAuth:
                 account = result.get('account') or {}
                 mode = account.get('type')
                 authenticated = mode in ('chatgpt', 'apiKey')
+                email = account.get('email') if authenticated and mode == 'chatgpt' else None
+                if not isinstance(email, str) or not email or len(email) > 320:
+                    email = None
                 return dict(available=True, authenticated=authenticated,
                             state='signed_in' if authenticated else 'signed_out',
-                            mode=mode if authenticated else None,
+                            mode=mode if authenticated else None, email=email,
                             login=dict(self.login) if self.login else None, error=None)
             except AuthError as error:
                 if error.code != 'codex_request_failed':
                     self._stop()
                 return dict(available=False, authenticated=False, state='unavailable', mode=None,
+                            email=None,
                             login=dict(self.login) if self.login else None, error=str(error))
 
     def start_login(self, method: str = 'browser') -> Login:

@@ -66,7 +66,7 @@ login-free; use `canary connect` for sign-in. Its status is refreshed on menu op
 | POST | `/api/auth/login/{id}/cancel` | `{}` → terminal `Login` |
 | POST | `/api/auth/logout` | `{}` → `AuthStatus` |
 
-`AuthStatus` contains `available`, `authenticated`, `state` (`signed_in`, `signed_out`, `unavailable`), `mode` (`chatgpt`, `apiKey`, or null), `login` (or null), and `error` (or null). Unavailable status is a successful status read (HTTP 200), not a false signed-out result. It does not promise model availability.
+`AuthStatus` contains `available`, `authenticated`, `state` (`signed_in`, `signed_out`, `unavailable`), `mode` (`chatgpt`, `apiKey`, or null), `email`, `login` (or null), and `error` (or null). `email` is the verified account email the native CLI itself reports for a ChatGPT sign-in, so the operator can tell which account is connected; it is null when signed out, on API-key sign-in, or when the CLI reports none. Like login challenges, it stays on these same-origin auth routes: the broader `/api/connection` receipt always reports it as null. No other account field — and never a token — is relayed. Unavailable status is a successful status read (HTTP 200), not a false signed-out result. It does not promise model availability.
 
 `Login` contains `id`, `method` (`browser` or `device`), `state` (`pending`, `complete`, `failed`, `cancelled`), `url`, `user_code`, and `error`. Only a pending login has a URL/code. Completion is reported by Codex, not inferred from opening a browser. Poll progress/status while pending; no scientific session is started.
 
