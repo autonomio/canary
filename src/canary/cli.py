@@ -132,6 +132,11 @@ def argument_parser():
         command.add_argument("--port", type=int, default=None)
         if command is not login:
             command.add_argument("--json", action="store_true")
+    sources = sub.add_parser("sources", help="operator source access through the local API")
+    sources_sub = sources.add_subparsers(dest="sources_cmd", required=True)
+    recheck = sources_sub.add_parser("openalex-recheck", help="recheck the recorded OpenAlex hold after access changes; releases only the actual allowance hold on a successful fresh response")
+    recheck.add_argument("--port", type=int, default=None)
+    recheck.add_argument("--json", action="store_true")
     ask = sub.add_parser("ask", help="coverage-guided full-paper research with independent audit")
     ask.add_argument("question", help="research question in plain words")
     ask.add_argument("--out", default="./out/question", help="deprecated; the API allocates research storage")
@@ -247,7 +252,7 @@ def argument_parser():
     ad.add_argument("--name", default="")
     ad.add_argument("--brief", default="")
     for command_parser in list(sub.choices.values()) + list(rnsub.choices.values()):
-        if command_parser not in (rn, auth) and not any(action.dest == 'port' for action in command_parser._actions):
+        if command_parser not in (rn, auth, sources) and not any(action.dest == 'port' for action in command_parser._actions):
             command_parser.add_argument('--port', type=int, default=None)
     return ap
 
@@ -260,6 +265,9 @@ def _main(argv: list[str] | None = None, *, service_owned=False) -> int:
     if args.cmd == 'mcp':
         from .mcp_server import main as mcp_main
         return mcp_main(_runs_port(args))
+    if args.cmd == 'sources':
+        from .command_client import run
+        return run(args, _runs_port(args))
     if not service_owned and args.cmd not in ('auth', 'run', 'bundle') and not (args.cmd == 'runs' and args.runs_cmd == 'serve'):
         from .command_client import run
         return run(args, _runs_port(args))

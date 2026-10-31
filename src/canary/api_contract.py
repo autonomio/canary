@@ -126,6 +126,7 @@ def schemas():
                 ['started_at','finished_at','seconds','added_keys','errors']))},
             ['roots','registered_runs','missing_bundles','registry_error','scope','last_scan']),
         'FootprintRefreshRequest':obj({}),
+        'OpenAlexRecheckRequest':obj({}),
         'RunStarted':obj({'key':S,'bundle':S,'spec_sha256':S,'bundle_url':S},['key'],closed=False),
         'RunControl':obj({'key':S,'status':nullable(S)},['key','status'],closed=False),
         'Research':research,'ResearchResponse':obj({'key':S,'live':B,'research':ref('Research')},['key','live','research']),
@@ -148,6 +149,8 @@ def schemas():
         'OpenAlexBackoff':typed(protocol.OpenAlexBackoff),
         'DiscoveryReadiness':{**typed(protocol.DiscoveryReadiness),
             'description':'Read-only recorded-pause observation for the allowance now selected in the service data root. available means no recorded applicable pause blocks it, not a provider guarantee; no discovery or probe request is made.'},
+        'OpenAlexRecheck':{**typed(protocol.OpenAlexRecheck),
+            'description':'Outcome of one operator-requested recheck. At most one provider probe per cooldown; success releases only the actual allowance scoped hold, with the released hold and fresh observation audit-recorded.'},
         # Legacy count/quota fields keep their existing native/gateway shapes;
         # only the new readiness observation is pinned by this contract.
         'OpenAlexStatus':obj({'available':B,'keyword_searches_today':I,'full_day_observed':B,
@@ -219,6 +222,8 @@ def document():
     op('usage','get','/api/usage','Read recorded usage; missing values remain unknown',mcp=True)
     op('thread_usage','get','/api/usage/threads/{thread_id}','Read native usage in the service credential context',params=[('thread_id','path',S,True)],mcp=True)
     op('openalex_status','get','/api/sources/openalex/status','Read source search counts, known provider quota, and read-only discovery readiness for the actual allowance; no provider request is made','OpenAlexStatus',mcp=True)
+    # Operator-only mutation: deliberately not an MCP tool, so research agents cannot release holds.
+    op('openalex_recheck','post','/api/sources/openalex/recheck','Operator-requested bounded recheck of the actual allowance recorded hold; a successful fresh response releases only that allowance hold','OpenAlexRecheck',body='OpenAlexRecheckRequest')
     op('import_run','post','/api/runs/import','Register an explicit service-host bundle directory','Run',body='ImportRequest',status=201)
     result['paths']['/api/runs/import']['post']['responses']['200'] = deepcopy(result['paths']['/api/runs/import']['post']['responses']['201'])
     op('action','post','/api/actions','Run a retained compatibility workflow','RunStarted',body='ActionRequest',status=201)

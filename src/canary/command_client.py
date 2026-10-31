@@ -20,6 +20,8 @@ def run(args, port):
         with httpx.Client(base_url=endpoint(port), timeout=30, trust_env=False) as client:
             if args.cmd == 'api':
                 value = request(client,'GET','/openapi.json')
+            elif args.cmd == 'sources':
+                value = request(client, 'POST', '/api/sources/openalex/recheck', json={})
             elif args.cmd == 'ask':
                 if args.out != './out/question':
                     raise ValueError('--out is replaced by API-owned storage; retrieve the returned run with canary bundle RUN_KEY')

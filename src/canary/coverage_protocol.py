@@ -39,6 +39,26 @@ class DiscoveryReadiness(TypedDict):
     probe_request_made: bool
 
 
+class OpenAlexRecheck(TypedDict):
+    """Outcome of one operator-requested recheck of a recorded discovery hold.
+
+    A successful fresh response releases only the actual allowance's own
+    scoped hold. Provider-wide and legacy holds, other allowances, and all
+    usage records are never touched; every request is audit-recorded.
+    """
+    provider: Literal['openalex']
+    status: Literal['released', 'still_paused', 'no_hold', 'not_releasable_scope',
+                    'cooldown', 'unavailable']
+    openalex_allowance: Literal['anonymous', 'configured_key'] | None
+    observed_at: str
+    probe_made: bool
+    http_status: int | None
+    released_backoff: OpenAlexBackoff | None
+    current_backoff: OpenAlexBackoff | None
+    next_recheck_not_before: str | None
+    next_recheck_not_before_epoch: float | None
+
+
 def obj(properties):
     return {"type": "object", "properties": properties, "required": list(properties),
             "additionalProperties": False}
