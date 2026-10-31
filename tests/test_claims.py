@@ -317,3 +317,67 @@ def test_malicious_question_runs_as_query_not_command(tmp_path):
                             FakeCompleter("x"))
     assert seen  # executed as a provider search query, nothing else happened
     assert (tmp_path / "x").exists() is False
+
+
+# Issue 118: the same number and exact citation can describe different quantities.
+@pytest.mark.parametrize("scope", ["abstract", "fulltext"])
+@pytest.mark.parametrize("text,expected", [
+    ("Daytime cooling averaged 3.5°C along transects.", "unsupported"),
+    ("Daytime urban air-temperature variability averaged 3.5°C across locations "
+     "(range 1.1–5.7°C).", "supported"),
+])
+def test_ziter_variability_cannot_support_cooling(scope, text, expected):
+    span = ("Daytime urban air-temperature variability averaged 3.5°C "
+            "(range 1.1–5.7°C) across locations along transects.")
+    source = paper(title="Ziter et al. (2019)", doi="10.1073/pnas.1817561116",
+                   abstract=span if scope == "abstract" else "",
+                   evidence=scope, extra={"fulltext": span} if scope == "fulltext" else {})
+    block = claims_fence({"id": "c1", "text": text, "support": "supported",
+                          "evidence": [{"paper": 1, "span": span}], "scope": scope})
+    result = synthesize.synthesize("How much cooling is attributable to tree canopy?",
+                                   [source], FakeCompleter(block))
+    claim, = result.claims
+    assert claim.evidence[0].anchored
+    assert claim.support == expected
+    if expected == "unsupported":
+        assert any("quantity meaning mismatch: 3.5" in r for r in result.validation["rejected"])
+        rendered = report.render_markdown(ResearchSpec(question="Canopy cooling?"),
+                                          [source], result, None)
+        assert "c1 (unsupported" in rendered
+        assert "not an established cooling magnitude" in rendered
+    else:
+        assert not result.validation["rejected"]
+
+
+@pytest.mark.parametrize("span,text,expected", [
+    ("Temperature standard deviation was 2.0°C across sites.",
+     "Cooling averaged 2.0°C across sites.", "unsupported"),
+    ("The temperature range was 5°C across sites.",
+     "Sites were 5°C cooler.", "unsupported"),
+    ("Cooling averaged 3.5°C relative to treeless sites.",
+     "Cooling averaged 3.5°C relative to treeless sites.", "supported"),
+    ("Cooling averaged 3.5°C (range 1.1–5.7°C) relative to treeless sites.",
+     "Cooling averaged 3.5°C relative to treeless sites.", "supported"),
+    ("Variability averaged 3.5°C. Cooling averaged 1.1°C relative to treeless sites.",
+     "Cooling averaged 1.1°C relative to treeless sites.", "supported"),
+    ("Variability averaged 3.5°C. Cooling averaged 3.5°C relative to treeless sites.",
+     "Cooling averaged 3.5°C relative to treeless sites.", "supported"),
+])
+def test_quantitative_guard_distinguishes_descriptions_from_reported_effects(span, text, expected):
+    claims, validation = synthesize.validate_claims([
+        {"id": "c1", "text": text, "support": "supported", "scope": "abstract",
+         "evidence": [{"paper": 1, "span": span}]}
+    ], [paper(abstract=span)])
+    assert claims[0].support == expected
+    assert bool(validation["rejected"]) == (expected == "unsupported")
+
+
+def test_every_synthesis_and_audit_prompt_preserves_quantitative_meaning():
+    from canary import coverage_protocol
+    for prompt in (synthesize.SYSTEM, synthesize.REDUCE_SYSTEM, cyclemod.SYNTHESIS_SYSTEM,
+                   coverage_protocol.research_prompt("Cooling?", "canary"),
+                   coverage_protocol.audit_prompt("Cooling?", "canary")):
+        assert synthesize.QUANTITATIVE_FIDELITY in prompt
+    uncertainty = coverage_protocol.investigation_schema()["properties"]["claims"]["items"]["properties"]["uncertainty"]
+    assert uncertainty["properties"]["class"]["enum"] == ["low", "moderate", "high"]
+    assert uncertainty["properties"]["score"]["enum"] == [1, 2, 3]
