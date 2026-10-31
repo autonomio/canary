@@ -223,23 +223,23 @@ def _variability_as_cooling(claim_text: str, spans: list[str]) -> list[str]:
     """Narrow warning for descriptive temperature spread recast as cooling.
 
     This is a conservative lexical check, not a general semantic verifier.
-    An explicit cooling passage for the same number prevents this warning.
+    Numbers also found in non-variability statements remain unchecked.
     """
     variability = re.compile(r"\b(?:variability|variation|range|standard deviation)\b", re.I)
     cooling = re.compile(r"\b(?:cooling|cooled|cooler|temperature reduction)\b", re.I)
-    descriptive, effect = set(), set()
+    descriptive, other = set(), set()
     for span in spans:
         for sentence in re.split(r"(?<=[.!?;])\s+", span):
             numbers = set(_NUM_RE.findall(sentence))
-            if cooling.search(sentence):
-                effect.update(numbers)
-            elif variability.search(sentence):
+            if variability.search(sentence) and not cooling.search(sentence):
                 descriptive.update(numbers)
+            else:
+                other.update(numbers)
     suspect = set()
     for sentence in re.split(r"(?<=[.!?;])\s+", claim_text):
-        if cooling.search(sentence) and not variability.search(sentence):
+        if cooling.search(sentence) and not re.search(r"\b(?:variability|variation|standard deviation)\b", sentence, re.I):
             numbers = set(_NUM_RE.findall(_CITE_RE.sub("", sentence)))
-            suspect.update(numbers & (descriptive - effect))
+            suspect.update(numbers & (descriptive - other))
     return [f"quantity meaning mismatch: {number} describes variability in the quoted "
             "evidence, not an established cooling magnitude" for number in sorted(suspect)]
 

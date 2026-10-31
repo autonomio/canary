@@ -350,6 +350,10 @@ def test_ziter_variability_cannot_support_cooling(scope, text, expected):
 
 
 @pytest.mark.parametrize("span,text,expected", [
+    ("Daytime variability averaged 3.5°C (range 1.1–5.7°C).",
+     "Daytime cooling averaged 3.5°C (range 1.1–5.7°C).", "unsupported"),
+    ("Variability averaged 3.5°C. Canopied sites had 3.5°C lower temperatures than treeless sites.",
+     "Canopied sites were 3.5°C cooler than treeless sites.", "supported"),
     ("Temperature standard deviation was 2.0°C across sites.",
      "Cooling averaged 2.0°C across sites.", "unsupported"),
     ("The temperature range was 5°C across sites.",
