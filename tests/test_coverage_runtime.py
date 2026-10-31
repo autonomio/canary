@@ -472,6 +472,22 @@ def test_recheck_without_a_releasable_hold_makes_no_probe(tmp_path, monkeypatch)
     assert blocked["status"] == "not_releasable_scope" and blocked["probe_made"] is False
     assert runtime.discovery_readiness(tmp_path)["status"] == "paused"
     assert calls == []
+    # An operator-attributed legacy hold reports this allowance as its scope,
+    # but it lives in the legacy row: still never probed or claimed released.
+    legacy_root = tmp_path / "attributed"
+    path = legacy_root / "out" / "coverage-openalex-usage.sqlite";path.parent.mkdir(parents=True)
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE provider_backoff(provider TEXT PRIMARY KEY, retry_not_before REAL NOT NULL, retry_after TEXT, retry_after_source TEXT NOT NULL)")
+        db.execute("INSERT INTO provider_backoff VALUES('openalex',?,'3600','retry_after')", (real_time.time() + 3600,))
+    (legacy_root / ".env").write_text("CANARY_OPENALEX_LEGACY_BACKOFF_ALLOWANCE=anonymous\n")
+    attributed = runtime.discovery_readiness(legacy_root)
+    assert attributed["backoff"]["scope"] == "anonymous"
+    assert attributed["backoff"]["scope_source"] == "operator_attribution"
+    legacy = runtime.recheck_openalex(legacy_root, client=_recheck_client(handler))
+    assert legacy["status"] == "not_releasable_scope" and legacy["probe_made"] is False
+    assert legacy["released_backoff"] is None
+    assert runtime.discovery_readiness(legacy_root)["status"] == "paused"
+    assert calls == []
 
 
 def test_recheck_transient_failure_releases_nothing(tmp_path, monkeypatch):

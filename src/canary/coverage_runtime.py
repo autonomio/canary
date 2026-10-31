@@ -297,7 +297,11 @@ def recheck_openalex(root, client=None) -> protocol.OpenAlexRecheck:
     base["current_backoff"] = before
     if before is None or not before["active"]:
         return {**base, "status": "no_hold", "openalex_allowance": allowance}
-    if before["scope"] != allowance:
+    # Only this allowance's own recorded-request hold can be released here.
+    # A legacy row stays out of reach even when the operator attributed it to
+    # this allowance: deleting scoped rows would not lift it, so claiming a
+    # release would be false.
+    if before["scope"] != allowance or before["scope_source"] != "recorded_request":
         return {**base, "status": "not_releasable_scope", "openalex_allowance": allowance}
     path = root / "out" / "coverage-openalex-usage.sqlite"
     try:
