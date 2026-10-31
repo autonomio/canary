@@ -31,7 +31,7 @@ def api(tmp_path,monkeypatch):
         return {'key':'synthetic','bundle':str(workspace),'spec_sha256':packet['spec_sha256']}
     monkeypatch.setattr(supervisor,'start_compiled',start)
     monkeypatch.setattr(supervisor.auth,'status',lambda:{'available':True,'authenticated':False,
-        'state':'signed_out','mode':None,'login':None,'error':None})
+        'state':'signed_out','mode':None,'email':None,'login':None,'error':None})
     thread = threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     with httpx.Client(base_url=f'http://127.0.0.1:{server.server_port}',timeout=20,trust_env=False) as client:
         yield server,client,tmp_path
