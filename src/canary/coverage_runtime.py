@@ -34,6 +34,7 @@ from . import coverage_protocol as protocol
 from .runtime_paths import data_root
 from .processes import RunCancelled, stop_tree, identity, tool_receipts
 from .candidate_index import CandidateIndex, abstract_text
+from .redact import redact_text
 
 WORK_ID = re.compile(r"W[1-9][0-9]{0,19}\Z")
 SOURCE_ID = re.compile(r"(?:W[1-9][0-9]{0,19}|L[0-9a-f]{24})\Z")
@@ -870,6 +871,41 @@ def _native_usage(thread_id, codex_home=None):
         "count_scope": "Unique native per-response receipts owned by this scientific thread; cached input/reasoning output are subsets, not extra tokens."}
 
 
+def native_error(thread_id, codex_home):
+    """Terminal task error from the native session; `codex exec --json` prints only its message.
+
+    Unreadable or absent evidence stays unknown (None). The message is bounded and redacted."""
+    error = None
+    try:
+        database = max(Path(codex_home).glob("state_*.sqlite"), key=lambda p: int(p.stem.split("_")[-1]))
+        with sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+            rollout, = connection.execute("SELECT rollout_path FROM threads WHERE id=?", (thread_id,)).fetchone()
+        with Path(rollout).open(encoding="utf-8", errors="replace") as stream:
+            for line in stream:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                payload = record.get("payload") if isinstance(record, dict) and record.get("type") == "event_msg" else None
+                if isinstance(payload, dict) and payload.get("type") == "task_complete":
+                    error = payload.get("error")  # the last turn decides; success clears it
+    except (OSError, sqlite3.Error, ValueError, TypeError):
+        return None
+    if not isinstance(error, dict):
+        return None
+    code, message = error.get("codex_error_info"), error.get("message")
+    if isinstance(code, dict) and len(code) == 1:
+        code = next(iter(code))  # struct variants serialize as {"name": {details}}
+    code = code if isinstance(code, str) else None
+    message = redact_text(message)[:500] if isinstance(message, str) else None
+    if code is None and message is None:
+        return None
+    # Only the observed capacity code is classified; a scientific role starts once per run.
+    return {"code": code, "message": message,
+            "category": "transient_provider_capacity" if code == "server_overloaded" else "unclassified",
+            "same_run_retryable": False}
+
+
 def command_line(executable, model, effort, workspace, shape, output, *, store=None):
     from .codex_auth import credential_store
     store = credential_store(store or os.environ.get('CANARY_CODEX_CREDENTIALS_STORE', 'file'))
@@ -1011,9 +1047,12 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
                     "exit_code": exit_code, "thread_id": thread_id, "model": model, "reasoning_effort": effort,
                     "timed_out": timed_out, "turn_usage": turn_usage,
                     "usage": native_usage(thread_id, session.home) if thread_id else {"available": False, "reason": "No scientific thread ID"},
+                    "native_error": native_error(thread_id, session.home) if exit_code and thread_id else None,
                     **invocation, 'cleanup': cleanup}
                 write(workspace / (role + "-receipt.json"), receipt)
         event(workspace, role + "_finished", seconds=receipt["seconds"], exit_code=exit_code, timed_out=timed_out)
+        failure = receipt["native_error"]
+        detail = "; native Codex error " + ": ".join(filter(None, (failure["code"], failure["message"]))) if failure else ""
         candidate = output_path if output_path.exists() else workspace / "audit.json"
         if role == "audit" and candidate.exists():
             try:
@@ -1035,9 +1074,9 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
                 "limitations": ["Audit did not produce a usable persisted payload"], "scope_note": "Unavailable audit is not scientific acceptance."}
             write(workspace / "audit.json", result)
         else:
-            raise RuntimeError("Research session failed to produce structured final research; partial files and receipts are preserved")
+            raise RuntimeError("Research session failed to produce structured final research; partial files and receipts are preserved" + detail)
         if exit_code and role == "research":
-            raise RuntimeError("Research session failed; existing partial investigation remains available")
+            raise RuntimeError("Research session failed; existing partial investigation remains available" + detail)
         refresh_committed_progress(workspace, role, model, effort, thread_id, started, receipt["seconds"], finished=True,
             codex_home=session.home, execution=invocation, progress_state=progress_state)
         return result, receipt

@@ -65,6 +65,14 @@ period for receipts. Detached orchestration-worker liveness still survives API
 restarts, but a shared scientific turn cannot survive losing its owning service.
 A later service starts a new backend for new work, not an automatic research retry.
 
+A failed role's receipt records `native_error` from the native session's final
+`task_complete` event; `codex exec --json` prints only its message. `code` is the
+verbatim `codex_error_info` and `message` is bounded and redacted. `server_overloaded`
+is `transient_provider_capacity`, not a scientific refusal or research error; other
+codes stay `unclassified`. `same_run_retryable` is false because a role runs once
+per run; `rerun` starts a new run with the saved settings. The run API reports the
+research role's error, and `/research` keeps each role's under `profile.roles`.
+
 ## Verification
 
 The [native API smoke receipt](../validation/shared-codex-live-20261028.json)

@@ -12,7 +12,7 @@ from .service_status import ServiceStatus
 from .connection import ConnectionStatus
 from .candidate_index import CandidateMetadata
 from .bundle_encoding import ReferenceEncoding
-from .codex_execution import ExecutionRequest, ExecutionReceipt, ExecutionFinish, ExecutionFinished
+from .codex_execution import ExecutionRequest, ExecutionReceipt, ExecutionFinish, ExecutionFinished, NativeError
 
 S = {'type':'string'}
 I = {'type':'integer'}
@@ -97,7 +97,7 @@ def schemas():
         'started_at':nullable(S),'ended_at':nullable(S),'duration_seconds':nullable({'type':'number'}),
         'answered':nullable(B),'papers_covered':nullable(I),'input_tokens':nullable(I),
         'output_tokens':nullable(I),'cached_tokens':nullable(I),'usage':O,'research_summary':O,
-        'retention':typed(BundleRetention)},['key'],closed=False)
+        'native_error':nullable(ref('NativeError')),'retention':typed(BundleRetention)},['key'],closed=False)
     run['properties']['input_tokens']['description'] = 'Total input, including cached input. Null means unavailable.'
     run['properties']['cached_tokens']['description'] = 'Subset of input tokens; do not add to total input. Null means unavailable.'
     run['properties']['output_tokens']['description'] = 'Total output, including reasoning where the native provider reports it. Null means unavailable.'
@@ -144,6 +144,8 @@ def schemas():
         'Log':obj({'runs':arr(ref('Run'))},['runs']),
         'LoginRequest':obj({'method':{'type':'string','enum':['browser','device'],'default':'browser'}}),
         'ExecutionRequest':typed(ExecutionRequest),'ExecutionReceipt':typed(ExecutionReceipt),
+        'NativeError':{**typed(NativeError),
+            'description':'Terminal native Codex error of a scientific role (task_complete.error in its native session); a run reports its research role. code is codex_error_info verbatim; message is bounded and redacted. transient_provider_capacity (server_overloaded) is not a scientific refusal or a research error; other codes stay unclassified. same_run_retryable is false: a scientific role runs once per run, and rerun starts a new run with the saved settings.'},
         'ExecutionFinish':typed(ExecutionFinish),'ExecutionFinished':typed(ExecutionFinished),
         'CandidateMetadata':typed(CandidateMetadata),
         'OpenAlexBackoff':typed(protocol.OpenAlexBackoff),

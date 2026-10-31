@@ -37,6 +37,13 @@ class ExecutionFinished(ExecutionFinish):
     key: str
 
 
+class NativeError(TypedDict):
+    code: str | None
+    message: str | None
+    category: Literal['transient_provider_capacity', 'unclassified']
+    same_run_retryable: bool
+
+
 class ExecutionReceipt(TypedDict, total=False):
     backend: Literal['shared_codex_app_server', 'codex_exec']
     fallback_reason: str | None
@@ -49,6 +56,7 @@ class ExecutionReceipt(TypedDict, total=False):
     seconds: float
     exit_code: int
     timed_out: bool
+    native_error: NativeError | None
     turn_usage: list[dict]
     usage: dict
     cleanup: dict
