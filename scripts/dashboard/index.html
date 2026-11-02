@@ -3357,7 +3357,7 @@
     return `<p class="notice">Imported local text · ${esc(extra.local_source?.file || 'File identity unavailable')}. Completeness, tables, figures and publication version require verification.</p><p class="hint">Original SHA-256: <code>${esc(extra.body_sha256 || 'Unknown')}</code> · canonical text SHA-256: <code>${esc(extra.text_sha256 || 'Unknown')}</code></p>`;
   }
   function additionalSourcesHtml(d) {
-    const rows=d.coverage?.additional_sources || (d.run?.additional_sources || []).map(source=>({source,status:'not_searched'}));
+    const rows=d.coverage?.additional_sources?.length ? d.coverage.additional_sources : (d.run?.additional_sources || []).map(source=>({source,status:'not_searched'}));
     if(!rows.length) return '';
     return `<section class="coverage"><h3>Additional sources</h3><p class="hint">OpenAlex remains the paper source. These documents do not count toward the paper target.</p>${rows.map(r=>`<article><h4>${esc(r.label || r.source)} · ${esc(r.status)}</h4><p>${fmt(r.candidates || 0)} candidates · ${fmt(r.retrieved || 0)} records retrieved</p><p>${esc(r.limitations || 'Discovery has not completed.')}</p>${(r.failures || []).map(f=>`<p class="notice">${esc(f)}</p>`).join('')}</article>`).join('')}</section>`;
   }

@@ -202,13 +202,33 @@ def test_ops_rejection_stays_incomplete_and_retains_only_public_rate_headers(wor
     assert all(secret not in persisted for secret in ('private-response-token', 'private-cookie', 'private-error-body'))
 
 
-def test_only_enabled_sources_can_be_queried_and_history_cannot_change_provider(workspace):
-    original = (workspace / 'draft.json').read_bytes()
-    wrong = plan(*adapters.NAMES); wrong['queries'][1]['source'] = 'not-enabled'
-    engine.write(workspace / 'draft.json', wrong)
-    with pytest.raises(ValueError): discover(workspace)
+@pytest.mark.parametrize('disabled', adapters.NAMES)
+def test_supported_but_disabled_provider_is_rejected_before_discovery(workspace, disabled):
+    record = engine.read(workspace / 'run.json')
+    record['additional_sources'].remove(disabled)
+    engine.write(workspace / 'run.json', record)
+    def unexpected_request(request):
+        pytest.fail('A rejected plan must not contact a provider')
+    with pytest.raises(ValueError, match='Query requests a source not enabled for this run'):
+        discover(workspace, unexpected_request)
     assert not (workspace / 'question-plan.json').exists()
-    (workspace / 'draft.json').write_bytes(original)
+    assert not (workspace / 'search-progress.json').exists()
+
+
+@pytest.mark.parametrize('missing', ('openalex', *adapters.NAMES))
+def test_initial_plan_must_cover_every_enabled_provider_before_discovery(workspace, missing):
+    draft = plan(*adapters.NAMES)
+    draft['queries'] = [q for q in draft['queries'] if q['source'] != missing]
+    engine.write(workspace / 'draft.json', draft)
+    def unexpected_request(request):
+        pytest.fail('An incomplete initial plan must not contact a provider')
+    with pytest.raises(ValueError, match='Initial plan must include each enabled source: ' + missing):
+        discover(workspace, unexpected_request)
+    assert not (workspace / 'question-plan.json').exists()
+    assert not (workspace / 'search-progress.json').exists()
+
+
+def test_committed_query_history_cannot_change_provider(workspace):
     discover(workspace)
     committed = (workspace / 'question-plan.json').read_bytes()
     wrong = plan(*adapters.NAMES); wrong['queries'][1]['source'] = 'osf'; wrong['queries'][1]['search'] = 'different'
@@ -288,6 +308,29 @@ def test_payload_and_resolvent_preserve_source_semantics_and_do_not_count_plans_
         assert context['text_complete'] is False and context['source_bytes_retained'] is False
         assert 'Full-paper' not in context['warning']
         assert adapters.LIMITATIONS[reference['paper']['extra']['adapter']] in context['warning']
+
+
+@pytest.mark.parametrize('state', ('planning', 'cancelled', 'failed'))
+def test_ui_keeps_unsearched_requested_sources_visible_in_both_views(workspace, tmp_path, state):
+    record = dict(engine.read(workspace / 'run.json'), status=state)
+    engine.write(workspace / 'run.json', record)
+    assert not (workspace / 'additional-sources.json').exists()
+    views = [dashboard.question_research_bundle(workspace, record), coverage_export.export_bundle(workspace)]
+    for view in views:
+        assert view['coverage']['additional_sources'] == []
+        view['compiled_bundle'] = research_bundle.read(workspace)
+    run_dashboard(tmp_path, views, r'''
+for(const view of graph) {
+  for(const render of [bundleHtml,queryNetHtml]) {
+    const html=render(view);
+    assert.match(html,/Additional sources/);
+    for(const source of ['clinicaltrials','epo','osf']) assert.ok(html.includes(source+' · not_searched'));
+    assert.equal((html.match(/0 candidates · 0 records retrieved/g) || []).length,3);
+    assert.doesNotMatch(html,/· complete/);
+  }
+}
+assert.equal(additionalSourcesHtml({run:{},coverage:{additional_sources:[]}}),'');
+''')
 
 
 def test_ui_selects_sources_and_exposes_type_scope_and_failures(tmp_path):
