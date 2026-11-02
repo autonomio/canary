@@ -663,6 +663,8 @@ def research_summary(row: dict) -> dict:
                            claims_count=len(claims), supported_claims_count=sum(bool(c.get("evidence_ids")) for c in claims if isinstance(c, dict)),
                            unanswered_count=len(graph.get("unanswered", [])),
                            gaps_count=len(graph.get("gaps", [])), residue_count=len(graph.get("residue", [])))
+            if native_run.get('additional_sources'):
+                summary['papers_count_scope'] = 'source_candidates'
             return summary
     remaining = SUMMARY_READ_CHARS
     bundle = row.get("bundle")

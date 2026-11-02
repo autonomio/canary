@@ -293,3 +293,12 @@ def test_clinical_pagination_retains_first_page_count_when_later_pages_omit_it(w
     assert resumed['complete'] and resumed['queries']['q1']['pages'] == 2
     assert resumed['queries']['q1']['matched'] == 2
     assert next(s for s in resumed['additional_sources'] if s['source'] == 'clinicaltrials')['candidates'] == 2
+
+
+def test_mixed_source_summary_counts_are_labeled_as_candidates(workspace):
+    record=engine.read(workspace/'run.json')
+    engine.write(workspace/'run.json',dict(record,kind='question',discovered=4))
+    summary=dashboard.research_summary({'bundle':str(workspace)})
+    assert summary['papers_count']==4 and summary['papers_count_scope']=='source_candidates'
+    engine.write(workspace/'run.json',dict(record,kind='question',additional_sources=[],discovered=4))
+    assert 'papers_count_scope' not in dashboard.research_summary({'bundle':str(workspace)})
