@@ -1,0 +1,374 @@
+{
+  "implementation_revision": "05f6d544718c1b2d4f2ec9996b4af52ecc5173a1",
+  "live_run_initial_revision": "2cc4442d3a04e40b57488856251eeaf4177fc4a0",
+  "later_code_change": "Retained-context scope wording only; provider and scientific engine code unchanged.",
+  "default_path": "OpenAlex remains default; empty additional_sources preserves the resolved default digest.",
+  "regression": {
+    "code_revision": "05f6d544718c1b2d4f2ec9996b4af52ecc5173a1",
+    "non_live_tests_passed": 1119,
+    "python_versions": [
+      "3.10",
+      "3.11",
+      "3.13"
+    ],
+    "ci_docker_and_safety": "passed",
+    "focused_source_compact_bundle_evidence_ui_tests_passed": 46
+  },
+  "live": {
+    "run_key": "optional-sources-compact-full-research-202611020903",
+    "bundle_id": "RB-e8ecbfa1be2f4ff9968039ed3bd2a8c2",
+    "spec_sha256": "7dc1d6f7d1f9afbd6161668f4f5bd7b9fa5a6fdd806d92033e58e8dd84a32ced",
+    "roles": {
+      "research": {
+        "model": "gpt-6.1-sol",
+        "effort": "xhigh",
+        "no_subagents_verified": true
+      },
+      "audit": {
+        "model": "gpt-6-astra",
+        "effort": "ultra",
+        "no_subagents_verified": true
+      }
+    },
+    "target_publications": 50,
+    "reviewed_publications": 50,
+    "additional_documents_reviewed": 11,
+    "acquired_sources": 62,
+    "claims": 6,
+    "study_results": 5,
+    "mechanical_audit_pass": true,
+    "additional_sources": [
+      {
+        "source": "clinicaltrials",
+        "label": "ClinicalTrials.gov",
+        "status": "complete",
+        "query_ids": [
+          "Q4",
+          "Q7"
+        ],
+        "candidates": 697,
+        "retrieved": 7,
+        "limitations": "Registered studies and posted aggregate results only; missing results are not null findings. No participant-level data. Coverage is limited to ClinicalTrials.gov.",
+        "failures": []
+      },
+      {
+        "source": "osf",
+        "label": "OSF Registrations",
+        "status": "complete",
+        "query_ids": [
+          "Q5",
+          "Q6"
+        ],
+        "candidates": 22,
+        "retrieved": 4,
+        "limitations": "OSF public registration metadata search; acquired registration responses and available form schema only. Linked papers, files and datasets are not automatically read. Registration timing must be checked before calling a plan prospective; plans do not establish results.",
+        "failures": []
+      }
+    ],
+    "record_identity_and_original_body_hashes_verified": 11,
+    "trial_records_with_posted_results": 4,
+    "trial_records_without_posted_results": 3,
+    "additional_research_passage_offsets_verified_before_release": 35,
+    "all_additional_research_offsets_verified": true,
+    "retained_context_api_checks": [
+      {
+        "adapter": "clinicaltrials",
+        "source_id": "Sca189f57a0d7abb3297b6ed4",
+        "excerpt_verified": true,
+        "provider_scope_warning_retained": true,
+        "source_bytes_retained": false
+      },
+      {
+        "adapter": "osf",
+        "source_id": "S3b654e9cedd7397bbab81f6d",
+        "excerpt_verified": true,
+        "provider_scope_warning_retained": true,
+        "source_bytes_retained": false
+      }
+    ],
+    "audit": {
+      "budget_seconds": 600,
+      "complete": false,
+      "checked_claims": 6,
+      "assessment_counts": {
+        "supported": 5,
+        "correction_needed": 1
+      },
+      "correction_needed": [
+        "C3"
+      ],
+      "findings": [
+        {
+          "id": "F1",
+          "severity": "minor",
+          "description": "C3/SR3 compress heterogeneous follow-up into 8\u201324 weeks. The cited review reports Moon at six months, Wada at 24 weeks and Allen at eight weeks; six months is not an exact 24-week endpoint. The pooled estimate itself matches.",
+          "claim_ids": [
+            "C3"
+          ],
+          "reference_ids": [
+            "W4412943684"
+          ],
+          "passage_ids": [
+            "W4412943684-p0182",
+            "W4412943684-p0184",
+            "W4412943684-p0186",
+            "W4412943684-p0189"
+          ]
+        }
+      ],
+      "limitations": [
+        "Source checks in progress.",
+        "Audit stopped at its recorded time budget; intermediate audit preserved."
+      ],
+      "scope_note": "All six claims initially checked; selection, family counts, adverse alternatives and remaining source details still in progress."
+    },
+    "receiver": {
+      "run_key": "optional-sources-compact-full-research-202611020903",
+      "bundle_id": "RB-e8ecbfa1be2f4ff9968039ed3bd2a8c2",
+      "receiver_revision": "7d7e2da29b97814a70b42bd7bf442ee455b3da09",
+      "bundle_archive_sha256": "7e63ba2d967c4351026cdfab0194fa2dc373180f0971066dfd6ccd94e1195657",
+      "handoff_sha256": "17b55258c02699e14df83238c0e983c313a8addcc7431af2b0847b2e4df29b63",
+      "claims_submitted": 6,
+      "verbatims_reconstructed": 0,
+      "retained_excerpts_verified": 85,
+      "source_verification_scope": "retained excerpts and locators; full originals released",
+      "canonical_source_kinds": {
+        "clinical_trial_registry": 18,
+        "publication": 50,
+        "study_registration": 17
+      },
+      "dry_run": true,
+      "apply": true,
+      "compiler_require_closure": true,
+      "idempotent_retry": true,
+      "dispositions": [
+        {
+          "candidate_id": "c1",
+          "disposition": "deferred",
+          "claim_id": null,
+          "reason": "Outside this bounded receiving proof; further source and independence review is required before production admission."
+        },
+        {
+          "candidate_id": "c2",
+          "disposition": "deferred",
+          "claim_id": null,
+          "reason": "Outside this bounded receiving proof; further source and independence review is required before production admission."
+        },
+        {
+          "candidate_id": "c3",
+          "disposition": "rejected",
+          "claim_id": null,
+          "reason": "The preserved independent audit identifies unsupported exact follow-up precision (8-24 weeks versus native six-month and 24-week endpoints). Do not admit this unchanged candidate."
+        },
+        {
+          "candidate_id": "c4",
+          "disposition": "created",
+          "claim_id": "C-1de2b84198c95430912720151cba82c7",
+          "reason": "Bounded proof: inspected posted NCT02082184 group IDs, 149/75 denominators, Day 194 ANCOVA contrast 0.03, SE 0.114 and p=0.8222, plus the linked publication and intervention-only extension context. Independent audit supports C4. The registry and paper describe one trial; no independent replication or equivalence claim is created."
+        },
+        {
+          "candidate_id": "c5",
+          "disposition": "deferred",
+          "claim_id": null,
+          "reason": "Outside this bounded receiving proof; further source and independence review is required before production admission."
+        },
+        {
+          "candidate_id": "c6",
+          "disposition": "created",
+          "claim_id": "C-04408bec20b25e209a0b712eb0c6578c",
+          "reason": "Bounded proof: inspected original OSF records and schema-backed responses. Verified registration dates, nonwithdrawn status, intended 300/150 sample sizes, one-year HbA1c, the 28-day intervention followed by SMBG, and eh6yb foreknowledge. Independent audit supports C6. These are intentions, with achieved enrollment, adherence, complete revision histories and linked outcomes unverified."
+        }
+      ],
+      "semantic_review": "Not performed by this verifier; decisions are supplied separately.",
+      "canonical_publication": false,
+      "disposable_receiver": true
+    },
+    "source_records": [
+      {
+        "source_id": "S0054c32fd28e064c73e0bc4d",
+        "native_id": "eh6yb",
+        "adapter": "osf",
+        "source_kind": "study_registration",
+        "body_sha256": "c39165d3aa5ea847d4c54e4b72820b1d337583f895a1da3a5814eec3c126aaf1",
+        "text_sha256": "3935b6f379104170b5d6fa9f6a467d9c43304aa02de62705eea118e768c8fcf2",
+        "record_url": "https://osf.io/eh6yb",
+        "has_results": null,
+        "context_label": "OSF Registrations source record",
+        "body_hash_verified": true,
+        "provider_snapshot_hashes_verified": true,
+        "text_available": true,
+        "text_complete": true
+      },
+      {
+        "source_id": "S04a5c4b57edbc4d520f381bb",
+        "native_id": "pxbyg",
+        "adapter": "osf",
+        "source_kind": "study_registration",
+        "body_sha256": "0930ae3dc3fd26f01a88628ba87b39632c6dfcd32a3c09a5fdcda062c6bcc80a",
+        "text_sha256": "a5c0f83d42003b122b3ca3049e73f064287811eb5142907ee9bd5df7e34f8c9f",
+        "record_url": "https://osf.io/pxbyg",
+        "has_results": null,
+        "context_label": "OSF Registrations source record",
+        "body_hash_verified": true,
+        "provider_snapshot_hashes_verified": true,
+        "text_available": true,
+        "text_complete": true
+      },
+      {
+        "source_id": "S3b654e9cedd7397bbab81f6d",
+        "native_id": "x3dva",
+        "adapter": "osf",
+        "source_kind": "study_registration",
+        "body_sha256": "68a68abf11303cd123f2ac783593e24180c4ad1494d822517a50cd7550cb7b7a",
+        "text_sha256": "7b94e99ef176c99e8dbb361d19cb492aea095804cbea894e3b29befa2a57550a",
+        "record_url": "https://osf.io/x3dva",
+        "has_results": null,
+        "context_label": "OSF Registrations source record",
+        "body_hash_verified": true,
+        "provider_snapshot_hashes_verified": true,
+        "text_available": true,
+        "text_complete": true
+      },
+      {
+        "source_id": "S5901a7a3bc166e4da3faf15e",
+        "native_id": "bnx2p",
+        "adapter": "osf",
+        "source_kind": "study_registration",
+        "body_sha256": "ce229957d8981380280cfb5ff636975891f2ca68e8019630ff0a73c75fb54eee",
+        "text_sha256": "72f07b7c035ba30b6fce8cec165c4ba43579448d43e83daa36e842570b5f96f4",
+        "record_url": "https://osf.io/bnx2p",
+        "has_results": null,
+        "context_label": "OSF Registrations source record",
+        "body_hash_verified": true,
+        "provider_snapshot_hashes_verified": true,
+        "text_available": true,
+        "text_complete": true
+      },
+      {
+        "source_id": "Sca189f57a0d7abb3297b6ed4",
+        "native_id": "NCT02082184",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "body_sha256": "df78682ca521d143992ccff03a23c11687fe4636034e3a44e2b00dfd344a0ade",
+        "text_sha256": "ab82260152de2ce3162ebdfd99b35edbc2bcd33bc4757f06f0f7ab8465868d5a",
+        "record_url": "https://clinicaltrials.gov/study/NCT02082184",
+        "has_results": true,
+        "context_label": "ClinicalTrials.gov source record",
+        "body_hash_verified": true,
+        "provider_snapshot_hashes_verified": false,
+        "text_available": true,
+        "text_complete": true
+      },
+      {
+        "source_id": "Sddb937f239205c1193225d08",
+        "native_id": "NCT01237301",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "body_sha256": "dc1357d46d808609cda53ae5945df44f3f08338e35e9db18de5773bb5d2fd287",
+        "text_sha256": "bf12cf1d64fd4cb3b4db9db1b5d83386d1ed93f35266675492043c9d5e5c8468",
+        "record_url": "https://clinicaltrials.gov/study/NCT01237301",
+        "has_results": true,
+        "context_label": "ClinicalTrials.gov source record",
+        "body_hash_verified": true,
+        "provider_snapshot_hashes_verified": false,
+        "text_available": true,
+        "text_complete": true
+      },
+      {
+        "source_id": "S01676db7c171124d0eefb73b",
+        "native_id": "NCT01341067",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "body_sha256": "85063886816aceba8fe12ed85f82dc19ca5bcb87476a95bd76fabe22ab31fc52",
+        "text_sha256": "3959715dba632010501eb05654c28220ca7b61d8e2dbe860723d5223e23bba0d",
+        "record_url": "https://clinicaltrials.gov/study/NCT01341067",
+        "has_results": true,
+        "context_label": "ClinicalTrials.gov source record",
+        "body_hash_verified": true,
+        "provider_snapshot_hashes_verified": false,
+        "text_available": true,
+        "text_complete": true
+      },
+      {
+        "source_id": "S0d8356d479baba9401beed93",
+        "native_id": "NCT02282397",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "body_sha256": "64a914a2c6f0b74710c25ba83ca426ad3c89aa50321e87f215ed99bc683b7d42",
+        "text_sha256": "cd1e5433e3b7e3274a59f61548d4bd839a8a6f90966cd7c6b33a4adf35882f25",
+        "record_url": "https://clinicaltrials.gov/study/NCT02282397",
+        "has_results": false,
+        "context_label": "ClinicalTrials.gov source record",
+        "body_hash_verified": true,
+        "provider_snapshot_hashes_verified": false,
+        "text_available": true,
+        "text_complete": true
+      },
+      {
+        "source_id": "S46b9d71ca68510499503c1e9",
+        "native_id": "NCT05394844",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "body_sha256": "1cf774e742b86da54b9de3f4df24a70e61d879e72b45bcdc5479d0c5858403ae",
+        "text_sha256": "505fe46d267b7ce3e38d07d3f70294ff7d1a5f9e67735c8c748b0fbc39279dd0",
+        "record_url": "https://clinicaltrials.gov/study/NCT05394844",
+        "has_results": true,
+        "context_label": "ClinicalTrials.gov source record",
+        "body_hash_verified": true,
+        "provider_snapshot_hashes_verified": false,
+        "text_available": true,
+        "text_complete": true
+      },
+      {
+        "source_id": "S48bf3524d69d115edd8bc0b8",
+        "native_id": "NCT05944432",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "body_sha256": "e1802e495c7a5411e62f0e6339ab68e453de07a148b590d1c953238c586524f7",
+        "text_sha256": "a209d3d460a69643258cffa19e311f8bd0405e95545a3cf31a830bd46ca946b3",
+        "record_url": "https://clinicaltrials.gov/study/NCT05944432",
+        "has_results": false,
+        "context_label": "ClinicalTrials.gov source record",
+        "body_hash_verified": true,
+        "provider_snapshot_hashes_verified": false,
+        "text_available": true,
+        "text_complete": true
+      },
+      {
+        "source_id": "S5ea29e847223fd0ff7a6bb64",
+        "native_id": "NCT03566693",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "body_sha256": "256dd26f4e01603921c4090099cc61ab7d5a1621f8bc6c1b443d373d096f47c7",
+        "text_sha256": "82e0c05a6db83bbf3c8174500fa496f406af344bba56d0e9ab3806ba530d3c2a",
+        "record_url": "https://clinicaltrials.gov/study/NCT03566693",
+        "has_results": false,
+        "context_label": "ClinicalTrials.gov source record",
+        "body_hash_verified": true,
+        "provider_snapshot_hashes_verified": false,
+        "text_available": true,
+        "text_complete": true
+      }
+    ]
+  },
+  "synthetic_three_provider_receiver": {
+    "receiver_revision": "7d7e2da29b97814a70b42bd7bf442ee455b3da09",
+    "claims_submitted": 3,
+    "retained_excerpts_verified": 3,
+    "canonical_source_kinds": {
+      "study_registration": 1,
+      "patent_disclosure": 1,
+      "clinical_trial_registry": 1
+    },
+    "dry_run": true,
+    "apply": true,
+    "compiler_require_closure": true,
+    "idempotent_retry": true,
+    "canonical_publication": false,
+    "disposable_receiver": true
+  },
+  "epo_live_verification": {
+    "status": "deferred",
+    "reason": "Operator OPS account approval and service credentials required. OAuth/search/full-text and receiving checks use synthetic fixtures; no live OPS success is claimed."
+  }
+}

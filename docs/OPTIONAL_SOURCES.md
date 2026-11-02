@@ -86,3 +86,10 @@ source kinds, locators and recorded hashes; it does not reconstruct released ful
 originals. Its disposable receiver performs actual dry run, apply, closure compilation
 and idempotent retry. Supplied admission decisions remain separate from transport
 checks; no production world-model write is made by export or the verifier.
+
+The [recorded live validation](../validation/optional-sources-20261102.json) covers
+50 reviewed publications, seven ClinicalTrials.gov records and four OSF registrations,
+followed by actual disposable Resolvent admission. The 600-second independent audit
+checked all six claims but retained a minor timing correction and incomplete selection
+review; those limits travel with the payload. Live EPO verification remains deferred
+pending operator account approval; its adapter and receiver checks use fixtures.
