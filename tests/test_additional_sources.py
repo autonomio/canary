@@ -248,6 +248,16 @@ assert.match(html,/OSF Registrations/);assert.match(html,/HTTP 503/);assert.matc
 const ref={id:'Sfixture',paper:{title:'Synthetic plan',extra:{source_kind:'study_registration',adapter:'osf',local_file:'papers/fixture.json',source_metadata:{native_id:'<unsafe>'}}}};
 const citation=qaCitation(ref);assert.match(citation,/Read source record/);assert.match(citation,/Saved record/);
 assert.match(citation,/&lt;unsafe&gt;/);assert.doesNotMatch(citation,/Read complete paper/);
+const passage={id:'Sfixture-p1',source_id:ref.id,kind:'fulltext',text:'Synthetic plan.',start:0,end:15,anchored:true};
+const g={references:[ref],passages:[passage],evidence:[{id:'E1',paragraph_id:passage.id,quote:passage.text,anchored:true}],claims:[{id:'C1',text:'Synthetic intent.',evidence_ids:['E1']}]};
+assert.match(evidenceInspector(g,'E1'),/Exact passage from the saved source record/);
+assert.match(paragraphInspector(g,passage.id),/Exact saved source text/);
+assert.match(claimRecordHtml(g,g.claims[0],''),/Source record passage/);
+ref.source_retention='excerpts_only';
+for(const html of [evidenceInspector(g,'E1'),paragraphInspector(g,passage.id)]) {
+  assert.match(html,/Exact retained source excerpt/);
+  assert.doesNotMatch(html,/retained paper excerpt/);
+}
 ''')
 
 
