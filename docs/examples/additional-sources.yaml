@@ -1,0 +1,5 @@
+version: 1
+question: What do published studies, clinical trial records and registered study plans establish about continuous glucose monitoring in adults with type 2 diabetes?
+retrieval:
+  additional_sources: [clinicaltrials, osf]
+# Add epo once EPO_OPS_KEY and EPO_OPS_SECRET are configured on the API service.

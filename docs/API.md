@@ -22,6 +22,16 @@ the question was answered, coverage was complete, or every claim passed its audi
 The bundle includes original/resolved settings and limitations. See
 [run lifecycle](RUN_LIFECYCLE.md) and [bundle storage/ontology](RESEARCH_BUNDLE.md).
 
+## Additional public sources
+
+Set `retrieval.additional_sources` to any combination of `clinicaltrials`, `epo`
+and `osf` in the existing `spec` declaration. Omission preserves OpenAlex-only
+behavior. CLI `--add-source` flags and dashboard checkboxes submit this same field;
+MCP receives it through the shared OpenAPI declaration. Source status and limitations
+are exposed as `research.coverage.additional_sources` (`AdditionalSourceStatus`).
+References retain provider-specific source kinds and metadata. These documents do
+not count as full publications. See [scope, credentials and receiving semantics](OPTIONAL_SOURCES.md).
+
 ## Local text input
 
 Set `retrieval.corpus: local_text` and `retrieval.local_text.directory` in the same

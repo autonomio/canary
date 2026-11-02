@@ -17,7 +17,7 @@ def sha(value):
 
 
 def verify_archive(manifest, content, handoff):
-    """Reconstruct every handed-off quotation from the transported canonical text."""
+    """Verify transport; reconstruct whole-text slices only when bytes are retained."""
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         names = archive.namelist()
         assert len(names) == len(set(names)), 'Duplicate archive paths'
@@ -25,6 +25,25 @@ def verify_archive(manifest, content, handoff):
             body = archive.read(artifact['path'])
             assert len(body) == artifact['bytes'] and sha(body) == artifact['sha256'], artifact['path']
         assert handoff['method_metadata']['bundle_id'] == manifest['id']
+        if manifest.get('retention', {}).get('mode') == 'bundle_only':
+            from canary import bundle_encoding, compact_bundle
+            stored = bundle_encoding.expand(json.loads(archive.read(compact_bundle.NAME)))
+            assert stored == bundle_encoding.expand(handoff), 'Archive and API contributions differ'
+            payload = compact_bundle.payload(stored)
+            refs = {r['id']: r for r in payload.get('references', [])}
+            passages = {p['id']: p for e in payload.get('evidence', []) for p in e.get('verbatims', [])}
+            source_map = stored['method_metadata']['id_map']['passages']
+            sources = {s['id']: s for s in stored['sources']}
+            for pid, sid in source_map.items():
+                passage, source = passages[pid], sources[sid]
+                locator = json.loads(source['locator'])
+                reference = refs[locator['reference_id']]
+                assert source['excerpt'] == passage['text'], sid
+                assert all(locator[k] == passage[k] for k in ('start', 'end')), sid
+                assert locator['original_sha256'] == reference['body_sha256'], sid
+                assert locator['text_sha256'] == reference['text_sha256'], sid
+            # This checks retained exact excerpts and provenance, not absent full originals.
+            return len(sources)
         originals = {a['path']: a for a in manifest['artifacts']}
         for source in handoff['sources']:
             locator = json.loads(source['locator'])
@@ -80,10 +99,19 @@ def verify(api_url, run, receiver, decisions, output):
     canonical_sources = [yaml.safe_load(p.read_text()) for p in (receiver/'sources').glob('S-*.yaml')]
     for source in handoff['sources']:
         assert any(s['excerpt'] == source['excerpt'] and s['locator'] == source['locator']
+                   and s['kind'] == source['kind'] and s['uri'] == source['uri']
                    for s in canonical_sources), source['id']
+    compact = manifest.get('retention', {}).get('mode') == 'bundle_only'
+    source_kinds = {}
+    for source in canonical_sources:
+        kind = json.loads(source['locator']).get('source_kind', source['kind'])
+        source_kinds[kind] = source_kinds.get(kind, 0) + 1
     report = {'run_key': run, 'bundle_id': manifest['id'], 'receiver_revision': revision,
               'bundle_archive_sha256': sha(archive), 'handoff_sha256': sha(incoming.read_bytes()),
-              'claims_submitted': len(handoff['claims']), 'verbatims_reconstructed': excerpts,
+              'claims_submitted': len(handoff['claims']), 'verbatims_reconstructed': 0 if compact else excerpts,
+              'retained_excerpts_verified': excerpts if compact else 0,
+              'source_verification_scope': 'retained excerpts and locators; full originals released' if compact else 'transported originals and exact canonical slices',
+              'canonical_source_kinds': source_kinds,
               'dry_run': True, 'apply': True, 'compiler_require_closure': True, 'idempotent_retry': True,
               'dispositions': closure['claim_dispositions'],
               'semantic_review': 'Not performed by this verifier; decisions are supplied separately.',

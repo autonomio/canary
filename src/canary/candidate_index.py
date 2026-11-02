@@ -11,7 +11,7 @@ from typing import Literal, TypedDict
 import uuid
 
 NAME = '.candidate-index.sqlite'
-SOURCE_ID = re.compile(r'(?:W[1-9][0-9]{0,19}|L[0-9a-f]{24})\Z')
+SOURCE_ID = re.compile(r'(?:W[1-9][0-9]{0,19}|[LS][0-9a-f]{24})\Z')
 
 
 class CandidateMetadata(TypedDict):
@@ -28,7 +28,8 @@ def abstract_text(index):
 def candidate(work):
     return {'id': work['id'].rsplit('/', 1)[-1], 'title': work.get('display_name') or work.get('title'),
         'year': work.get('publication_year'), 'doi': work.get('doi'),
-        'abstract': work.get('abstract') if 'local_text' in work else abstract_text(work.get('abstract_inverted_index')),
+        'abstract': work.get('abstract') if 'local_text' in work or work.get('adapter') else abstract_text(work.get('abstract_inverted_index')),
+        **({k: work[k] for k in ('adapter', 'source_kind', 'source_metadata', 'record_url')} if work.get('adapter') else {}),
         **({'local_text': work['local_text'], 'discovery_excerpt': work.get('discovery_excerpt')} if 'local_text' in work else {}),
         'oa_indicated': (work.get('open_access') or {}).get('is_oa'),
         'query_ids': work['query_ids'], 'rank': work['fresh_search_rank']}

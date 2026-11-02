@@ -114,6 +114,12 @@ The writer reserves new workspaces and never replaces prior source bodies. Input
 
 Old runs are `legacy_unversioned` with no fabricated YAML/specification. Their existing findings remain readable. Damaged/unsupported manifests are labeled invalid while the existing research projection remains available. No historical scientific files are rewritten to add this format.
 
+Optional `clinicaltrials`, `epo` and `osf` sources are additive to the default
+OpenAlex corpus. Their requested-source status and typed reference metadata survive
+payload binding, dashboard projection and compact Resolvent export. Registry plans,
+posted results and patent disclosures retain their distinct meanings and do not
+inflate paper counts. See [the optional-source contract](OPTIONAL_SOURCES.md).
+
 ## Findings
 
 The shared researcher-facing heading is **Findings**. Current payloads retain their separate typed arrays:
@@ -169,9 +175,10 @@ Vectorization/embeddings of bundle artifacts are explicitly deferred in #126. A 
 
 ### Disposable receiving proof
 
-The following original-material reconstruction proof applies to historical
-full-workspace bundles. Compact contributions retain exact excerpts and locators,
-but cannot repeat an offline check against discarded full papers. Use an empty disposable clone of the recorded `autonomio/resolvent` revision, not the template repository as a data destination. Supply explicit admission decisions under its existing contract:
+The verifier supports historical full-workspace bundles and compact contributions.
+Historical archives permit original-material reconstruction. Compact contributions
+permit exact retained-excerpt and locator/hash checks, with that narrower verification
+scope explicitly recorded; discarded originals cannot be reconstructed. Use an empty disposable clone of the recorded `autonomio/resolvent` revision, not the template repository as a data destination. Supply explicit admission decisions under its existing contract:
 
 ```sh
 python scripts/verify_resolvent_receiver.py --api http://127.0.0.1:8789 \
@@ -179,7 +186,9 @@ python scripts/verify_resolvent_receiver.py --api http://127.0.0.1:8789 \
   --decisions /tmp/admission-decisions.json --output /tmp/new-receipt-directory
 ```
 
-The verifier downloads the sealed manifest, handoff and original archive through Canary's API. It verifies every artifact hash and reconstructs every handed-off verbatim from its exact canonical text slice. It then invokes the receiving repository's actual dry run, apply, closure compiler and idempotent retry. It retains the original ZIP, supplied decisions and command receipts. It never generates review decisions, starts research, submits a PR or certifies scientific quality.
+The verifier downloads the sealed manifest, handoff and original archive through Canary's API. It verifies every artifact hash and checks every handed-off verbatim. Historical
+full-workspace archives permit reconstruction from exact canonical slices; compact
+contributions are checked against their retained evidence passages and locators. It then invokes the receiving repository's actual dry run, apply, closure compiler and idempotent retry. It retains the original ZIP, supplied decisions and command receipts. It never generates review decisions, starts research, submits a PR or certifies scientific quality.
 
 The synthetic receiving proof on revision `7d7e2da29b97814a70b42bd7bf442ee455b3da09` exercised one explicitly synthetic low-uncertainty claim, preserved its original uncertainty and exact passage, and passed all four receiving operations. This establishes the integration path; a live bundle proof is recorded separately from fixtures.
 

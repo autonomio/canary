@@ -1582,6 +1582,13 @@
             </div>
           </div>
           <div class="field"><label for="f-corpus">Paper source</label><select id="f-corpus"><option value="fresh">Public literature search</option><option value="local_text">Local text library</option></select></div>
+          <fieldset id="additional-source-controls" class="field">
+            <legend>Additional sources (optional)</legend>
+            <label><input type="checkbox" data-add-source value="clinicaltrials" /> ClinicalTrials.gov — trial plans and posted results</label>
+            <label><input type="checkbox" data-add-source value="epo" /> EPO OPS — patent disclosures (service credentials required)</label>
+            <label><input type="checkbox" data-add-source value="osf" /> OSF Registrations — study plans</label>
+            <p class="hint">OpenAlex remains enabled. Additional records keep their source types and do not count as reviewed papers.</p>
+          </fieldset>
           <div id="local-text-controls" hidden>
             <div class="field"><label for="f-directory">Text directory on the service computer</label><input id="f-directory" placeholder="/path/to/library/papers/fulltext" /></div>
             <div class="field"><label for="f-metadata">Metadata JSONL on the service computer (optional)</label><input id="f-metadata" placeholder="/path/to/library/data/library.jsonl" /></div>
@@ -2414,7 +2421,7 @@
         if (!b.specification) return `<details class="coverage" data-detail="research-bundle"><summary>Research bundle · ${esc(b.state.replaceAll('_',' '))}</summary>${(b.limitations || []).map(x=>`<p>${esc(x)}</p>`).join('')}</details>`;
         const retained=b.retention?.mode==='bundle_only';
         const p=b.specification, spec=p.resolved, root=`/api/runs/${encodeURIComponent(S.selected)}/bundle`;
-        return `<details class="coverage" data-detail="research-bundle"><summary>Research bundle · ${esc(b.state)}${b.execution?.status ? ` / ${esc(b.execution.status)}` : ''} · ${esc(p.spec_sha256.slice(0,12))}</summary><p class="hint">${esc(b.id || 'Input staged')} · compiler ${esc(p.compiler_version)}${retained ? " · Bundle only; full papers released" : ""}</p>${bundleEncodingHtml(b)}${localCorpusHtml(d)}<p>${esc(spec.research.model)} / ${esc(spec.research.effort)} research · ${esc(spec.audit.model)} / ${esc(spec.audit.effort)} audit · ${esc(spec.retrieval.target_papers)} target papers · ${esc(spec.audit.budget_seconds)}s audit budget</p><details><summary>Original YAML</summary><pre class="search-query">${esc(p.source_yaml)}</pre></details><details><summary>Resolved settings and recorded engine</summary><pre class="search-query">${esc(JSON.stringify({resolved:spec,engine:p.engine || null,checks:p.checks},null,2))}</pre></details><button class="btn small" data-action="repeat-bundle">Repeat these settings</button>${b.state==='finished' ? ` <a class="text-action" href="${retained ? `/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent` : `${root}/archive`}" download="${retained ? "research-bundle.json" : "research-bundle.zip"}">${retained ? "Download research bundle" : "Download bundle"}</a>${retained ? "" : ` · <a class="text-action" href="/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent" download="resolvent-submission.json">Resolvent handoff</a>`}<details><summary>Handoff semantics</summary><p class="hint">Candidate input for Resolvent admission. Original uncertainty and freshness are retained. Candidate uncertainty is at least medium until evidence independence is established; export does not approve or publish findings.</p><p class="hint">Canary resolves duplicate values in code. Native Resolvent claims, evidence and sources remain readable in the smaller export.</p><a class="text-action" href="/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent?representation=expanded" download="research-bundle-expanded.json">Expanded JSON for compatibility</a></details>` : ''}<details><summary>Saved artifacts (${b.artifacts.length})</summary><ul>${b.artifacts.map(a=>`<li><a href="${root}/artifacts/${a.path.split('/').map(encodeURIComponent).join('/')}" download>${esc(a.path)}</a> · ${esc(a.bytes)} bytes · <code>${esc(a.sha256)}</code></li>`).join('')}</ul></details>${(b.limitations || []).map(x=>`<p class="hint">${esc(x)}</p>`).join('')}</details>`;
+        return `<details class="coverage" data-detail="research-bundle"><summary>Research bundle · ${esc(b.state)}${b.execution?.status ? ` / ${esc(b.execution.status)}` : ''} · ${esc(p.spec_sha256.slice(0,12))}</summary><p class="hint">${esc(b.id || 'Input staged')} · compiler ${esc(p.compiler_version)}${retained ? " · Bundle only; full papers released" : ""}</p>${bundleEncodingHtml(b)}${localCorpusHtml(d)}${additionalSourcesHtml(d)}<p>${esc(spec.research.model)} / ${esc(spec.research.effort)} research · ${esc(spec.audit.model)} / ${esc(spec.audit.effort)} audit · ${esc(spec.retrieval.target_papers)} target papers · ${esc(spec.audit.budget_seconds)}s audit budget</p><details><summary>Original YAML</summary><pre class="search-query">${esc(p.source_yaml)}</pre></details><details><summary>Resolved settings and recorded engine</summary><pre class="search-query">${esc(JSON.stringify({resolved:spec,engine:p.engine || null,checks:p.checks},null,2))}</pre></details><button class="btn small" data-action="repeat-bundle">Repeat these settings</button>${b.state==='finished' ? ` <a class="text-action" href="${retained ? `/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent` : `${root}/archive`}" download="${retained ? "research-bundle.json" : "research-bundle.zip"}">${retained ? "Download research bundle" : "Download bundle"}</a>${retained ? "" : ` · <a class="text-action" href="/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent" download="resolvent-submission.json">Resolvent handoff</a>`}<details><summary>Handoff semantics</summary><p class="hint">Candidate input for Resolvent admission. Original uncertainty and freshness are retained. Candidate uncertainty is at least medium until evidence independence is established; export does not approve or publish findings.</p><p class="hint">Canary resolves duplicate values in code. Native Resolvent claims, evidence and sources remain readable in the smaller export.</p><a class="text-action" href="/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent?representation=expanded" download="research-bundle-expanded.json">Expanded JSON for compatibility</a></details>` : ''}<details><summary>Saved artifacts (${b.artifacts.length})</summary><ul>${b.artifacts.map(a=>`<li><a href="${root}/artifacts/${a.path.split('/').map(encodeURIComponent).join('/')}" download>${esc(a.path)}</a> · ${esc(a.bytes)} bytes · <code>${esc(a.sha256)}</code></li>`).join('')}</ul></details>${(b.limitations || []).map(x=>`<p class="hint">${esc(x)}</p>`).join('')}</details>`;
       }
       function synthesisHtml(r, d) {
         const body = reportText(d.synthesis_md);
@@ -2872,6 +2879,8 @@
         const v = {};
         for (const f of fields) v[f] = document.getElementById("f-" + f).value;
         v.maintenance = document.getElementById("f-maint").checked;
+        v.additional_sources = v.corpus === "local_text" || v.mode === "cycle" || String(v.argv || "").trim() ? [] :
+          Array.from(document.querySelectorAll("[data-add-source]")).filter(el=>el.checked).map(el=>el.value);
         v.depth =
           document.querySelector('input[name="depth"]:checked')?.value ||
           "custom";
@@ -2885,6 +2894,12 @@
         const name = (v.name || "").trim() || q.slice(0, 120) || "Research";
         if (name.length > 120)
           throw new Error("Keep the project title under 120 characters.");
+        const additional = v.additional_sources || [];
+        if(!Array.isArray(additional) || additional.some(n=>!["clinicaltrials","epo","osf"].includes(n)) || new Set(additional).size!==additional.length)
+          throw new Error("Choose supported additional sources once each.");
+        if(additional.length && (v.corpus === "local_text" || override || v.mode === "cycle"))
+          throw new Error("Additional public sources support the question research flow.");
+        if(additional.length) return {name,brief:(v.brief || "").trim(),spec:{question:q,retrieval:{additional_sources:additional}}};
         if(v.corpus === "local_text") {
           if(override || v.mode === "cycle") throw new Error("Local text libraries support the question research flow.");
           if(!String(v.directory || "").trim().startsWith("/")) throw new Error("Enter an absolute text directory on the service computer.");
@@ -2959,6 +2974,7 @@
       function updateComposer() {
         const v = formValues();
         document.getElementById("local-text-controls").hidden=v.corpus!=="local_text";
+        document.getElementById("additional-source-controls").hidden=v.corpus==="local_text" || v.mode==="cycle" || !!v.argv.trim();
         document.getElementById("question-count").textContent =
           `${v.q.length.toLocaleString()} characters`;
         document.getElementById("launch-summary").textContent = v.argv.trim()
@@ -3336,8 +3352,14 @@
   }
   function localSourceHtml(ref) {
     const extra=ref?.paper?.extra;
+    if(extra?.source_kind) return `<p class="notice">${esc(extra.adapter)} · ${esc(extra.source_kind)} · ${esc(extra.source_metadata?.native_id || ref.id)}</p><p class="hint">Registry plans and patent disclosures retain their attribution; retrieval does not establish experimental validation.</p><details><summary>Source identity, version and scope</summary><pre>${esc(JSON.stringify(extra.source_metadata || {},null,2))}</pre><p>Snapshot SHA-256: <code>${esc(extra.body_sha256 || 'Unknown')}</code> · canonical text SHA-256: <code>${esc(extra.text_sha256 || 'Unknown')}</code></p></details>`;
     if(extra?.adapter!=="local_text") return '';
     return `<p class="notice">Imported local text · ${esc(extra.local_source?.file || 'File identity unavailable')}. Completeness, tables, figures and publication version require verification.</p><p class="hint">Original SHA-256: <code>${esc(extra.body_sha256 || 'Unknown')}</code> · canonical text SHA-256: <code>${esc(extra.text_sha256 || 'Unknown')}</code></p>`;
+  }
+  function additionalSourcesHtml(d) {
+    const rows=d.coverage?.additional_sources || (d.run?.additional_sources || []).map(source=>({source,status:'not_searched'}));
+    if(!rows.length) return '';
+    return `<section class="coverage"><h3>Additional sources</h3><p class="hint">OpenAlex remains the paper source. These documents do not count toward the paper target.</p>${rows.map(r=>`<article><h4>${esc(r.label || r.source)} · ${esc(r.status)}</h4><p>${fmt(r.candidates || 0)} candidates · ${fmt(r.retrieved || 0)} records retrieved</p><p>${esc(r.limitations || 'Discovery has not completed.')}</p>${(r.failures || []).map(f=>`<p class="notice">${esc(f)}</p>`).join('')}</article>`).join('')}</section>`;
   }
   function localCorpusHtml(d) {
     if(!d.run?.local_text && !d.coverage?.local_corpus) return '';
@@ -3347,7 +3369,7 @@
   function qaCitation(ref) {
     if (!ref) return '<p class="muted">Citation not recorded.</p>';
     const p = ref.paper || {}, doi = String(p.doi || "").replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "");
-    return `<div class="citation"><h3>${esc(p.title || ref.id)}</h3><p>${esc((p.authors || []).join("; "))}${p.year ? ` · ${esc(p.year)}` : ""}${p.venue ? ` · ${esc(p.venue)}` : ""}</p><div class="source-actions">${doi ? link(`https://doi.org/${doi}`, `DOI ${doi} ↗`) : ""}${p.url && safeUrl(p.url)!==safeUrl(`https://doi.org/${doi}`) ? link(p.url, "Bibliographic record ↗") : ""}${ref.text_url && safeUrl(ref.text_url)!==safeUrl(p.url) ? link(ref.text_url,"Public source copy ↗") : ""}${p.extra?.local_file ? `<a href="${sourceFileUrl(ref.id)}" target="_blank" rel="noopener">${p.extra?.adapter==='local_text' ? 'Saved text ↗' : 'Saved paper ↗'}</a>` : ""}${qaButton("data-qa-paper", ref.id, ref.source_retention==="excerpts_only" ? "Read retained excerpts →" : p.extra?.adapter==='local_text' ? "Read saved text →" : "Read complete paper →")}</div>${localSourceHtml(ref)}${sourceCopiesHtml(ref)}</div>`;
+    return `<div class="citation"><h3>${esc(p.title || ref.id)}</h3><p>${esc((p.authors || []).join("; "))}${p.year ? ` · ${esc(p.year)}` : ""}${p.venue ? ` · ${esc(p.venue)}` : ""}</p><div class="source-actions">${doi ? link(`https://doi.org/${doi}`, `DOI ${doi} ↗`) : ""}${p.url && safeUrl(p.url)!==safeUrl(`https://doi.org/${doi}`) ? link(p.url, "Bibliographic record ↗") : ""}${ref.text_url && safeUrl(ref.text_url)!==safeUrl(p.url) ? link(ref.text_url,"Public source copy ↗") : ""}${p.extra?.local_file ? `<a href="${sourceFileUrl(ref.id)}" target="_blank" rel="noopener">${p.extra?.source_kind ? 'Saved record ↗' : p.extra?.adapter==='local_text' ? 'Saved text ↗' : 'Saved paper ↗'}</a>` : ""}${qaButton("data-qa-paper", ref.id, ref.source_retention==="excerpts_only" ? "Read retained excerpts →" : p.extra?.source_kind ? "Read source record →" : p.extra?.adapter==='local_text' ? "Read saved text →" : "Read complete paper →")}</div>${localSourceHtml(ref)}${sourceCopiesHtml(ref)}</div>`;
   }
   function qaSourceCheck(g,claimId) {
     if((g?.claims || []).filter(c=>c.id===claimId).length!==1) return null;
@@ -3509,7 +3531,7 @@
     const g=qaGraph(d), refs=g?.references || [];
     return `<h2>${d.run?.selection_method==='coverage-guided' ? 'Reviewed and cited sources' : cliResearch(d) ? 'Cited sources' : hasMergedSourceCopies(d) ? 'Unique sources' : 'Papers read'} (${refs.length})</h2>${acquisitionHtml(d)}${refs.map(r=>{
       const p=r.paper||{};
-      return `<article class="source"><h3>${qaButton("data-qa-source",r.id,p.title || r.id)}</h3><p class="citation">${esc((p.authors||[]).slice(0,3).join("; "))}${(p.authors||[]).length>3 ? "; et al." : ""}${p.year ? ` · ${esc(p.year)}` : ""}${p.venue ? ` · ${esc(p.venue)}` : ""}</p><div class="source-actions">${qaButton("data-qa-paper",r.id,r.source_retention==="excerpts_only" ? "Read excerpts →" : p.extra?.adapter==='local_text' ? "Read saved text →" : "Read full text →")}${p.extra?.local_file ? `<a href="${sourceFileUrl(r.id)}" target="_blank" rel="noopener">${p.extra?.adapter==='local_text' ? 'Saved text ↗' : 'Saved paper ↗'}</a>` : ""}${p.doi ? link(`https://doi.org/${String(p.doi).replace(/^https?:\/\/(?:dx\.)?doi\.org\//i,"")}`, "DOI ↗") : ""}</div>${r.review ? `<details data-detail="review-${esc(r.id)}"><summary>${esc(r.role || "Reviewed")} · Review contribution</summary><p>${esc(r.review.substantive_review_note || r.review.reason || "")}</p><p class="hint">${esc((r.review.investigated_sections || []).join(" · "))}</p>${(r.review.related_study_ids || []).length ? `<p class="hint">Related reports: ${esc(r.review.related_study_ids.join(" · "))}. Publication count is not independent study count.</p>` : ""}</details>` : ""}${localSourceHtml(r)}${sourceCopiesHtml(r)}${p.abstract ? `<details data-detail="abstract-${esc(r.id)}"><summary>Abstract</summary><p>${esc(p.abstract)}</p></details>` : ""}</article>`;
+      return `<article class="source"><h3>${qaButton("data-qa-source",r.id,p.title || r.id)}</h3><p class="citation">${esc((p.authors||[]).slice(0,3).join("; "))}${(p.authors||[]).length>3 ? "; et al." : ""}${p.year ? ` · ${esc(p.year)}` : ""}${p.venue ? ` · ${esc(p.venue)}` : ""}</p><div class="source-actions">${qaButton("data-qa-paper",r.id,r.source_retention==="excerpts_only" ? "Read excerpts →" : p.extra?.source_kind ? "Read source record →" : p.extra?.adapter==='local_text' ? "Read saved text →" : "Read full text →")}${p.extra?.local_file ? `<a href="${sourceFileUrl(r.id)}" target="_blank" rel="noopener">${p.extra?.source_kind ? 'Saved record ↗' : p.extra?.adapter==='local_text' ? 'Saved text ↗' : 'Saved paper ↗'}</a>` : ""}${p.doi ? link(`https://doi.org/${String(p.doi).replace(/^https?:\/\/(?:dx\.)?doi\.org\//i,"")}`, "DOI ↗") : ""}</div>${r.review ? `<details data-detail="review-${esc(r.id)}"><summary>${esc(r.role || "Reviewed")} · Review contribution</summary><p>${esc(r.review.substantive_review_note || r.review.reason || "")}</p><p class="hint">${esc((r.review.investigated_sections || []).join(" · "))}</p>${(r.review.related_study_ids || []).length ? `<p class="hint">Related reports: ${esc(r.review.related_study_ids.join(" · "))}. Publication count is not independent study count.</p>` : ""}</details>` : ""}${localSourceHtml(r)}${sourceCopiesHtml(r)}${p.abstract ? `<details data-detail="abstract-${esc(r.id)}"><summary>Abstract</summary><p>${esc(p.abstract)}</p></details>` : ""}</article>`;
     }).join("")}`;
   }
   function discoveryHtml(d) {
@@ -3535,7 +3557,7 @@
     };
     const describe=v=>Array.isArray(v) ? v.map(describe).join(' · ') : v && typeof v==='object' ? Object.entries(v).map(([k,value])=>`${k.replaceAll('_',' ')}: ${describe(value)}`).join(' · ') : v==null ? 'Unknown' : String(v);
     const targets=Array.isArray(q.evidence_targets) ? q.evidence_targets.map(describe) : q.evidence_targets && typeof q.evidence_targets==='object' ? Object.entries(q.evidence_targets).map(([k,v])=>`${k.replaceAll('_',' ')}: ${describe(v)}`) : [];
-    return `<h2>Search net</h2>${localCorpusHtml(d)}${searchProgressHtml(d)}<p>${esc(q.intent || q.explanation || "")}</p><p class="hint">${esc(r.search_scope || "OpenAlex search across titles, abstracts and indexed full text.")} · ${esc(r.keyword_requests ?? 0)} keyword search ${Number(r.keyword_requests) === 1 ? "page" : "pages"} in this run.</p>${r.local_text ? '<p class="hint">Local queries use the saved index; no public-source keyword requests.</p>' : `<div class="question-usage">${usageHtml(r.usage_after)}</div>`}<section class="answer-section"><h3>Exact searches</h3>${queries.map(queryHtml).join("")}${q.explanation ? `<p>${esc(q.explanation)}</p>` : ""}</section><details><summary>Concepts and required anchors</summary>${q.required_concepts?.length ? `<p>Required: ${esc(q.required_concepts.join(" · "))}</p>` : ""}${(q.concepts || []).map(c=>`<p>${esc(c.name)} · ${esc((c.alternatives || c.keywords || c.synonyms || []).join(" · "))}${c.explanation ? `<br>${esc(c.explanation)}` : ""}</p>`).join("")}${(q.branches||[]).map(b=>`<p>${esc(b.name)} · ${esc((b.concepts||[]).join(" + "))}<br>${esc(b.explanation)}</p>`).join("")}</details><details><summary>What the full papers must establish</summary>${targets.map(t=>`<p>${esc(t)}</p>`).join("")}</details>${acquisitionHtml(d)}`;
+    return `<h2>Search net</h2>${localCorpusHtml(d)}${additionalSourcesHtml(d)}${searchProgressHtml(d)}<p>${esc(q.intent || q.explanation || "")}</p><p class="hint">${esc(r.search_scope || "OpenAlex search across titles, abstracts and indexed full text.")} · ${esc(r.keyword_requests ?? 0)} keyword search ${Number(r.keyword_requests) === 1 ? "page" : "pages"} in this run.</p>${r.local_text ? '<p class="hint">Local queries use the saved index; no public-source keyword requests.</p>' : `<div class="question-usage">${usageHtml(r.usage_after)}</div>`}<section class="answer-section"><h3>Exact searches</h3>${queries.map(queryHtml).join("")}${q.explanation ? `<p>${esc(q.explanation)}</p>` : ""}</section><details><summary>Concepts and required anchors</summary>${q.required_concepts?.length ? `<p>Required: ${esc(q.required_concepts.join(" · "))}</p>` : ""}${(q.concepts || []).map(c=>`<p>${esc(c.name)} · ${esc((c.alternatives || c.keywords || c.synonyms || []).join(" · "))}${c.explanation ? `<br>${esc(c.explanation)}` : ""}</p>`).join("")}${(q.branches||[]).map(b=>`<p>${esc(b.name)} · ${esc((b.concepts||[]).join(" + "))}<br>${esc(b.explanation)}</p>`).join("")}</details><details><summary>What the full papers must establish</summary>${targets.map(t=>`<p>${esc(t)}</p>`).join("")}</details>${acquisitionHtml(d)}`;
   }
   function renderNativeDetail(row,d,el) {
     document.querySelector(".topbar").hidden=true;
@@ -3675,6 +3697,7 @@
             for (const f of fields)
               if (v[f] != null) document.getElementById("f-" + f).value = v[f];
             document.getElementById("f-maint").checked = !!v.maintenance;
+            document.querySelectorAll("[data-add-source]").forEach(el=>el.checked=(v.additional_sources || []).includes(el.value));
             document.querySelectorAll('input[name="depth"]').forEach((r) => {
               r.checked = r.value === v.depth;
             });

@@ -213,6 +213,8 @@ class Supervisor:
 
     def start_compiled(self, packet: dict, name: str = "", brief: str = "") -> dict:
         packet = verify_compiled(packet)
+        from .source_adapters import configured
+        configured(self.root, packet['resolved']['retrieval'].get('additional_sources', []))
         if packet['resolved']['retrieval']['corpus'] == 'local_text':
             from .local_text import validate_access
             validate_access(packet['resolved']['retrieval']['local_text'])
@@ -433,13 +435,17 @@ class Supervisor:
         question = manifest['question']
         seconds = manifest.get('audit_budget_seconds', 600)
         local = bool(manifest.get('local_text'))
+        additional = manifest.get('additional_sources', [])
         if role == 'research':
             model, effort = protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT
-            prompt = protocol.research_prompt(question, command, manifest.get('minimum_papers', 50), local_text=local)
+            prompt = protocol.research_prompt(question, command, manifest.get('minimum_papers', 50), local_text=local, additional_sources=additional)
             shape = protocol.investigation_schema()
         else:
             model, effort = protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT
             prompt = protocol.audit_prompt(question, command, seconds) + (protocol.LOCAL_TEXT_SCOPE if local else '')
+            if additional:
+                from .source_adapters import GUIDANCE
+                prompt += GUIDANCE.format(sources=', '.join(additional))
             shape = protocol.audit_schema()
         _, receipt = engine.scientific_session(workspace, role, model, effort, prompt, shape,
             executable=context['CANARY_CODEX_EXECUTABLE'], audit_timeout=seconds if role == 'audit' else None,
@@ -954,6 +960,8 @@ def question_research_bundle(bundle: Path, run: dict) -> dict:
         return value if isinstance(value, type(default)) else default
     graph, access = load("answer.json", {}), load("access.json", {})
     coverage = load("coverage.json", {})
+    if run.get('additional_sources'):
+        coverage['additional_sources'] = load('additional-sources.json', [])
     if run.get("local_text"):
         coverage["local_corpus_progress"] = load("local-corpus-progress.json", {})
     review = {key: value for key, value in load("peer-review.json", {}).items() if key != "revised_answer"}
@@ -1151,6 +1159,11 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
                                            "selected": bool(selection and selection[0] <= start < stop <= selection[1])})
     if reference.get('paper', {}).get('extra', {}).get('adapter') == 'local_text':
         payload['warning'] = (payload['warning'] + ' Imported local text; publication completeness, tables and figures are not certified.').strip()
+    extra = reference.get('paper', {}).get('extra', {})
+    if extra.get('source_kind'):
+        from .source_adapters import LIMITATIONS, LABELS
+        payload['context_label'] = LABELS[extra['adapter']] + ' source record'
+        payload['warning'] = (payload['warning'] + ' ' + LIMITATIONS[extra['adapter']]).strip()
     return payload
 
 

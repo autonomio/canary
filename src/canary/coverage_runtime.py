@@ -33,11 +33,10 @@ from .api_client import endpoint
 from . import coverage_protocol as protocol
 from .runtime_paths import data_root
 from .processes import RunCancelled, stop_tree, identity, tool_receipts
-from .candidate_index import CandidateIndex, abstract_text
+from .candidate_index import CandidateIndex, abstract_text, SOURCE_ID
 from .redact import redact_text
 
 WORK_ID = re.compile(r"W[1-9][0-9]{0,19}\Z")
-SOURCE_ID = re.compile(r"(?:W[1-9][0-9]{0,19}|L[0-9a-f]{24})\Z")
 _LOCK = threading.Lock()
 
 
@@ -112,11 +111,14 @@ def validate_plan(plan):
         identifier, search = branch.get("id"), branch.get("search")
         if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", identifier) or identifier in ids:
             raise ValueError("Query IDs must be unique filename-safe strings")
-        if not isinstance(search, str) or not search.strip() or search in terms:
+        source = branch.get('source', 'openalex')
+        if source not in ('openalex', 'clinicaltrials', 'epo', 'osf'):
+            raise ValueError('Unsupported query source')
+        if not isinstance(search, str) or not search.strip() or (source, search) in terms:
             raise ValueError("Queries must have distinct nonempty search strings")
         if any(key in branch for key in ("filter", "title.search", "abstract.search")):
             raise ValueError("Only OpenAlex full-text-inclusive search= is allowed")
-        ids.add(identifier); terms.add(search)
+        ids.add(identifier); terms.add((source, search))
     return plan
 
 
@@ -392,6 +394,10 @@ def _commit_discovery(workspace, index, progress, plan):
     if progress["complete"]:
         progress.pop("incomplete_reason", None)
     index.export()
+    additional = read(workspace / 'run.json', {}).get('additional_sources', [])
+    if additional:
+        from .source_adapters import status
+        progress['additional_sources'] = status(workspace, additional, progress)
     write(workspace / "search-progress.json", progress)
 
 
@@ -400,6 +406,12 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
     workspace = Path(workspace).resolve()
     root = Path(root) if root is not None else data_root()
     plan = validate_plan(read(Path(plan_path)))
+    additional = read(workspace / 'run.json', {}).get('additional_sources', [])
+    if any(q.get('source', 'openalex') not in ('openalex', *additional) for q in plan['queries']):
+        raise ValueError('Query requests a source not enabled for this run')
+    if additional and not (workspace / 'question-plan.json').exists():
+        missing = set(('openalex', *additional)) - {q.get('source', 'openalex') for q in plan['queries']}
+        if missing: raise ValueError('Initial plan must include each enabled source: ' + ', '.join(sorted(missing)))
     if pages < 1:
         raise ValueError("Search page limit must be positive")
     with workspace_lock(workspace, "discovery"), ExitStack() as lifetime:
@@ -425,7 +437,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                 known.add(identifier)
         for query in plan["queries"]:
             state = progress["queries"].get(query["id"])
-            if state and state["search"] != query["search"]:
+            if state and (state["search"] != query["search"] or state.get('source', 'openalex') != query.get('source', 'openalex')):
                 raise ValueError("Change a query ID when changing its search string")
         index = lifetime.enter_context(CandidateIndex(workspace))
         # Rejected query redefinitions must not replace the saved plan paired
@@ -433,6 +445,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
         write(workspace / "question-plan.json", plan)
         for query in plan["queries"]:
             progress["queries"].setdefault(query["id"], {"search": query["search"], "pages": 0, "cursor": "*", "complete": False})
+            if additional: progress['queries'][query['id']]['source'] = query.get('source', 'openalex')
         headers = {"User-Agent": "Canary/coverage-native", "Cache-Control": "no-cache", "Pragma": "no-cache"}
         key = operator_key(root)
         allowance = "configured_key" if key else "anonymous"
@@ -450,6 +463,12 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                 state = progress["queries"][query["id"]]
                 if state.get("complete"):
                     continue  # Only receipts in this research workspace may be resumed.
+                if query.get('source', 'openalex') != 'openalex':
+                    from .source_adapters import discover_query
+                    discover_query(workspace, root, client, index, query, state, pages)
+                    _commit_discovery(workspace, index, progress, plan)
+                    continue
+                if stopped_for_backoff: continue
                 seen = set()
                 for _ in range(pages):
                     cursor = state["cursor"]
@@ -523,7 +542,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                     event(workspace, "search_page", query_id=query["id"], page=state["pages"], candidates=index.count(), complete=state["complete"])
                     if state["complete"]:
                         break
-                if stopped_for_backoff:
+                if stopped_for_backoff and not additional:
                     break
         finally:
             if own:
@@ -582,6 +601,9 @@ def _fetch_public(work, transport):
 
 def _extract(raw, kind, work):
     from .coverage_sources import _pdf_text, _xml_text, article_text
+    if work.get('adapter') in ('clinicaltrials', 'epo', 'osf'):
+        from .source_adapters import extract
+        return extract(raw, kind, work)
     if kind == "application/pdf":
         text, pages, blank = _pdf_text(raw)
         return text, pages, list(blank), "pdf"
@@ -603,7 +625,7 @@ def catalog(workspace):
     return rows
 
 
-def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extract=None, transport=None):
+def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extract=None, transport=None, root=None):
     """Only explicitly selected works, concurrent failures contained, receipts committed individually."""
     from .coverage_sources import PaperCopy
     workspace = Path(workspace).resolve()
@@ -633,7 +655,13 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
                        "fresh_download": not bool(local), "previous_run_body_used": False,
                        **({"adapter": "local_text", "local_source": work["local_text"]} if local else {})}
             try:
-                result, timeout_seen = fetch(work, transport)
+                if work.get('adapter') in ('clinicaltrials', 'epo', 'osf'):
+                    from .source_adapters import Client
+                    from .coverage_sources import _BorrowedPublicTransport
+                    with httpx.Client(transport=_BorrowedPublicTransport(transport), timeout=35, trust_env=False, follow_redirects=False) as http:
+                        result, timeout_seen = Client(http, Path(root) if root else data_root()).fetch(work)
+                else:
+                    result, timeout_seen = fetch(work, transport)
                 if result is None:
                     receipt.update(status="unavailable", public_timeout_seen=timeout_seen)
                 else:
@@ -663,6 +691,9 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
                         reference.update(adapter='local_text', local_source=work['local_text'],
                             openalex_id=work.get('openalex_id'), imported_at=reference.pop('fresh_download_at'),
                             full_text_status='preview_suspected' if preview else 'local_text_requires_source_verification')
+                    if work.get('adapter') in ('clinicaltrials', 'epo', 'osf'):
+                        reference.update({k: work[k] for k in ('adapter', 'source_kind', 'source_metadata', 'record_url')})
+                        reference['full_text_status'] = 'record_requires_source_verification'
                     receipt.update(status="source_retrieved", reference=reference, url=url, bytes=len(raw))
             except Exception as error:
                 receipt.update(status="retrieval_or_extraction_failed", reason=type(error).__name__ + ": " + str(error))
@@ -682,6 +713,10 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
         (workspace / "catalog.jsonl").write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in references))
         write(workspace / "acquisition-progress.json", {"at": now(), "batch_selected": ids,
             "batch_attempted": len(results), "sources_retrieved": len(references), "scientific_full_paper_verification": "researcher responsibility"})
+        additional = read(workspace / 'run.json', {}).get('additional_sources', [])
+        if additional:
+            from .source_adapters import status
+            status(workspace, additional, read(workspace / 'search-progress.json', {}))
     return results
 
 
@@ -776,7 +811,7 @@ def bind_payload(workspace):
         require(question.get("residue_ids", []), {r["id"] for r in raw.get("residue", [])}, "residue", question["id"])
     reviews = read(workspace / "reviewed-papers.json", [])
     selected = set(read(workspace / "selection.json", {}).get("selected_for_review_ids", []))
-    admitted, seen_publications, seen_bodies = [], set(), set()
+    admitted, additional_admitted, seen_publications, seen_bodies = [], [], set(), set()
     for review in reviews:
         identifier = review.get("work_id")
         reference = references.get(identifier)
@@ -789,6 +824,9 @@ def bind_payload(workspace):
             continue
         if any(passages.get(p, {}).get("reference_id") != identifier for p in review["passage_ids_read"]):
             issues.append("Review uses another paper's passage: " + identifier); continue
+        if reference.get('source_kind'):
+            if identifier not in {r['work_id'] for r in additional_admitted}: additional_admitted.append(review)
+            continue
         doi = (reference.get("doi") or "").lower().removeprefix("https://doi.org/").removeprefix("http://doi.org/")
         identity = doi or reference["body_sha256"]
         if identity in seen_publications or reference["body_sha256"] in seen_bodies:
@@ -808,6 +846,9 @@ def bind_payload(workspace):
     payload.update(question=read(workspace / "question-plan.json")["question"], question_plan=read(workspace / "question-plan.json"),
                    references=list(references.values()), selection=read(workspace / "selection.json"),
                    reviewed_papers=reviews, coverage_map=read(workspace / "coverage-map.json"), accounting=accounting)
+    if read(workspace / 'run.json', {}).get('additional_sources'):
+        payload['additional_sources'] = read(workspace / 'additional-sources.json', [])
+        accounting['additional_documents_reviewed'] = len(additional_admitted)
     mechanical = {"at": now(), "pass": not issues, "issues": issues,
                   "scope": "Identity/span/hash/graph/record checks; does not certify scientific interpretation, relevance or population coverage."}
     payload["raw_investigation_sha256"] = hashlib.sha256((workspace / "investigation.json").read_bytes()).hexdigest()
@@ -1085,7 +1126,7 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
             session.close()
 
 
-def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable=None, on_reserved=None, local_text=None):
+def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable=None, on_reserved=None, local_text=None, additional_sources=()):
     workspace = Path(workspace).resolve()
     if not question.strip() or minimum_papers < 1 or audit_seconds < 1:
         raise ValueError("Question, paper target and audit duration must be nonempty/positive")
@@ -1115,8 +1156,10 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
         "no_subagents": True, "fresh_assets_only": not bool(local_text),
         **({"local_text": local_text, "corpus": "local_text"} if local_text else {}), "audit_budget_seconds": audit_seconds,
         "accounting_scope": "Native CLI workload; legacy DeepSeek gateway token ledger remains a separate deployment."}
+    if additional_sources:
+        manifest['additional_sources'] = list(additional_sources)
     write(workspace / "run.json", manifest)
-    write(workspace / "question-plan-schema.json", protocol.question_plan_schema())
+    write(workspace / "question-plan-schema.json", protocol.question_plan_schema(additional_sources))
     write(workspace / "investigation-schema.json", protocol.investigation_schema())
     (workspace / "AGENTS.md").write_text("Read repository AGENTS.md first.\n" + protocol.SCIENTIFIC_RULES +
         "Use only this new research workspace's sources and current question. Never inspect saved experiments or previous answers.\n")
@@ -1131,15 +1174,17 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
             manifest.update(status='researching')
             write(workspace / 'run.json', manifest)
         scientific_session(workspace, "research", protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT,
-            protocol.research_prompt(question, command, minimum_papers, local_text=bool(local_text)), protocol.investigation_schema(), executable=executable)
+            protocol.research_prompt(question, command, minimum_papers, local_text=bool(local_text), additional_sources=additional_sources), protocol.investigation_schema(), executable=executable)
         check_cancelled()
         wait_for_tools(run_key)
         payload = bind_payload(workspace)
         manifest.update(status="auditing", research_finished_at=now(), accounting=payload["accounting"])
         write(workspace / "run.json", manifest)
         write(workspace / "audit-input.json", payload)
+        from .source_adapters import GUIDANCE
         audit, _ = scientific_session(workspace, "audit", protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT,
-            protocol.audit_prompt(question, command, audit_seconds) + (protocol.LOCAL_TEXT_SCOPE if local_text else ""), protocol.audit_schema(), executable=executable,
+            protocol.audit_prompt(question, command, audit_seconds) + (protocol.LOCAL_TEXT_SCOPE if local_text else "")
+            + (GUIDANCE.format(sources=', '.join(additional_sources)) if additional_sources else ''), protocol.audit_schema(), executable=executable,
             audit_timeout=audit_seconds)
         check_cancelled()
         wait_for_tools(run_key)
