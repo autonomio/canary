@@ -56,7 +56,7 @@ Search receipts retain public throttling, quota and rejection headers even on
 provider errors; authentication headers, cookies and error bodies are excluded.
 OPS search's specific `404 / SERVER.EntityNotFound / No results found` response
 denotes an empty result. That fault is a completed zero-hit page with its original
-status and XML snapshot retained; other 404 responses remain failures.
+status and XML snapshot recorded; other 404 responses remain failures.
 
 `additional-sources.json` records source names, query IDs, completion, candidate and
 retrieved counts, failures and scope limitations. The API and dashboard expose the

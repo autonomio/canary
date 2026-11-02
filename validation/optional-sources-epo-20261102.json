@@ -2,15 +2,15 @@
   "implementation_revision": "efc400879313d7c50bf2024bbd9c4048c734272d",
   "default_path": "OpenAlex remains default; omitted or empty additional_sources retains the default resolved digest.",
   "regression": {
-    "ci_url": "https://github.com/autonomio/canary/actions/runs/41451058808",
-    "non_live_tests_passed": 1124,
+    "ci_url": "https://github.com/autonomio/canary/actions/runs/41464783015",
+    "non_live_tests_passed": 1125,
     "python_versions": [
       "3.10",
       "3.11",
       "3.13"
     ],
     "docker_and_safety": "passed",
-    "source_contract_tests_passed": 16,
+    "source_contract_tests_passed": 17,
     "ops_error_contracts": [
       403,
       404,
@@ -19,8 +19,8 @@
     ],
     "ops_zero_total_success_contract": true,
     "deliberate_live_quota_exhaustion": false,
-    "code_revision": "efc400879313d7c50bf2024bbd9c4048c734272d",
-    "scope": "Recorded CI before the later search-only empty-result correction; current final-head CI is linked on the PR."
+    "code_revision": "a6c4dc53fa1832edb1f40a77061c3151c09c8908",
+    "scope": "Completed CI after the live-discovered OPS empty-result correction; subsequent changes record validation only."
   },
   "live": {
     "run_key": "all-optional-sources-live-research-202611021310",
@@ -530,6 +530,11 @@
       "unique_rows": 199,
       "native_registration_ids_validated": true
     },
-    "deliberate_live_quota_exhaustion": false
+    "deliberate_live_quota_exhaustion": false,
+    "updated_api_service": {
+      "compiled_spec_sha256_unchanged": true,
+      "expanded_resolvent_contribution_exactly_unchanged": true,
+      "registered_research_runs_modified": false
+    }
   }
 }
