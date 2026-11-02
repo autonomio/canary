@@ -1,0 +1,540 @@
+{
+  "implementation_revision": "efc400879313d7c50bf2024bbd9c4048c734272d",
+  "default_path": "OpenAlex remains default; omitted or empty additional_sources retains the default resolved digest.",
+  "regression": {
+    "ci_url": "https://github.com/autonomio/canary/actions/runs/41464783015",
+    "non_live_tests_passed": 1125,
+    "python_versions": [
+      "3.10",
+      "3.11",
+      "3.13"
+    ],
+    "docker_and_safety": "passed",
+    "source_contract_tests_passed": 17,
+    "ops_error_contracts": [
+      403,
+      404,
+      429,
+      503
+    ],
+    "ops_zero_total_success_contract": true,
+    "deliberate_live_quota_exhaustion": false,
+    "code_revision": "a6c4dc53fa1832edb1f40a77061c3151c09c8908",
+    "scope": "Completed CI after the live-discovered OPS empty-result correction; subsequent changes record validation only."
+  },
+  "live": {
+    "run_key": "all-optional-sources-live-research-202611021310",
+    "bundle_id": "RB-0fc6fd29e6be4085adcca47863070dba",
+    "spec_sha256": "3495036af18cd1438983434aa85b32d6b8904525dd24a20d362012de18302daf",
+    "status": "answered",
+    "native_error": null,
+    "roles": {
+      "research": {
+        "model": "gpt-6.1-sol",
+        "effort": "xhigh",
+        "single_native_thread_verified": true,
+        "no_subagents_verified": true
+      },
+      "audit": {
+        "model": "gpt-6-astra",
+        "effort": "ultra",
+        "single_native_thread_verified": true,
+        "no_subagents_verified": true
+      }
+    },
+    "target_publications": 50,
+    "reviewed_publications": 50,
+    "core_publications": 5,
+    "supporting_publications": 45,
+    "additional_documents_reviewed": 13,
+    "acquired_sources": 64,
+    "claims": 6,
+    "study_results": 4,
+    "mechanical_audit_pass": true,
+    "additional_sources": [
+      {
+        "source": "clinicaltrials",
+        "label": "ClinicalTrials.gov",
+        "status": "complete",
+        "query_ids": [
+          "CT1",
+          "CT2"
+        ],
+        "candidates": 697,
+        "retrieved": 7,
+        "limitations": "Registered studies and posted aggregate results only; missing results are not null findings. No participant-level data. Coverage is limited to ClinicalTrials.gov.",
+        "failures": []
+      },
+      {
+        "source": "epo",
+        "label": "EPO OPS",
+        "status": "complete",
+        "query_ids": [
+          "EP1",
+          "EP2"
+        ],
+        "candidates": 628,
+        "retrieved": 3,
+        "limitations": "OPS searches bibliographic fields, not descriptions/claims; at most 2,000 hits per query. Machine-readable description/claim coverage varies by authority. Patent disclosures do not establish experimental efficacy or legal status.",
+        "failures": []
+      },
+      {
+        "source": "osf",
+        "label": "OSF Registrations",
+        "status": "complete",
+        "query_ids": [
+          "OSF1",
+          "OSF2"
+        ],
+        "candidates": 21,
+        "retrieved": 3,
+        "limitations": "OSF public registration metadata search; acquired registration responses and available form schema only. Linked papers, files and datasets are not automatically read. Registration timing must be checked before calling a plan prospective; plans do not establish results.",
+        "failures": []
+      }
+    ],
+    "epo_searches": {
+      "EP1": {
+        "search": "ta=\"continuous glucose\"",
+        "pages": 7,
+        "cursor": null,
+        "complete": true,
+        "source": "epo",
+        "matched": 628,
+        "truncated": false
+      },
+      "EP2": {
+        "search": "pn=EP2967457 OR pn=US2016212783 OR pn=EP3831294",
+        "pages": 1,
+        "cursor": null,
+        "complete": true,
+        "source": "epo",
+        "matched": 3,
+        "truncated": false
+      }
+    },
+    "original_record_identity_and_body_hashes_verified": 13,
+    "embedded_provider_response_hashes_verified": 12,
+    "additional_research_passage_offsets_verified_before_release": 38,
+    "all_additional_research_offsets_verified": true,
+    "all_reviewed_additional_record_metadata_preserved": true,
+    "optional_acquisition_exclusions_before_cleanup": [
+      {
+        "source_id": "S70095bda849e9e30fb7e6a2e",
+        "status": "retrieval_or_extraction_failed",
+        "reason": "ValueError: OPS has no machine-readable description or claims for this publication"
+      },
+      {
+        "source_id": "S83d1daa76aef30aa69f30aeb",
+        "status": "retrieval_or_extraction_failed",
+        "reason": "ValueError: OPS has no machine-readable description or claims for this publication"
+      },
+      {
+        "source_id": "Sa18b89302add46fd14dd59cf",
+        "status": "retrieval_or_extraction_failed",
+        "reason": "ValueError: OSF registration identity/access mismatch"
+      }
+    ],
+    "retained_context_api_checks": [
+      {
+        "adapter": "clinicaltrials",
+        "source_id": "S492ef1d18cf10613f4fb3dc9",
+        "exact_retained_excerpt_verified": true,
+        "provider_scope_warning_retained": true,
+        "source_bytes_retained": false,
+        "original_file_status": 404
+      },
+      {
+        "adapter": "osf",
+        "source_id": "S3b654e9cedd7397bbab81f6d",
+        "exact_retained_excerpt_verified": true,
+        "provider_scope_warning_retained": true,
+        "source_bytes_retained": false,
+        "original_file_status": 404
+      },
+      {
+        "adapter": "epo",
+        "source_id": "Sc9edfc201f4ea8edfa61ae07",
+        "exact_retained_excerpt_verified": true,
+        "provider_scope_warning_retained": true,
+        "source_bytes_retained": false,
+        "original_file_status": 404
+      }
+    ],
+    "audit": {
+      "budget_seconds": 600,
+      "complete": false,
+      "assessment_counts": {
+        "supported": 5,
+        "not_checked": 1,
+        "correction_needed": 0
+      },
+      "claim_assessments": {
+        "C1": "not_checked",
+        "C2": "supported",
+        "C3": "supported",
+        "C4": "supported",
+        "C5": "supported",
+        "C6": "supported"
+      },
+      "findings": [],
+      "selection_assessment": "Pending independent inspection.",
+      "limitations": [
+        "Audit in progress.",
+        "Audit stopped at its recorded time budget; intermediate audit preserved."
+      ],
+      "scope_note": "In progress: six submitted claims and four structured results; supporting discrepancies, provider acquisition coverage, selection roles and family counts. No independent review of every supporting publication is claimed.",
+      "scores_final": false
+    },
+    "receiver": {
+      "run_key": "all-optional-sources-live-research-202611021310",
+      "bundle_id": "RB-0fc6fd29e6be4085adcca47863070dba",
+      "receiver_revision": "7d7e2da29b97814a70b42bd7bf442ee455b3da09",
+      "bundle_archive_sha256": "fdc9e3a609eb809b727feced229254c230c00973438301c28fae90e5af1f776c",
+      "handoff_sha256": "3b3ec42e436600aadb7757521fe21688a16e69dc5f8f120bff1e15520c2772c3",
+      "claims_submitted": 6,
+      "verbatims_reconstructed": 0,
+      "retained_excerpts_verified": 80,
+      "source_verification_scope": "retained excerpts and locators; full originals released",
+      "canonical_source_kinds": {
+        "publication": 42,
+        "clinical_trial_registry": 20,
+        "patent_disclosure": 8,
+        "study_registration": 10
+      },
+      "dry_run": true,
+      "apply": true,
+      "compiler_require_closure": true,
+      "idempotent_retry": true,
+      "dispositions": [
+        {
+          "candidate_id": "c1",
+          "disposition": "deferred",
+          "claim_id": null,
+          "reason": "The preserved 600-second independent audit leaves C1 not checked and selection/family review unfinished. Do not admit this unchecked synthesis in the bounded receiving proof; further review is required."
+        },
+        {
+          "candidate_id": "c2",
+          "disposition": "deferred",
+          "claim_id": null,
+          "reason": "Outside this bounded receiving proof; production admission requires further review of the source interpretation, scope and independence."
+        },
+        {
+          "candidate_id": "c3",
+          "disposition": "deferred",
+          "claim_id": null,
+          "reason": "Outside this bounded receiving proof; production admission requires further review of the source interpretation, scope and independence."
+        },
+        {
+          "candidate_id": "c4",
+          "disposition": "created",
+          "claim_id": "C-cf1af51b5e905cb180fb207b8ba4c542",
+          "reason": "Bounded source verification: inspected the API-served original NCT05516797 JSON. Confirmed 178 enrolled versus 163 randomized (81/82), 64 HbA1c analyses per arm, posted -1.6/-1.5 changes with arm-specific intervals, and no HbA1c between-arm analysis field. Both arms received supervised ketogenic care. This admits the attributed posted record, without claiming an incremental CGM effect, superiority or equivalence. The final preserved independent audit also assesses this candidate as supported."
+        },
+        {
+          "candidate_id": "c5",
+          "disposition": "created",
+          "claim_id": "C-96c3b3d44fc559219e0bff01caa40127",
+          "reason": "Bounded source verification: inspected original OSF registration responses and schemas. X3DVA was registered 2022-03-14, is not withdrawn, describes three 14-day CGM periods versus finger pricks, targets 300 participants, allocates by entry week, and plans 12-month HbA1c. EH6YB was registered 2026-08-21 and explicitly discloses prior observation of source data before the proposed analyses. These are registration intentions and disclosures; completed outcomes are not inferred. The final preserved independent audit also assesses this candidate as supported."
+        },
+        {
+          "candidate_id": "c6",
+          "disposition": "created",
+          "claim_id": "C-d62ff56f32aa53cbbd56279b66af781d",
+          "reason": "Bounded source verification: inspected original OPS response snapshots and exact canonical passages for EP3831294A1 and EP4802998A2. The first describes a body-worn sensor/applicator with integrated wireless communication; the second claims separately disposed working electrodes, current-based glucose estimation and a parameter determined from the other electrode signal. Both description and claims responses are hash-verified. These are technical disclosures, with efficacy, trial-device implementation and current legal status explicitly excluded. The final preserved independent audit also assesses this candidate as supported."
+        }
+      ],
+      "semantic_review": "Not performed by this verifier; decisions are supplied separately.",
+      "canonical_publication": false,
+      "disposable_receiver": true
+    },
+    "source_record_probes": [
+      {
+        "id": "S0054c32fd28e064c73e0bc4d",
+        "adapter": "osf",
+        "source_kind": "study_registration",
+        "native_id": "eh6yb",
+        "record_url": "https://osf.io/eh6yb",
+        "body_sha256": "c39165d3aa5ea847d4c54e4b72820b1d337583f895a1da3a5814eec3c126aaf1",
+        "recorded_text_sha256": "3935b6f379104170b5d6fa9f6a467d9c43304aa02de62705eea118e768c8fcf2",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "3b7cec29eafeecc29fcb144751b72e4e2f09be72305efe56fc27f9b9b6ffcebe",
+        "version_metadata": {
+          "record_date": "2026-08-21T09:52:34.621656",
+          "date_registered": "2026-08-21T09:52:34.830202",
+          "date_modified": "2026-08-21T09:52:34.621656",
+          "withdrawn": false
+        }
+      },
+      {
+        "id": "S01676db7c171124d0eefb73b",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "native_id": "NCT01341067",
+        "record_url": "https://clinicaltrials.gov/study/NCT01341067",
+        "body_sha256": "3a999039010689e751fd8df8c94a4288efc633ff3cd57f168fd2c12254e703b3",
+        "recorded_text_sha256": "929e4a46d96c258eb2735830701e597d749840662e75fd1b56b479afe41e3df1",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "60cfe7d24c7f71da420c163920c3ae42237925fcad2b0cd077c109dcfd1d8047",
+        "version_metadata": {
+          "has_results": true,
+          "study_status": "COMPLETED",
+          "record_date": "2014-05-02"
+        }
+      },
+      {
+        "id": "S04a5c4b57edbc4d520f381bb",
+        "adapter": "osf",
+        "source_kind": "study_registration",
+        "native_id": "pxbyg",
+        "record_url": "https://osf.io/pxbyg",
+        "body_sha256": "0930ae3dc3fd26f01a88628ba87b39632c6dfcd32a3c09a5fdcda062c6bcc80a",
+        "recorded_text_sha256": "a5c0f83d42003b122b3ca3049e73f064287811eb5142907ee9bd5df7e34f8c9f",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "72231dbcf0957033a1dd935a2700fc38e90fdd0e2db94000127462b9fab48e85",
+        "version_metadata": {
+          "record_date": "2023-02-03T18:31:29.507252",
+          "date_registered": "2023-02-03T22:24:33.097068",
+          "date_modified": "2023-02-03T18:31:29.507252",
+          "withdrawn": false
+        }
+      },
+      {
+        "id": "S0d8356d479baba9401beed93",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "native_id": "NCT02282397",
+        "record_url": "https://clinicaltrials.gov/study/NCT02282397",
+        "body_sha256": "041d4a83f6d5914d49f1dd8a1d7dd7fa9963e64834635bd582da5fe0b576e1d0",
+        "recorded_text_sha256": "e554613aa654e1002f5f42050bdd0ca3d81d5e604af9306f27a872cd38f0b97b",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "20123103f8c3ca9bae8752d27009643d9c68ac3d84d89b9b41dabb62c3d142fb",
+        "version_metadata": {
+          "has_results": false,
+          "study_status": "COMPLETED",
+          "record_date": "2017-05-15"
+        }
+      },
+      {
+        "id": "S3b654e9cedd7397bbab81f6d",
+        "adapter": "osf",
+        "source_kind": "study_registration",
+        "native_id": "x3dva",
+        "record_url": "https://osf.io/x3dva",
+        "body_sha256": "68a68abf11303cd123f2ac783593e24180c4ad1494d822517a50cd7550cb7b7a",
+        "recorded_text_sha256": "7b94e99ef176c99e8dbb361d19cb492aea095804cbea894e3b29befa2a57550a",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "5d21f639c0e3371bf976bd1e55a2122d5c6811bb9efd937f8392b3a977dbdead",
+        "version_metadata": {
+          "record_date": "2022-03-14T12:06:04.932954",
+          "date_registered": "2022-03-14T13:36:52.787006",
+          "date_modified": "2022-03-14T12:06:04.932954",
+          "withdrawn": false
+        }
+      },
+      {
+        "id": "S492ef1d18cf10613f4fb3dc9",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "native_id": "NCT05516797",
+        "record_url": "https://clinicaltrials.gov/study/NCT05516797",
+        "body_sha256": "8e3252b02cfcb10526076a966960d192ddf50105ba254b3692bcb484515cd5f9",
+        "recorded_text_sha256": "d22d590e668ede732fbaa644b73381c39ed430a09cfc350351771aa2a63fd742",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "0433cd97f40b676522ed9ac3a245e25a54975fb102ae48cf9b103ca7f8e338a9",
+        "version_metadata": {
+          "has_results": true,
+          "study_status": "COMPLETED",
+          "record_date": "2025-03-26"
+        }
+      },
+      {
+        "id": "S5ea29e847223fd0ff7a6bb64",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "native_id": "NCT03566693",
+        "record_url": "https://clinicaltrials.gov/study/NCT03566693",
+        "body_sha256": "6c8dcf0dbe6d5fbad58cd9263cfaef2547469461325f46340cc80642e2853f64",
+        "recorded_text_sha256": "0f42da4595ecf4dcd573f21b4f7b5687604b9bb0bff6daa58fe4fcf1937d0252",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "7781578dfe3c04ea89c5fbf1b5d16f948e6f2d8fcf8e9cd65412c11f45470291",
+        "version_metadata": {
+          "has_results": false,
+          "study_status": "COMPLETED",
+          "record_date": "2021-04-21"
+        }
+      },
+      {
+        "id": "Saf5facfd9c41599cfc3139e1",
+        "adapter": "epo",
+        "source_kind": "patent_disclosure",
+        "native_id": "EP.4802998.A2",
+        "record_url": "https://worldwide.espacenet.com/publicationDetails/biblio?CC=EP&NR=4802998A2",
+        "body_sha256": "ceebaebc2e14f6f1e2910be28868c455b7895d21e0dc914a35caacf9162d100f",
+        "recorded_text_sha256": "dddddaaee26540e158f8c154be5b611a16ac52721e8201d78a5730a1335acd52",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "e18d3a9021b82e17fa874ca0bf251f24af6f17062d1e42fc4fafd76fcf1eaf40",
+        "version_metadata": {
+          "record_date": "2026-09-09",
+          "publication_number": "EP.4802998.A2",
+          "family_id": "98897623",
+          "publication_date": "2026-09-09",
+          "retrieved_sections": [
+            "description",
+            "claims"
+          ]
+        }
+      },
+      {
+        "id": "Sc9edfc201f4ea8edfa61ae07",
+        "adapter": "epo",
+        "source_kind": "patent_disclosure",
+        "native_id": "EP.3831294.A1",
+        "record_url": "https://worldwide.espacenet.com/publicationDetails/biblio?CC=EP&NR=3831294A1",
+        "body_sha256": "7e52c3f09b713eb7972d25b873ec6a92d17e983cecf7c79948ee663c58d39c8e",
+        "recorded_text_sha256": "dac7ae6161be91fb54bd479abbfdce74ed10b930227c3eaf11304e8638cc4bd8",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "f8edae1aeb11eb64226a459a732941a28abab37f47040c89d0388ecd85b5ac67",
+        "version_metadata": {
+          "record_date": "2021-06-09",
+          "publication_number": "EP.3831294.A1",
+          "family_id": "69231995",
+          "publication_date": "2021-06-09",
+          "retrieved_sections": [
+            "description",
+            "claims"
+          ]
+        }
+      },
+      {
+        "id": "Sca189f57a0d7abb3297b6ed4",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "native_id": "NCT02082184",
+        "record_url": "https://clinicaltrials.gov/study/NCT02082184",
+        "body_sha256": "d3c6bf931be6cc3009846c70824e8ba5e84249edda79dd4a8f5eeb06426da981",
+        "recorded_text_sha256": "74c017d0e70db992ca76456850d30eab77c077865b3360aa3293611db28be563",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "5c55cd3639736b4fbc004aacffc4dea0b3d320511470b0387d5b6ce9b01f42b1",
+        "version_metadata": {
+          "has_results": true,
+          "study_status": "COMPLETED",
+          "record_date": "2017-05-30"
+        }
+      },
+      {
+        "id": "Sd0ca23f994535eb69aa1637a",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "native_id": "NCT02434315",
+        "record_url": "https://clinicaltrials.gov/study/NCT02434315",
+        "body_sha256": "474a9121cf96ad340d86b60036f589dd6a232920d4e9db640c5004cccd5a952a",
+        "recorded_text_sha256": "14edac44ec6e7fbcd13233003f7729e66adf2b6dbf0478ece6eb547cbb275643",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "ea836882d321a777e25cba2a5ae292a8a79229d697ab162edfd7af6937928019",
+        "version_metadata": {
+          "has_results": false,
+          "study_status": "COMPLETED",
+          "record_date": "2016-09-29"
+        }
+      },
+      {
+        "id": "Sddb937f239205c1193225d08",
+        "adapter": "clinicaltrials",
+        "source_kind": "clinical_trial_registry",
+        "native_id": "NCT01237301",
+        "record_url": "https://clinicaltrials.gov/study/NCT01237301",
+        "body_sha256": "fe36f3acf56c900d641eb5ee98a37a4c0ac476b6ca39ca2757cd354efff0a909",
+        "recorded_text_sha256": "350def9809f95db9f89ebdec3514ee9b1cacadb88028458e7fc7948e9e18cf7b",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "21c599026ea8afaadab4d18ce80a548cf37d82e34748b2c69ea71054de260913",
+        "version_metadata": {
+          "has_results": true,
+          "study_status": "COMPLETED",
+          "record_date": "2018-10-17"
+        }
+      },
+      {
+        "id": "Sf3c545379e3e53f5d94121a1",
+        "adapter": "epo",
+        "source_kind": "patent_disclosure",
+        "native_id": "WO.2018181980.A1",
+        "record_url": "https://worldwide.espacenet.com/publicationDetails/biblio?CC=WO&NR=2018181980A1",
+        "body_sha256": "5ba03c532e552c859e21a6b42992d5f5af585bbe36b0272cf5a43ad2794fc224",
+        "recorded_text_sha256": "3f6c576fc38fa509b5708508f9f4637ef2498111fe4326cede1622dc87acee19",
+        "original_body_hash_verified": true,
+        "source_metadata_sha256": "2ed79d3dc69acae8052e71cd874303d5f3ba040cd17db8623010a3f0df65d35c",
+        "version_metadata": {
+          "record_date": "2018-10-04",
+          "publication_number": "WO.2018181980.A1",
+          "family_id": "63678202",
+          "publication_date": "2018-10-04",
+          "retrieved_sections": [
+            "description",
+            "claims"
+          ]
+        }
+      }
+    ],
+    "frontend": {
+      "live_patent_record_identity_and_scope_verified": true,
+      "retained_patent_excerpt_label_and_original_release_warning_verified": true,
+      "all_three_source_status_panels_verified": true
+    },
+    "receiving_connection_assessment": {
+      "candidate_ids": [
+        "c4",
+        "c5",
+        "c6"
+      ],
+      "existing_canonical_claims": 0,
+      "outcome": "no_justified_connection",
+      "reason": "The disposable receiver starts empty. The accepted registry outcome, registered intentions and engineering disclosures were considered separately; a common CGM topic does not establish a causal or evidential connection between them, and no trial-device identity is assumed."
+    },
+    "admission_decisions_sha256": "32fa5d27cb498b2c8e61bb9d1c08d55f5bf0c2481a5e39919256873a9a2cedb0",
+    "overall_search_complete": false,
+    "incomplete_openalex_query_ids": [
+      "OA1",
+      "OA2",
+      "OA4"
+    ]
+  },
+  "scope": "Live API-owned provider access and native research; actual disposable Resolvent ingestion. Canonical source-kind counts are excerpt records, not independent studies. The partial audit, unchecked C1 and unfinished selection review remain in the payload; this is not scientific certification or production world-model publication. OpenAlex enumeration remains incomplete in the recorded query branches; optional-provider completion is not a claim of exhaustive literature coverage.",
+  "post_run_backend_contract_checks": {
+    "scope": "Read-only live component checks through the shared backend adapter and a temporary discovery fixture; separate from the registered full research run.",
+    "source_contract_tests_passed": 17,
+    "code_change": "Recognize only the OPS search-specific 404 SERVER.EntityNotFound / No results found fault as a completed zero-hit page. Positive-result discovery, acquisition, research and export behavior is unchanged.",
+    "adapter_sha256": "b3c3e16e879729d1788d9d7473a4ed412243b876dddfed0d3d3b66b60f794b4f",
+    "contract_tests_sha256": "4af818f8a2f5064adeaae89fc7209cb32b19b8e7ae223f7ba87d67698f2f6014",
+    "ops_empty_search": {
+      "purpose": "Live backend OPS empty-search contract; temporary test fixture, not a registered research run.",
+      "http_status": 404,
+      "fault_code": "SERVER.EntityNotFound",
+      "fault_message": "No results found",
+      "complete": true,
+      "matched": 0,
+      "pages": 1,
+      "cursor": null,
+      "response_snapshot_saved": true,
+      "response_sha256": "329ad2f95982c6d93a5eabd1b69eebe70872138d5e2574bbe28810f2cb6713cf",
+      "public_rate_headers_recorded": true
+    },
+    "osf_continuation": {
+      "purpose": "Live backend OSF continuation contract; no research workspace or run is modified.",
+      "first_status": 200,
+      "first_rows": 100,
+      "next_cursor_present": true,
+      "reported_total": 2609,
+      "second_status": 200,
+      "second_rows": 100,
+      "cursor_advanced": true,
+      "unique_rows": 199,
+      "native_registration_ids_validated": true
+    },
+    "deliberate_live_quota_exhaustion": false,
+    "updated_api_service": {
+      "compiled_spec_sha256_unchanged": true,
+      "expanded_resolvent_contribution_exactly_unchanged": true,
+      "registered_research_runs_modified": false
+    }
+  }
+}

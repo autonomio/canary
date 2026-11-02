@@ -142,6 +142,8 @@ def argument_parser():
     ask.add_argument("--out", default="./out/question", help="deprecated; the API allocates research storage")
     ask.add_argument("--minimum-papers", type=int, default=50)
     ask.add_argument("--audit-seconds", type=int, default=600)
+    ask.add_argument('--add-source', action='append', choices=['clinicaltrials', 'epo', 'osf'], default=[],
+                     help='add a public source alongside OpenAlex; repeat for multiple sources')
     r = sub.add_parser("review", help="run a cited literature review")
     r.add_argument("question", help="research question in plain words")
     r.add_argument("--max-papers", type=int, default=10)

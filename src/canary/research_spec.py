@@ -73,7 +73,12 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
         raise CompileError('question', 'Expected a question of 1–20,000 characters.')
     research = block(draft.get('research', {}), {'model', 'effort'}, 'research')
     audit = block(draft.get('audit', {}), {'model', 'effort', 'budget_seconds'}, 'audit')
-    retrieval = block(draft.get('retrieval', {}), {'selection', 'target_papers', 'corpus', 'access', 'local_text'}, 'retrieval')
+    retrieval = block(draft.get('retrieval', {}), {'selection', 'target_papers', 'corpus', 'access', 'local_text', 'additional_sources'}, 'retrieval')
+    from .source_adapters import validate_names
+    try:
+        additional = validate_names(retrieval.get('additional_sources', []))
+    except ValueError as error:
+        raise CompileError('retrieval.additional_sources', str(error)) from None
     for path, value, expected in (
         ('research.model', research.get('model', protocol.RESEARCH_MODEL), protocol.RESEARCH_MODEL),
         ('research.effort', research.get('effort', protocol.RESEARCH_EFFORT), protocol.RESEARCH_EFFORT),
@@ -89,6 +94,8 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
         raise CompileError('retrieval.corpus', 'Supported corpora: fresh, local_text.')
     local = None
     if corpus == 'local_text':
+        if additional:
+            raise CompileError('retrieval.additional_sources', 'Additional public sources require corpus: fresh.')
         local = block(retrieval.get('local_text'), {'directory', 'metadata'}, 'retrieval.local_text')
         if 'directory' not in local:
             raise CompileError('retrieval.local_text.directory', 'An absolute server-side directory is required.')
@@ -107,7 +114,8 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
                 'research': {'model': protocol.RESEARCH_MODEL, 'effort': protocol.RESEARCH_EFFORT},
                 'audit': {'model': protocol.AUDIT_MODEL, 'effort': protocol.AUDIT_EFFORT, 'budget_seconds': seconds},
                 'retrieval': {'selection': 'coverage', 'target_papers': target, 'corpus': corpus, 'access': 'open_full_text',
-                              **({'local_text': dict(local)} if local is not None else {})},
+                              **({'local_text': dict(local)} if local is not None else {}),
+                              **({'additional_sources': additional} if additional else {})},
                 'subagents': False}
     return {'source_yaml': source if source is not None else yaml.safe_dump(draft, sort_keys=False),
             'resolved': resolved, 'spec_sha256': digest(resolved), 'compiler_version': 1,

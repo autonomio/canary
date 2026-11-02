@@ -8,6 +8,14 @@ Only `muse-spark-1.3-contributor` is permitted. The service enforces a shared ce
 
 Start with [the service deployment and accounting contract](docs/TOKEN_BOUNDARY.md). Provider credentials belong only in that service, never in workers. Do not reset its persistent ledger to regain allowance.
 
+## Optional sources for question research
+
+The current API-owned question workflow supports additive public sources:
+`canary ask "your question" --add-source clinicaltrials --add-source osf`.
+`--add-source epo` enables patents once OPS credentials are configured on the service.
+Without these flags, OpenAlex remains the default. See [the optional-source contract](docs/OPTIONAL_SOURCES.md)
+and [the HTTP workflow](docs/API.md).
+
 ## Commands
 
 After deploying the request service:

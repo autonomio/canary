@@ -78,7 +78,7 @@ def execute(row, action: str, body: ToolRequest, root: Path):
             raise ValueError('ids must be a nonempty list of source IDs')
         if type(body.get('retry_failed', False)) is not bool:
             raise ValueError('retry_failed must be boolean')
-        receipts = engine.acquire(workspace, ids, workers=body.get('workers', 12), retry_failed=body.get('retry_failed', False))
+        receipts = engine.acquire(workspace, ids, workers=body.get('workers', 12), retry_failed=body.get('retry_failed', False), root=root)
         return {'attempted': len(receipts), 'sources_available': len(engine.catalog(workspace)), 'receipts': receipts}
     if action == 'catalog':
         return engine.catalog(workspace)

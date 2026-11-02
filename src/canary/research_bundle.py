@@ -73,7 +73,7 @@ def initialize(workspace, packet):
     report['created_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     report['engine'] = {'python': sys.version.split()[0], 'sources': {
         name: file_hash(Path(__file__).parent / name) for name in
-        ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'candidate_index.py', 'codex_execution.py', 'codex_auth.py', 'claim_freshness.py',
+        ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'source_adapters.py', 'candidate_index.py', 'codex_execution.py', 'codex_auth.py', 'claim_freshness.py',
          'research_spec.py', 'research_bundle.py', 'bundle_connectors.py', 'compact_bundle.py', 'bundle_encoding.py', 'local_text.py',
          'processes.py', 'pdf_capacity.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py', 'api_client.py', 'redact.py')}}
     lock = resource_root() / 'uv.lock'
@@ -214,7 +214,8 @@ def run_compiled(staged, workspace):
     try:
         return coverage_runtime.run(spec['question'], workspace,
             minimum_papers=spec['retrieval']['target_papers'], audit_seconds=spec['audit']['budget_seconds'],
-            on_reserved=begin, **({'local_text': spec['retrieval']['local_text']}
+            on_reserved=begin, **({'additional_sources': spec['retrieval']['additional_sources']} if spec['retrieval'].get('additional_sources') else {}),
+            **({'local_text': spec['retrieval']['local_text']}
                                 if spec['retrieval']['corpus'] == 'local_text' else {}))
     finally:
         if reserved:

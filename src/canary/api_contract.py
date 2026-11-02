@@ -12,6 +12,7 @@ from .service_status import ServiceStatus
 from .connection import ConnectionStatus
 from .candidate_index import CandidateMetadata
 from .bundle_encoding import ReferenceEncoding
+from .source_adapters import NAMES as ADDITIONAL_SOURCES, SourceStatus
 from .codex_execution import ExecutionRequest, ExecutionReceipt, ExecutionFinish, ExecutionFinished, NativeError
 
 S = {'type':'string'}
@@ -55,8 +56,10 @@ def schemas():
                         'access':fixed('open_full_text')}
     local_config = obj({'directory':dict(S,pattern='^/',maxLength=4096),
                         'metadata':dict(S,pattern='^/',maxLength=4096)}, ['directory'])
-    retrieval = {'oneOf': [obj(dict(retrieval_fields, corpus=fixed('fresh'))),
-        obj(dict(retrieval_fields, corpus=fixed('local_text'), local_text=local_config), ['corpus','local_text'])]}
+    additional = dict(arr({'type':'string','enum':list(ADDITIONAL_SOURCES)}),uniqueItems=True,maxItems=3,default=[])
+    retrieval = {'oneOf': [obj(dict(retrieval_fields, corpus=fixed('fresh'), additional_sources=additional)),
+        obj(dict(retrieval_fields, corpus=fixed('local_text'), local_text=local_config,
+                 additional_sources=dict(additional,maxItems=0)), ['corpus','local_text'])]}
     declaration = obj({'version':{'type':'integer','const':1},'question':dict(S,minLength=1,maxLength=20000),
         'research':obj({'model':fixed(protocol.RESEARCH_MODEL),'effort':fixed(protocol.RESEARCH_EFFORT)}),
         'audit':obj({'model':fixed(protocol.AUDIT_MODEL),'effort':fixed(protocol.AUDIT_EFFORT),
@@ -87,7 +90,7 @@ def schemas():
     research = obj({'kind':S,'answer':ref('Findings'),'run':O,'peer_review':O,'query_net':O,
         'access':O,'profile':obj({'progress':obj({'updated_at':S,'findings_updated_at':nullable(S),
             'findings_refreshed':B,'final_refresh':B},closed=False)},closed=False),
-        'coverage':obj({'candidate_metadata':ref('CandidateMetadata'),
+        'coverage':obj({'candidate_metadata':ref('CandidateMetadata'), 'additional_sources':arr(ref('AdditionalSourceStatus')),
             'search_progress':dict(O,description='Recorded discovery progress. New responses follow DiscoverResult; historical records remain unchanged.')},closed=False),
         'paper_selection':O,'usage':O,'synthesis_md':nullable(S),
         'seed':S,'stopped':S,'model':nullable(S),'papers':arr(O),'iterations':arr(O),
@@ -136,7 +139,7 @@ def schemas():
             ['schema_version','sources','evidence','claims','result','method_metadata'],closed=False),
         'BundleResponse':obj({'key':S,'live':B,'bundle':ref('BundleManifest'),'research':ref('Research')},['key','live','bundle','research']),
         'Findings':findings,'RecordedClaim':claim,'RecordedEvidence':evidence,'Passage':passage,
-        'SourceContext':context,'GeneratedInvestigation':generated,'QuestionPlan':protocol.question_plan_schema(),
+        'SourceContext':context,'GeneratedInvestigation':generated,'QuestionPlan':_query_schema(),
         'ScientificAudit':protocol.audit_schema(),'Freshness':freshness_schema(),
         'ImportRequest':obj({'server_path':S,'name':S,'brief':S},['server_path']),
         'ActionRequest':obj({'command':{'enum':['review','analyze','cycle','inspect','resume','assess','revise','publish']},'options':O},['command','options']),
@@ -148,6 +151,7 @@ def schemas():
             'description':'Terminal native Codex error of a scientific role (task_complete.error in its native session); a run reports its research role. code is codex_error_info verbatim; message is bounded and redacted. transient_provider_capacity (server_overloaded) is not a scientific refusal or a research error; other codes stay unclassified. same_run_retryable is false: a scientific role runs once per run, and rerun starts a new run with the saved settings.'},
         'ExecutionFinish':typed(ExecutionFinish),'ExecutionFinished':typed(ExecutionFinished),
         'CandidateMetadata':typed(CandidateMetadata),
+        'AdditionalSourceStatus':typed(SourceStatus),
         'OpenAlexBackoff':typed(protocol.OpenAlexBackoff),
         'DiscoveryReadiness':{**typed(protocol.DiscoveryReadiness),
             'description':'Read-only recorded-pause observation for the allowance now selected in the service data root. available means no recorded applicable pause blocks it, not a provider guarantee; no discovery or probe request is made.'},
@@ -157,7 +161,7 @@ def schemas():
         # only the new readiness observation is pinned by this contract.
         'OpenAlexStatus':obj({'available':B,'keyword_searches_today':I,'full_day_observed':B,
             'rate_limit':O,'discovery':ref('DiscoveryReadiness')},['discovery'],closed=False),
-        'DiscoverResult':obj({'candidate_metadata':ref('CandidateMetadata'),
+        'DiscoverResult':obj({'candidate_metadata':ref('CandidateMetadata'), 'additional_sources':arr(ref('AdditionalSourceStatus')),
             'openalex_allowance':{'enum':['anonymous','configured_key']},
             'backoff':ref('OpenAlexBackoff'),'incomplete_reason':S,'complete':B,
             'status':{'enum':['complete','backoff','incomplete']},'pending_query_ids':arr(S)},closed=False),
@@ -166,6 +170,12 @@ def schemas():
         'ReadSourceRequest':obj({'reference_id':S,'match':nullable(S),'page':nullable(dict(I,minimum=1)),
                                  'context':dict(I,minimum=0,default=2),'limit':dict(I,minimum=1,default=8)},['reference_id']),
         'FinalizeRequest':obj({'investigation':ref('GeneratedInvestigation')})}
+
+
+def _query_schema():
+    shape = protocol.question_plan_schema(ADDITIONAL_SOURCES)
+    shape['properties']['queries']['items']['required'].remove('source')
+    return shape
 
 
 def document():

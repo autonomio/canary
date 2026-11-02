@@ -77,9 +77,9 @@ S = {"type": "string"}
 SS = arr(S)
 
 
-def question_plan_schema():
+def question_plan_schema(additional_sources=()):
     """Search language is typed separately from full-paper verification criteria."""
-    return obj({
+    shape = obj({
         "question": S,
         "concepts": arr(obj({"name": S, "synonyms": SS, "search_role": S})),
         "outcomes": SS,
@@ -92,6 +92,11 @@ def question_plan_schema():
                             "purpose": S, "collapse_reason": S})),
         "scope_note": S,
     })
+    if additional_sources:
+        query = shape['properties']['queries']['items']
+        query['properties']['source'] = enum('openalex', *additional_sources)
+        query['required'].append('source')
+    return shape
 
 
 def investigation_schema():
@@ -167,11 +172,14 @@ New runs rescan the configured directory; repeating settings does not freeze ext
 """
 
 
-def research_prompt(question, command, minimum_papers=50, *, local_text=False):
+def research_prompt(question, command, minimum_papers=50, *, local_text=False, additional_sources=()):
     search = (LOCAL_TEXT_SCOPE if local_text else
         "Queries must use OpenAlex full-text-inclusive search=; abstract/title-only filters are prohibited. "
         "Collapse genuinely shared root queries while preserving question relevance.\n"
         "Understand: discovery searches indexed full text plus abstracts/titles; relevance triage then reads candidate abstracts, not full papers.")
+    if additional_sources:
+        from .source_adapters import GUIDANCE
+        search += GUIDANCE.format(sources=', '.join(additional_sources))
     return f"""Read the repository AGENTS.md first, then this workspace AGENTS.md. This is real research.
 Question: {question}
 {SCIENTIFIC_RULES}
