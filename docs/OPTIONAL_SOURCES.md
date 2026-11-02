@@ -52,6 +52,8 @@ queries retain original IDs, text and providers. Each provider resumes its own
 cursor. An OpenAlex pause does not suppress the other providers. Failed searches,
 truncated enumeration and provider caps remain incomplete; they are not zero-hit
 or complete-coverage assertions. Only OpenAlex pages count toward OpenAlex usage.
+Search receipts retain public throttling, quota and rejection headers even on
+provider errors; authentication headers, cookies and error bodies are excluded.
 
 `additional-sources.json` records source names, query IDs, completion, candidate and
 retrieved counts, failures and scope limitations. The API and dashboard expose the

@@ -331,6 +331,13 @@ def status(workspace, sources, progress):
     return result
 
 
+def _rate_headers(response):
+    return {k: v for k, v in response.headers.items()
+            if k.lower().startswith(('x-throttling', 'x-individualquota', 'x-registeredquota',
+                                     'x-registeredpayingquota'))
+            or k.lower() in ('retry-after', 'x-rejection-reason')}
+
+
 def discover_query(workspace, root, http, index, query, state, pages):
     from .coverage_runtime import append, event, now
     provider = query['source']
@@ -349,7 +356,7 @@ def discover_query(workspace, root, http, index, query, state, pages):
         try:
             response, rows, next_cursor, matched, limitation = source.search(provider, query['search'], cursor)
             receipt.update(status=response.status_code, url=str(response.request.url),
-                rate_headers={k: v for k, v in response.headers.items() if k.lower().startswith(('x-throttling', 'x-individualquota')) or k.lower() == 'retry-after'})
+                rate_headers=_rate_headers(response))
             if next_cursor == cursor: raise ValueError('Provider repeated a pagination cursor')
             extension = 'xml' if provider == 'epo' else 'json'
             path = workspace / 'search-responses' / f'{query["id"]}-{state["pages"] + 1:04}.{extension}'
@@ -367,6 +374,8 @@ def discover_query(workspace, root, http, index, query, state, pages):
             # Never persist authorization headers, tokens or response bodies from auth errors.
             reason = f'HTTP {code}' if code is not None else type(error).__name__ + ': ' + str(error)
             receipt.update(status=code, error=reason)
+            if isinstance(error, httpx.HTTPStatusError):
+                receipt['rate_headers'] = _rate_headers(error.response)
             state.update(complete=False, truncated=True, failure=reason)
             event(workspace, 'search_failed', source=provider, query_id=query['id'], error=reason)
         finally:

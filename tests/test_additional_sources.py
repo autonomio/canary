@@ -148,6 +148,42 @@ def test_provider_failure_does_not_suppress_other_sources_or_claim_completeness(
     assert 'q0' in progress['pending_query_ids'] and 'q1' in progress['pending_query_ids']
 
 
+def test_ops_zero_total_is_complete_without_inventing_documents(workspace):
+    def handler(request):
+        if request.url.host == 'ops.epo.org' and '/search/' in request.url.path:
+            return httpx.Response(200, content=b'<world-patent-data><biblio-search total-result-count="0"/></world-patent-data>')
+        return mock_provider(request)
+    progress = discover(workspace, handler)
+    epo = next(s for s in progress['additional_sources'] if s['source'] == 'epo')
+    assert epo['status'] == 'complete' and epo['candidates'] == 0 and epo['failures'] == []
+    assert progress['queries']['q2']['matched'] == 0
+
+
+@pytest.mark.parametrize('code', [403, 404, 429, 503])
+def test_ops_rejection_stays_incomplete_and_retains_only_public_rate_headers(workspace, code):
+    headers = {'X-Throttling-Control': 'ops: red', 'X-Rejection-Reason': 'RegisteredQuotaPerWeek',
+               'X-RegisteredQuotaPerWeek-Used': '4294967296', 'Retry-After': '60',
+               'Authorization': 'Bearer private-response-token', 'Set-Cookie': 'private-cookie'}
+    def handler(request):
+        if request.url.host == 'ops.epo.org' and '/search/' in request.url.path:
+            return httpx.Response(code, headers=headers, text='private-error-body')
+        return mock_provider(request)
+    progress = discover(workspace, handler)
+    statuses = {s['source']: s for s in progress['additional_sources']}
+    assert statuses['epo']['status'] == 'failed' and statuses['epo']['candidates'] == 0
+    assert statuses['epo']['failures'] == [f'HTTP {code}']
+    assert statuses['clinicaltrials']['status'] == statuses['osf']['status'] == 'complete'
+    query = progress['queries']['q2']
+    assert query['cursor'] == '*' and query['pages'] == 0 and not query['complete']
+    receipts = [json.loads(line) for line in (workspace / 'additional-source-requests.jsonl').read_text().splitlines()]
+    receipt = next(r for r in receipts if r['source'] == 'epo')
+    assert receipt['rate_headers'] == {k.lower(): v for k, v in headers.items()
+                                      if k not in ('Authorization', 'Set-Cookie')}
+    persisted = '\n'.join(p.read_text() for p in workspace.rglob('*')
+                          if p.is_file() and p.suffix in ('.json', '.jsonl', '.xml'))
+    assert all(secret not in persisted for secret in ('private-response-token', 'private-cookie', 'private-error-body'))
+
+
 def test_only_enabled_sources_can_be_queried_and_history_cannot_change_provider(workspace):
     original = (workspace / 'draft.json').read_bytes()
     wrong = plan(*adapters.NAMES); wrong['queries'][1]['source'] = 'not-enabled'
