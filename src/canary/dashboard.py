@@ -1089,10 +1089,15 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
                               key=lambda p: (p.get('start', 0), p.get('end', 0)))
                 if paragraph_id and selected is None:
                     raise ValueError('paragraph does not belong to this source')
+                extra = reference.get('paper', {}).get('extra', {})
+                context = 'Complete source' if extra.get('source_kind') else 'Full-paper'
                 payload.update(scope='excerpts', context_label='Retained verbatim', text_complete=False,
                     text_available=bool(kept), source_bytes_retained=False,
                     paragraphs=[dict(p, selected=p.get('id') == paragraph_id) for p in kept],
-                    warning='Only cited excerpts are retained. Full-paper context is available through the original source link; original bytes are not stored locally.')
+                    warning=f'Only cited excerpts are retained. {context} context is available through the original source link; original bytes are not stored locally.')
+                if extra.get('source_kind'):
+                    from .source_adapters import LIMITATIONS
+                    payload['warning'] += ' ' + LIMITATIONS[extra['adapter']]
                 return payload
             payload["warning"] = "Saved readable full-source text is missing; abstracts are not substituted."
             return payload

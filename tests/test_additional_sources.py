@@ -228,6 +228,12 @@ def test_payload_and_resolvent_preserve_source_semantics_and_do_not_count_plans_
     compact = bundle_connectors.export(workspace, 'resolvent')
     assert verify_archive(manifest, archive.getvalue(), compact) == len(handoff['sources'])
     assert compact['sources'] == handoff['sources']
+    for reference in view['answer']['references']:
+        context = dashboard.source_context(workspace, reference['id'], key='fixture')
+        assert context['scope'] == 'excerpts' and context['text_available']
+        assert context['text_complete'] is False and context['source_bytes_retained'] is False
+        assert 'Full-paper' not in context['warning']
+        assert adapters.LIMITATIONS[reference['paper']['extra']['adapter']] in context['warning']
 
 
 def test_ui_selects_sources_and_exposes_type_scope_and_failures(tmp_path):
