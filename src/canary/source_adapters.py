@@ -152,6 +152,18 @@ def epo_records(raw):
     return records, total
 
 
+def _epo_no_results(response):
+    """Only this OPS search fault denotes an empty result, not a failed request."""
+    if response.status_code != 404: return False
+    try:
+        fault = ET.fromstring(response.content)
+    except ET.ParseError:
+        return False
+    return (_tag(fault) == 'fault'
+            and [_text(e) for e in _elements(fault, 'code')] == ['SERVER.EntityNotFound']
+            and [_text(e) for e in _elements(fault, 'message')] == ['No results found'])
+
+
 _TOKENS, _TOKEN_LOCK = {}, threading.Lock()
 
 
@@ -211,6 +223,8 @@ class Client:
         end = min(start + 99, 2000)
         response = self.http.get('https://ops.epo.org/3.2/rest-services/published-data/search/biblio',
             params={'q': search, 'Range': f'{start}-{end}'}, headers=self._headers())
+        if _epo_no_results(response):
+            return response, [], None, 0, None
         response.raise_for_status()
         rows, total = epo_records(response.content)
         more = bool(rows) and end < total

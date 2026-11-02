@@ -159,6 +159,24 @@ def test_ops_zero_total_is_complete_without_inventing_documents(workspace):
     assert progress['queries']['q2']['matched'] == 0
 
 
+def test_ops_live_no_results_fault_is_complete_without_hiding_other_404s(workspace):
+    fault = b'<fault xmlns="http://ops.epo.org"><code>SERVER.EntityNotFound</code><message>No results found</message></fault>'
+    def handler(request):
+        if request.url.host == 'ops.epo.org' and '/search/' in request.url.path:
+            return httpx.Response(404, content=fault)
+        return mock_provider(request)
+    progress = discover(workspace, handler)
+    epo = next(s for s in progress['additional_sources'] if s['source'] == 'epo')
+    assert epo['status'] == 'complete' and epo['candidates'] == 0 and epo['failures'] == []
+    assert progress['queries']['q2']['matched'] == 0
+    assert progress['queries']['q2']['cursor'] is None
+    assert (workspace / 'search-responses/q2-0001.xml').read_bytes() == fault
+    for other in (fault.replace(b'No results found', b'Publication not found'),
+                  fault.replace(b'SERVER.EntityNotFound', b'CLIENT.NotFound')):
+        response = httpx.Response(404, content=other)
+        assert adapters._epo_no_results(response) is False
+
+
 @pytest.mark.parametrize('code', [403, 404, 429, 503])
 def test_ops_rejection_stays_incomplete_and_retains_only_public_rate_headers(workspace, code):
     headers = {'X-Throttling-Control': 'ops: red', 'X-Rejection-Reason': 'RegisteredQuotaPerWeek',

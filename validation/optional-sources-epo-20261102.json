@@ -18,7 +18,9 @@
       503
     ],
     "ops_zero_total_success_contract": true,
-    "deliberate_live_quota_exhaustion": false
+    "deliberate_live_quota_exhaustion": false,
+    "code_revision": "efc400879313d7c50bf2024bbd9c4048c734272d",
+    "scope": "Recorded CI before the later search-only empty-result correction; current final-head CI is linked on the PR."
   },
   "live": {
     "run_key": "all-optional-sources-live-research-202611021310",
@@ -496,5 +498,38 @@
       "OA4"
     ]
   },
-  "scope": "Live API-owned provider access and native research; actual disposable Resolvent ingestion. Canonical source-kind counts are excerpt records, not independent studies. The partial audit, unchecked C1 and unfinished selection review remain in the payload; this is not scientific certification or production world-model publication. OpenAlex enumeration remains incomplete in the recorded query branches; optional-provider completion is not a claim of exhaustive literature coverage."
+  "scope": "Live API-owned provider access and native research; actual disposable Resolvent ingestion. Canonical source-kind counts are excerpt records, not independent studies. The partial audit, unchecked C1 and unfinished selection review remain in the payload; this is not scientific certification or production world-model publication. OpenAlex enumeration remains incomplete in the recorded query branches; optional-provider completion is not a claim of exhaustive literature coverage.",
+  "post_run_backend_contract_checks": {
+    "scope": "Read-only live component checks through the shared backend adapter and a temporary discovery fixture; separate from the registered full research run.",
+    "source_contract_tests_passed": 17,
+    "code_change": "Recognize only the OPS search-specific 404 SERVER.EntityNotFound / No results found fault as a completed zero-hit page. Positive-result discovery, acquisition, research and export behavior is unchanged.",
+    "adapter_sha256": "b3c3e16e879729d1788d9d7473a4ed412243b876dddfed0d3d3b66b60f794b4f",
+    "contract_tests_sha256": "4af818f8a2f5064adeaae89fc7209cb32b19b8e7ae223f7ba87d67698f2f6014",
+    "ops_empty_search": {
+      "purpose": "Live backend OPS empty-search contract; temporary test fixture, not a registered research run.",
+      "http_status": 404,
+      "fault_code": "SERVER.EntityNotFound",
+      "fault_message": "No results found",
+      "complete": true,
+      "matched": 0,
+      "pages": 1,
+      "cursor": null,
+      "response_snapshot_saved": true,
+      "response_sha256": "329ad2f95982c6d93a5eabd1b69eebe70872138d5e2574bbe28810f2cb6713cf",
+      "public_rate_headers_recorded": true
+    },
+    "osf_continuation": {
+      "purpose": "Live backend OSF continuation contract; no research workspace or run is modified.",
+      "first_status": 200,
+      "first_rows": 100,
+      "next_cursor_present": true,
+      "reported_total": 2609,
+      "second_status": 200,
+      "second_rows": 100,
+      "cursor_advanced": true,
+      "unique_rows": 199,
+      "native_registration_ids_validated": true
+    },
+    "deliberate_live_quota_exhaustion": false
+  }
 }
