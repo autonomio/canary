@@ -93,5 +93,15 @@ The [recorded live validation](../validation/optional-sources-20261102.json) cov
 50 reviewed publications, seven ClinicalTrials.gov records and four OSF registrations,
 followed by actual disposable Resolvent admission. The 600-second independent audit
 checked all six claims but retained a minor timing correction and incomplete selection
-review; those limits travel with the payload. Live EPO verification remains deferred
-pending operator account approval; its adapter and receiver checks use fixtures.
+review; those limits travel with the payload.
+
+The subsequent [all-source live validation](../validation/optional-sources-epo-20261102.json)
+also covers real OPS OAuth, paginated search and three patents with both descriptions
+and claims. It reviewed 50 publications and 13 additional records, verified their
+body hashes and all 38 additional-source evidence offsets, then passed actual
+Resolvent dry run, apply, closure compilation and retry with all 80 retained excerpts.
+The 600-second audit supported five claims, including all three additional-source
+claims; C1 and selection review remained unchecked. Bounded receiver decisions
+admitted the registry, registration-plan and patent-disclosure statements and
+deferred the other candidates. Unfinished OpenAlex searches and audit limits
+remain attached to the contribution.
