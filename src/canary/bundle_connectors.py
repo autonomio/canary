@@ -89,8 +89,11 @@ def resolvent(workspace):
             'limitations': ['Source independence is not established by this adapter.',
                            'Recorded evidence relation: ' + item.get('relation', 'unknown')], 'premise_claim_ids': []})
     audit_checks = {}
-    for check in (payload.get('independent_audit') or {}).get('claim_checks', []):
-        audit_checks.setdefault(check.get('claim_id'), []).append(check)
+    audit = payload.get('independent_audit')
+    checks = audit.get('claim_checks') if isinstance(audit, dict) else None
+    for check in checks if isinstance(checks, list) else []:
+        if isinstance(check, dict) and isinstance(check.get('claim_id'), str):
+            audit_checks.setdefault(check['claim_id'], []).append(check)
     def reviewed_uncertainty(claim):
         checks = audit_checks.get(claim['id'], [])
         check = checks[0] if len(checks) == 1 else {}

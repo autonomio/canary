@@ -166,3 +166,15 @@ def test_audit_low_recommendation_never_promotes_candidate_or_writer(tmp_path):
     assert metadata['uncertainty']['class'] == 'high'
     assert metadata['uncertainty_review']['recommended_class'] == 'low'
     assert exported['evidence'][0]['independent'] is False
+
+
+@pytest.mark.parametrize('audit', [None, 'legacy', {'claim_checks': None},
+                                   {'claim_checks': ['legacy row', {'claim_id': []}]}])
+def test_legacy_audit_shapes_do_not_block_export(tmp_path, audit):
+    payload = prepare(tmp_path)
+    payload['independent_audit'] = audit
+    research_bundle.write_json(tmp_path / 'payload.json', payload)
+    research_bundle.seal(tmp_path)
+    result = bundle_connectors.resolvent(tmp_path)
+    assert result['method_metadata']['independent_audit'] == audit
+    assert result['method_metadata']['claim_metadata']['c1']['uncertainty_review']['status'] == 'not_assessed'
