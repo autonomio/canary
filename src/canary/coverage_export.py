@@ -202,9 +202,13 @@ def _audit_record(audit: dict) -> dict:
 
 def render_markdown(graph: dict):
     """Deterministic downloadable answer; researcher wording stays unchanged."""
-    if not has_native_findings(graph):
+    if not has_native_findings(graph) and not _rows(graph.get("withheld_claims")):
         return
     lines = ["# " + str(graph.get("question", "?")), "", str(graph.get("scope_note", "")), ""]
+    verification = graph.get("verification", {})
+    if verification.get("version"):
+        lines.extend([f"Verification: {verification['supported_claims']} supported claims; {verification['withheld_claims']} withheld "
+            f"({verification['withheld_share']:.0%}); {verification['correction_rounds']} correction rounds.", ""])
     for summary_index, summary in enumerate(graph.get("executive_summary", []), 1):
         if isinstance(summary, str):
             lines.extend([summary, ""])
@@ -220,7 +224,7 @@ def render_markdown(graph: dict):
     passages = {r.get("id"): r for r in _rows(graph.get("passages"))}
     for claim in _rows(graph.get("claims")):
         label = str(claim["id"]) + (f" · recorded occurrence {claim['claim_occurrence']}" if "claim_occurrence" in claim else "")
-        lines.extend(["## " + label, "", str(claim.get("text", "")), "",
+        lines.extend(["## " + label, "", *(["Record kind: " + claim["kind"].replace("_", " "), ""] if claim.get("kind") else []), str(claim.get("text", "")), "",
                       f'Uncertainty: {claim.get("uncertainty_class", "unknown")} ({claim.get("uncertainty_score", "unknown")}/3; ordinal).',
                       str(claim.get("uncertainty_rationale", "")), "Audit: " + str(checks.get(claim["id"], {}).get("assessment", "not_checked")), ""])
         review = checks.get(claim['id'], {}).get('uncertainty_review', {})
@@ -322,6 +326,10 @@ def render_markdown(graph: dict):
                         lines.extend([f"Provenance failure: missing {kind} {issue.get(kind + '_id')} in {key} record {row.get('id', record_index)}.", ""])
                     elif issue.get("kind") == "missing_linked_record":
                         lines.extend([f"Provenance failure: missing {issue.get('target_section')} record {issue.get('target_id')} in {key} record {row.get('id', record_index)}.", ""])
+    if graph.get("withheld_claims"):
+        lines.extend(["## Withheld claims", "", "Retained for inspection; excluded from active output.", ""])
+        for record in graph["withheld_claims"]:
+            lines.extend([f"### {record['claim']['id']} · {record['status']}", "", record['claim']['text'], "", record['reason'], ""])
     if graph.get("caveats"):
         lines.extend(["## Caveats", "", *[str(x) for x in graph["caveats"]], ""])
     lines.extend(["## References", ""])
@@ -360,6 +368,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     accounting = accounting if isinstance(accounting, dict) else {}
     investigation = _load(research / "investigation.json", payload.get("research", payload))
     investigation = investigation if isinstance(investigation, dict) else {}
+    if payload.get("verification", {}).get("version") or payload.get("research_status") == "candidate_research_pending_audit":
+        investigation = payload  # Final supported claims; original investigation is immutable history.
     selection = _load(research / "selection.json", payload.get("selection", {}))
     selection = selection if isinstance(selection, dict) else {}
     reviewed = _rows(_load(research / "reviewed-papers.json", payload.get("reviewed_papers", [])))
@@ -653,6 +663,31 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     audit = _load(bundle / "audit" / "audit.json", _load(bundle / "audit.json", {}))
     audit = audit if isinstance(audit, dict) else {}
     audit_case = _audit_record(audit)
+    if audit_case.get("standard_version"):
+        from .audit_validation import current, snapshot, matches_investigation
+        from .corrections import audit_basis
+        checked_payload = audit_basis(payload)
+        current_claims = {c["id"]: c for c in investigation.get("claims", [])}
+        inputs_changed = not matches_investigation(payload, investigation)
+        checked_ids = {c.get("claim_id") for c in _rows(audit_case.get("claim_checks"))}
+        stale = inputs_changed or bool(current_claims.keys() - checked_ids)
+        verified_checks = []
+        for check in _rows(audit_case.get("claim_checks")):
+            claim = current_claims.get(check.get("claim_id"))
+            if inputs_changed or claim is not None and not current(checked_payload, claim, check):
+                check = dict(check, assessment="not_checked",
+                    reason="Scientific inputs changed since this verdict; a fresh audit is required.")
+                stale = True
+            verified_checks.append(check)
+        audit_case = dict(audit_case, claim_checks=verified_checks,
+            audit_complete=audit_case.get("audit_complete", False) and not stale)
+        if inputs_changed or snapshot(checked_payload) != audit_case.get("snapshot_sha256"):
+            audit_case["evidence_checks"] = [dict(check, assessment="unknown",
+                validation_issue="Scientific inputs changed since the independence assessment")
+                for check in audit_case.get("evidence_checks", [])]
+    used_passages.update(p["id"] for r in payload.get("withheld_claims", []) for e in r.get("evidence", []) for p in e.get("verbatims", []))
+    used_passages.update(p for c in audit_case.get("evidence_checks", []) for p in c.get("passage_ids", []))
+    used_passages.update(p for f in audit_case.get("findings", []) for p in f.get("passage_ids", []))
     check_rows = _rows(audit_case.get("claim_checks"))
     check_counts = Counter(c.get("claim_id") for c in check_rows)
     checks = {c.get("claim_id"): c for c in check_rows if check_counts[c.get("claim_id")] == 1}
@@ -666,7 +701,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     recorded_status = run.get("status", "in_progress")
     lifecycle = run.get("runtime_status", recorded_status) if recorded_status in ("in_progress", "answered") else recorded_status
     # A stopped run without a recorded audit will not receive one.
-    active = lifecycle in ("planning", "researching", "reading", "acquiring", "auditing", "in_progress", "indexing_local_text")
+    active = lifecycle in ("planning", "researching", "reading", "acquiring", "auditing", "correcting", "in_progress", "indexing_local_text")
     unaudited, unaudited_reason = ("pending", "Audit pending.") if active else ("not_run", "No independent audit was run.")
     for claim in graph["claims"]:
         ambiguous = claim["id"] in duplicate_claim_ids
@@ -685,7 +720,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                            raw_assessment=assessment, paragraph_ids=ids,
                            reason=("Duplicate claim ID; the ID-only audit record cannot be assigned to this occurrence."
                                    if ambiguous else check.get("reason", unaudited_reason if not audit else "Not checked in the recorded audit scope.")),
-                           correction_applied=False,
+                           correction_applied=any(r.get("action") == "revise" and claim["id"] in r.get("replacement_claim_ids", [])
+                               for h in payload.get("claim_revisions", []) for r in h.get("responses", [])),
                            uncertainty_review=uncertainty_review(check, state=prior_state, evidence_ids=evidence_ids))
         if recorded_checks:
             bound_check["recorded_checks"] = recorded_checks
@@ -794,11 +830,24 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     for role in ("research", "audit"):
         receipt = _load(bundle / (role + "-receipt.json"), _load(research / (role + "-receipt.json"), None))
         if isinstance(receipt, dict) and receipt.get("ended_at"):
+            if role == "audit" and any(k.startswith("audit_") for k in profile_roles):
+                continue
             usage = receipt.get("usage", {})
             profile_roles[role] = dict(receipt, active=False, tokens=usage.get("totals", {}),
                                        receipts=usage.get("receipts", []))
+    for path in sorted((bundle / "rounds").glob("[0-9][0-9][0-9]/*-receipt.json")):
+        role = path.name.removesuffix("-receipt.json")
+        if role not in ("audit", "correction"):
+            continue
+        receipt = _load(path, {})
+        if receipt.get("ended_at"):
+            usage = receipt.get("usage", {})
+            profile_roles[f"{role}_{path.parent.name}"] = dict(receipt, active=False,
+                tokens=usage.get("totals", {}), receipts=usage.get("receipts", []))
     if profile_roles:
         profile = dict(profile, roles=profile_roles)
+        if profile.get("active_role") in profile_roles and not profile_roles[profile["active_role"]].get("active"):
+            profile["active_role"] = None
         _save(bundle / "profile.json", profile)
     model_receipts = _profile_receipts(profile) or _normalize_receipts(run.get("receipts"))
     graph["profile_summary"] = {"roles": _profile_roles(profile)}
@@ -806,16 +855,29 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         graph["source_efficiency"] = efficiency
         _save(bundle / "source-efficiency.json", efficiency)
     has_findings = has_native_findings(graph)
-    status = ("in_progress" if lifecycle in ("planning", "researching", "reading", "acquiring", "auditing")
+    status = ("in_progress" if lifecycle in ("planning", "researching", "reading", "acquiring", "auditing", "correcting")
               else "answered" if lifecycle in ("complete", "completed") and has_findings
               else "complete" if lifecycle == "answered" and not has_findings else lifecycle)
     # Neither a clarifying question nor a stopped run's claim-free summary answers the question.
     has_findings = answers_question(graph, status)
     requests = _load(source / "openalex-requests.json", _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None)))
+    by_origin = {e["id"]: e for e in payload.get("evidence", [])}
+    for item in graph["evidence"]:
+        item["premise_claim_ids"] = by_origin.get(item.get("origin_evidence_id", item["id"]), {}).get("premise_claim_ids", [])
+    graph["export_policy"] = {"connector_version": 4} if payload.get("verification", {}).get("version") else {}
+    graph["history_manifest"] = payload.get("history_manifest", [])
+    graph["verification_progress"] = payload.get("verification_progress")
+    graph["claim_links"] = payload.get("claim_links", [])
+    graph["verification"] = {k: v for k, v in payload.get("verification", {}).items() if k != "audit_basis"}
+    graph["withheld_claims"] = payload.get("withheld_claims", [])
+    graph["claim_revisions"] = payload.get("claim_revisions", [])
+    graph["claim_review_checks"] = payload.get("claim_review_checks", [])
+    graph["evidence_independence"] = audit_case.get("evidence_checks", [])
     graph["audit"] = {"status": unaudited if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids and not duplicate_check_ids else "partial",
+                       "standard_version": audit_case.get("standard_version"), "validation_issues": audit_case.get("validation_issues", []),
                        "model": audit_model, "reasoning_effort": audit_effort,
-                       "checked_claims": sum(check.get("assessment") != "not_checked" for check in graph["source_checks"]),
-                       "total_claims": len(graph["claims"]), "scope_note": audit.get("scope_note", audit_case.get("scope_note", "")),
+                       "checked_claims": sum(check.get("assessment") != "not_checked" for check in (audit_case.get("claim_checks", []) if payload.get("verification") else graph["source_checks"])),
+                       "total_claims": len(audit_case.get("claim_checks", [])) if payload.get("verification") else len(graph["claims"]), "scope_note": audit.get("scope_note", audit_case.get("scope_note", "")),
                        "limitations": audit_case.get("limitations", []), "scores": audit_case.get("scores", {}),
                        "is_scientific_certification": False}
     run.update(kind="question", run_id=run.get("run_id", bundle.name), question=question,

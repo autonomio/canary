@@ -40,7 +40,7 @@ def seed(workspace):
            'evidence_ids':['E1'],'study_result_ids':[]}
     evidence={'id':'E1','passage_ids':[passage['id']],'interpretation':'Synthetic reading.','relation':'qualifies'}
     raw={'executive_summary':[{'text':'Synthetic summary.','claim_ids':['C1']}], 'claims':[claim], 'evidence':[evidence],
-        'study_results':[], 'contradictions':[],
+        'study_results':[], 'claim_links':[], 'clarification':None, 'contradictions':[],
         'gaps':[{'id':'G1','kind':'missing_data','description':'Synthetic missing comparator.','basis':'Scoped fixture.',
                  'claim_ids':['C1'],'evidence_ids':['E1'],'needed_to_resolve':'A comparator.'}],
         'residue':[{'id':'R1','observation':'A detail worth keeping.','basis':'Scoped fixture.',
@@ -79,7 +79,7 @@ def test_resolved_defaults_and_digest_are_stable_and_explicit():
     b=research_spec.compile_mapping(a['resolved'])
     assert a['spec_sha256']==b['spec_sha256']
     assert a['resolved']['research']=={'model':'gpt-6.1-sol','effort':'xhigh'}
-    assert a['resolved']['audit']=={'model':'gpt-6.1-sol','effort':'xhigh','budget_seconds':None}
+    assert a['resolved']['audit']=={'model':'gpt-6.1-sol','effort':'xhigh','budget_seconds':None,'max_correction_rounds':3}
     assert a['resolved']['retrieval']['target_papers']==50
     a['resolved']['audit']['budget_seconds']=1
     with pytest.raises(research_spec.CompileError):research_spec.verify_compiled(a)
@@ -474,3 +474,21 @@ def test_historical_staged_settings_remain_readable_and_match_the_response_schem
     assert client.post('/api/runs/historical-stage/rerun',json={}).status_code==400
     assert client.post('/api/runs/compile',json={'spec':packet['resolved']}).status_code==400
     assert calls==[]
+
+
+@pytest.mark.parametrize('sources', [['clinical_trials_gov'], None, {}, ''])
+def test_recorded_optional_sources_cannot_be_silently_omitted(sources):
+    packet = research_spec.compile_research('question: Q?')
+    packet['source_yaml'] = json.dumps({'question': 'Q?', 'retrieval': {'additional_sources': sources}})
+    with pytest.raises(research_spec.CompileError, match='absent from resolved settings'):
+        research_spec.verify_recorded(packet)
+
+
+def test_api_explicit_empty_optional_sources_remain_readable_after_release(api):
+    _, client, _ = api
+    created = client.post('/api/runs', json={'spec': {'question': 'Synthetic fixture question?',
+        'retrieval': {'additional_sources': []}}}).json()
+    bundle = wait_bundle(client, created['key'])['bundle']
+    assert bundle['retention']['mode'] == 'bundle_only'
+    assert client.get('/api/runs/'+created['key']+'/bundle/archive').status_code == 200
+    assert client.get('/api/runs/'+created['key']+'/exports/resolvent').status_code == 200

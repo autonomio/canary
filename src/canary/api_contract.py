@@ -52,6 +52,7 @@ def typed(annotation):
 
 
 def schemas():
+    from . import corrections
     fixed = lambda value: {'type':'string','const':value}
     retrieval_fields = {'selection':fixed('coverage'),'target_papers':dict(I,minimum=1,default=50),
                         'access':fixed('open_full_text')}
@@ -64,7 +65,8 @@ def schemas():
     declaration = obj({'version':{'type':'integer','const':1},'question':dict(S,minLength=1,maxLength=20000),
         'research':obj({'model':fixed(protocol.RESEARCH_MODEL),'effort':fixed(protocol.RESEARCH_EFFORT)}),
         'audit':obj({'model':fixed(protocol.AUDIT_MODEL),'effort':fixed(protocol.AUDIT_EFFORT),
-                     'budget_seconds':{'type':'null','default':None,'description':'Audits have no duration limit.'}}),
+                     'budget_seconds':{'type':'null','default':None,'description':'Audits have no duration limit.'},
+                     'max_correction_rounds':dict(I,minimum=0,default=3)}),
         'retrieval':retrieval,
         'research_state':nullable(dict(O,description='Supplied current research state, at most 10 MiB. Preserved as untrusted background, including paper references and review records.')),
         'continue_research':dict(B,default=False,description='Continue from supplied research_state; avoid reselecting previously reviewed publications. Existing paper target and scientific workflow are unchanged.'),
@@ -93,10 +95,15 @@ def schemas():
     passage = obj({'id':S,'source_id':S,'reference_id':S,'kind':S,'text':S,'start':I,'end':I,
                    'page':nullable(I),'selected':B},['id'],closed=False)
     findings = obj({'question':S,'executive_summary':arr({}),'claims':arr(ref('RecordedClaim')),
+        'export_policy':obj({'connector_version':I}),
         'evidence':arr(ref('RecordedEvidence')),'passages':arr(ref('Passage')),'references':arr(O),
         'gaps':arr(O),'residue':arr(O),'contradictions':arr(O),'study_results':arr(O),
         'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O),
-        'source_checks':arr(ref('RecordedSourceCheck'))},closed=False)
+        'history_manifest':arr(ref('RevisionDigest')),'claim_links':arr(ref('ClaimLink')),
+        'verification_progress':nullable(obj({'phase':S,'round':I})),
+        'verification':ref('VerificationSummary'),'withheld_claims':arr(ref('WithheldClaim')),'claim_revisions':arr(ref('ClaimRevision')),
+        'claim_review_checks':arr(ref('ClaimReviewCheck')),
+        'source_checks':arr(ref('RecordedSourceCheck')), 'evidence_independence':arr(ref('EvidenceIndependence'))},closed=False)
     research = obj({'kind':S,'answer':ref('Findings'),'run':O,'peer_review':O,'query_net':O,
         'access':O,'profile':obj({'progress':obj({'updated_at':S,'findings_updated_at':nullable(S),
             'findings_refreshed':B,'final_refresh':B},closed=False)},closed=False),
@@ -158,7 +165,25 @@ def schemas():
         'BundleResponse':obj({'key':S,'live':B,'bundle':ref('BundleManifest'),'research':ref('Research')},['key','live','bundle','research']),
         'Findings':findings,'RecordedClaim':claim,'RecordedEvidence':evidence,'Passage':passage,
         'SourceContext':context,'GeneratedInvestigation':generated,'QuestionPlan':_query_schema(),
-        'ScientificAudit':protocol.audit_schema(),'UncertaintyReview':protocol.uncertainty_review_schema(),
+        'ScientificAudit':protocol.audit_schema(),
+        'ClaimLink':generated['properties']['claim_links']['items'],
+        'RevisionDigest':obj({'round':I,'kind':{'enum':['research','audit','correction']},'sha256':S}, ['round','kind','sha256']),
+        'RevisionArtifact':obj({'round':I,'kind':{'enum':['research','audit','correction']},'sha256':S,'content':S}, ['round','kind','sha256','content']),
+        'CorrectionResponse':corrections.schema(),
+        'VerificationSummary':obj({'version':I,'candidate_claims':I,'supported_claims':I,'withheld_claims':I,
+            'withheld_share':{'type':'number','minimum':0,'maximum':1},'correction_rounds':I,
+            'audit_complete':B,'failure':nullable(S),'run_issues':arr(S)}),
+        'WithheldClaim':obj({'evidence':arr(O),'claim':ref('RecordedClaim'),'status':S,'reason':S,'final_check':O}, ['claim','status','reason'],closed=False),
+        'ClaimRevision':obj({'round':I,'kind':{'enum':['research','audit','correction']},
+            'investigation':O,'payload':O,'audit':O,'responses':arr(O),'receipt':O,
+            'status':S,'failure':S,'claim_ids':arr(S),'response_text':nullable(S)}, ['round','kind'],closed=False),
+        'ClaimReviewCheck':obj({'kind':{'enum':['missing_study_result','context_wording','possible_duplicate']},
+            'claim_ids':arr(S),'blocking':B,'message':S}, ['kind','claim_ids','blocking','message']),
+        'RecordedClaimCheck':obj({'claim_id':S,'assessment':S,'reason':S,'issue_types':arr(S),
+            'statement_sha256':S,'claim_snapshot_sha256':S,'validation_issues':arr(S),
+            'uncertainty_review':ref('RecordedUncertaintyReview')}, ['claim_id'], closed=False),
+        'EvidenceIndependence':dict(protocol.audit_schema()['properties']['evidence_checks']['items'], additionalProperties=True),
+        'UncertaintyReview':protocol.uncertainty_review_schema(),
         'RecordedSourceCheck':obj({'claim_id':S,'assessment':S,'reason':S,'paragraph_ids':arr(S),
             'uncertainty_review':ref('RecordedUncertaintyReview')},['claim_id'],closed=False),
         'RecordedUncertaintyReview':obj({**protocol.uncertainty_review_schema()['properties'],
@@ -245,6 +270,8 @@ def document():
     for verb in ('pause','unpause'):
         op(verb,'post','/api/runs/{key}/'+verb,'Retained container control; native workers use cancel','RunControl',params=[key],body='Object')
     op('research','get','/api/runs/{key}/research','Read findings, binding issues, coverage and separate audit','ResearchResponse',params=[key],mcp=True)
+    op('revision','get','/api/runs/{key}/revisions/{round}/{kind}','Read a hash-checked original research, audit or correction record after source cleanup','RevisionArtifact',
+        params=[key,('round','path',dict(I,minimum=0),True),('kind','path',{'enum':['research','audit','correction']},True)],mcp=True)
     op('bundle','get','/api/runs/{key}/bundle','Read bundle settings, artifact hashes and findings','BundleResponse',params=[key],mcp=True)
     op('archive','get','/api/runs/{key}/bundle/archive','Download a finished bundle with exact saved materials',params=[key],media='application/zip')
     op('artifact','get','/api/runs/{key}/bundle/artifacts/{artifact_path}','Download one hash-checked inventoried artifact',params=[key,('artifact_path','path',S,True)],media='application/octet-stream')

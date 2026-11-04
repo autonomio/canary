@@ -269,3 +269,62 @@ def test_historical_astra_bundle_is_readable_but_cannot_execute_old_settings(tmp
     (tmp_path/compact_bundle.NAME).write_bytes(body)
     (tmp_path/compact_bundle.CHECKSUM).write_text(hashlib.sha256(body).hexdigest()+'\n')
     with pytest.raises(ValueError,match='disagrees with resolved settings'):research_bundle.read(tmp_path)
+
+
+@pytest.mark.parametrize('newline', ['\n', '\r\n'])
+def test_explicit_empty_optional_sources_survive_release_and_archive(tmp_path, newline):
+    from canary import research_spec
+    from test_research_bundle import seed
+    packet = research_spec.compile_research(('question: Synthetic fixture question?\n'
+        'retrieval: {target_papers: 1, additional_sources: []}\n').replace('\n', newline))
+    research_bundle.initialize(tmp_path, packet)
+    seed(tmp_path)
+    (tmp_path/'.run-reservation').touch()
+    coverage_export.export_bundle(tmp_path)
+    research_bundle.seal(tmp_path)
+    retained = compact_bundle.retain(tmp_path)
+    assert research_bundle.read(tmp_path) == retained
+    assert research_spec.verify_compiled(retained['specification'])['resolved'] == packet['resolved']
+    assert bundle_connectors.export(tmp_path, 'resolvent')['claims']
+    archive = io.BytesIO()
+    research_bundle.archive(tmp_path, archive)
+    with zipfile.ZipFile(archive) as zipped:
+        assert json.loads(zipped.read('bundle.json'))['specification']['source_yaml'] == packet['source_yaml'].replace('\r\n', '\n')
+
+
+def test_manifest_validation_failure_preserves_sources_and_allows_retry(tmp_path, monkeypatch):
+    prepared(tmp_path)
+    originals = {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
+    manifest = compact_bundle.manifest
+    def invalid(_):
+        raise ValueError('Synthetic manifest validation failure')
+    with monkeypatch.context() as patch:
+        patch.setattr(compact_bundle, 'manifest', invalid)
+        with pytest.raises(ValueError, match='Synthetic manifest validation failure'):
+            compact_bundle.retain(tmp_path)
+    assert {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()} == originals
+    assert not compact_bundle.exists(tmp_path)
+    assert compact_bundle.retain(tmp_path) == manifest(tmp_path)
+
+
+def test_frontend_explains_source_release_validation(tmp_path):
+    prepared(tmp_path)
+    view = dashboard.research_bundle(tmp_path)
+    view['compiled_bundle'] = research_bundle.read(tmp_path)
+    run_dashboard(tmp_path, view['answer'], """
+S.selected='synthetic';
+assert.match(bundleHtml(""" + json.dumps(view) + """),/Working sources are released only after the saved bundle passes integrity and input checks/);
+""")
+
+
+
+def test_verification_failure_never_releases_full_working_sources(tmp_path):
+    prepared(tmp_path)
+    run=json.loads((tmp_path/'run.json').read_text())
+    run['verification_failure']='Synthetic provider connection failure'
+    research_bundle.write_json(tmp_path/'run.json',run)
+    research_bundle.seal(tmp_path)
+    with pytest.raises(ValueError,match='working sources must remain available'):
+        compact_bundle.retain(tmp_path)
+    assert (tmp_path/'papers/W1.txt').is_file()
+    assert not compact_bundle.exists(tmp_path)

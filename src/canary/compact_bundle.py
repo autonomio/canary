@@ -91,6 +91,9 @@ def retain(workspace):
     workspace = Path(workspace)
     if exists(workspace):
         return manifest(workspace)
+    run_path = workspace / 'run.json'
+    if run_path.is_file() and json.loads(run_path.read_text()).get('verification_failure'):
+        raise ValueError('Verification stopped; working sources must remain available')
     if not (workspace / '.run-reservation').is_file():
         raise ValueError('Only a newly reserved research workspace can be released')
     contribution = bundle_connectors.resolvent(workspace)
@@ -123,7 +126,13 @@ def retain(workspace):
         os.fsync(stream.fileno())
     (workspace / CHECKSUM).write_text(hashlib.sha256(body).hexdigest() + '\n')
     temporary.replace(workspace / NAME)
-    read(workspace, expanded=True)  # No release on a failed output commit/reconstruction.
+    try:
+        retained = manifest(workspace)  # Verify inputs and reconstruction before release.
+    except Exception:
+        # Leave the working bundle available for inspection and a corrected retry.
+        (workspace / NAME).unlink()
+        (workspace / CHECKSUM).unlink()
+        raise
     for path in workspace.iterdir():
         if path.name in (NAME, CHECKSUM):
             continue
@@ -131,4 +140,4 @@ def retain(workspace):
             shutil.rmtree(path)
         else:
             path.unlink()
-    return manifest(workspace)
+    return retained

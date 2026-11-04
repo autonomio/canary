@@ -18,8 +18,12 @@ FALLBACK = ('Personal Codex configuration requires --ignore-user-config, which a
             'does not support. This session uses isolated codex exec.')
 
 
-class ExecutionRequest(TypedDict):
-    role: Literal['research', 'audit']
+class ScientificRole(TypedDict):
+    role: Literal['research', 'audit', 'correction']
+
+
+class ExecutionRequest(ScientificRole, total=False):
+    round: int
 
 
 class ExecutionStatus(TypedDict):
@@ -59,6 +63,7 @@ class ExecutionReceipt(TypedDict, total=False):
     native_error: NativeError | None
     turn_usage: list[dict]
     usage: dict
+    thread_usage: dict
     cleanup: dict
     subagents_enabled: bool
     configuration_policy: str
@@ -85,7 +90,7 @@ class CodexExecution:
                     'active_shared_sessions': sum(s.backend == SHARED for s in self.sessions.values()),
                     'active_exec_sessions': sum(s.backend == LEGACY for s in self.sessions.values())}
 
-    def open(self, key, role, workspace, model, effort, shape, output, stderr, command, environment=None):
+    def open(self, key, role, workspace, model, effort, shape, output, stderr, command, environment=None, *, resume_thread_id=None, expected_backend=None, resume_archived=True):
         self.context()
         with self.auth.lock:
             generation = self.auth.proc
@@ -111,6 +116,10 @@ class CodexExecution:
                     text=True, check=True, timeout=5).stdout.strip()
             session = Session(self, key, role, workspace, model, effort, shape, output,
                               stderr, command, shared, generation, store, environment or {})
+            if expected_backend is not None and session.backend != expected_backend:
+                raise RuntimeError('Research continuation cannot change its native execution backend')
+            session.resume_thread_id = resume_thread_id
+            session.resume_archived = resume_archived
             self.sessions[key] = session
         return session
 
@@ -159,6 +168,8 @@ class Session:
         self.exit_code, self.last_message = None, None
         self.cancel_at = None
         self.cleanup = {}
+        self.resume_thread_id = None
+        self.resume_archived = True
 
     def invocation(self):
         return {'backend': self.backend, 'fallback_reason': None if self.backend == SHARED else FALLBACK,
@@ -197,10 +208,17 @@ class Session:
                 'features.memories': False, 'features.plugins': False, 'features.apps': False,
                 'web_search': 'disabled', 'sandbox_workspace_write.network_access': True,
                 'shell_environment_policy.set': self.environment}
-            result = self._rpc('thread/start', {'cwd': str(self.workspace), 'model': self.model,
+            params = {'cwd': str(self.workspace), 'model': self.model,
                 'approvalPolicy': 'on-request', 'approvalsReviewer': 'auto_review',
-                'sandbox': 'workspace-write', 'config': config})
+                'sandbox': 'workspace-write', 'config': config}
+            if self.resume_thread_id:
+                if self.resume_archived:
+                    self._rpc('thread/unarchive', {'threadId': self.resume_thread_id})
+                params.update(threadId=self.resume_thread_id, excludeTurns=True)
+            result = self._rpc('thread/resume' if self.resume_thread_id else 'thread/start', params)
             self.thread_id = result['thread']['id']
+            if self.resume_thread_id and self.thread_id != self.resume_thread_id:
+                raise RuntimeError('Research continuation returned a different native thread')
             if (result.get('model') != self.model or result.get('reasoningEffort') != self.effort or
                     result.get('cwd') != str(self.workspace)):
                 raise RuntimeError('Codex did not preserve the scientific model, effort or workspace')

@@ -419,20 +419,46 @@ class Supervisor:
 
     def execute_scientific(self, key, body):
         from . import coverage_runtime as engine, coverage_protocol as protocol
-        if not isinstance(body, dict) or set(body) != {'role'} or body['role'] not in ('research', 'audit'):
-            raise ValueError('Expected one scientific role: research or audit')
-        role = body['role']
+        if (not isinstance(body, dict) or not {'role'} <= body.keys() or set(body) - {'role', 'round'} or
+                body['role'] not in ('research', 'audit', 'correction')):
+            raise ValueError('Expected one scientific role and optional round')
+        role, round_index = body['role'], body.get('round')
+        if round_index is not None and (type(round_index) is not int or round_index < 0):
+            raise ValueError('Scientific round must be a nonnegative integer')
+        resume = None
         with self.lock:
             row = runs.get(key, self.registry)
             if row is None: raise KeyError(key)
             workspace = Path(row['bundle']).resolve()
             manifest = _load_json_file(workspace / 'run.json', {})
+            expected = {'research': 'researching', 'audit': 'auditing', 'correction': 'correcting'}[role]
             if (row.get('status') not in runs._ACTIVE_STATUS or row.get('cancel_requested_at') or
-                    manifest.get('status') != ('researching' if role == 'research' else 'auditing')):
+                    manifest.get('status') != expected):
                 raise ValueError('This run is not active in the requested scientific phase')
-            if row.get('execution_closed') or role in row.get('executions_started', []) or (workspace / (role + '-receipt.json')).is_file():
-                raise ValueError('This scientific role has already started; create a new run to repeat it')
-            row['executions_started'] = [*row.get('executions_started', []), role]
+            if role == 'research' and round_index is not None:
+                raise ValueError('Initial research has no correction round')
+            frozen = _load_json_file(Path(row['run_spec_path']), {}).get('resolved', {}) if row.get('run_spec_path') else {}
+            max_rounds = frozen.get('audit', {}).get('max_correction_rounds', manifest.get('max_correction_rounds', 3))
+            if role == 'correction' or round_index is not None:
+                field = 'correction_round' if role == 'correction' else 'audit_round'
+                if (round_index is None or manifest.get(field) != round_index or
+                        round_index > max_rounds):
+                    raise ValueError('This scientific round has not been authorized by the run')
+            directory = workspace if round_index is None else workspace / 'rounds' / f'{round_index:03d}'
+            phase = role if round_index is None else f'{role}:{round_index}'
+            if row.get('execution_closed') or phase in row.get('executions_started', []) or (directory / (role + '-receipt.json')).is_file():
+                raise ValueError('This scientific phase has already started; create a new run to repeat it')
+            if role == 'correction':
+                if round_index < 1 or not (directory / 'correction-input.json').is_file():
+                    raise ValueError('Correction requires its saved review input')
+                source = (workspace/'research-receipt.json' if round_index == 1 else
+                    workspace/'rounds'/f'{round_index-1:03d}'/'correction-receipt.json')
+                resume = _load_json_file(source, {})
+                if not resume.get('thread_id') or resume.get('exit_code') != 0:
+                    raise ValueError('Original research session is unavailable for continuation')
+                if (resume.get('model'), resume.get('reasoning_effort')) != (protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT):
+                    raise ValueError('Research continuation cannot change the original model or effort')
+            row['executions_started'] = [*row.get('executions_started', []), phase]
             runs.upsert(row, self.registry)
         # Parameters come from the API-owned run, never caller-supplied model,
         # prompt, path, credentials or executable values.
@@ -441,7 +467,12 @@ class Supervisor:
         question = manifest['question']
         local = bool(manifest.get('local_text'))
         additional = manifest.get('additional_sources', [])
-        if role == 'research':
+        if role == 'correction':
+            from .corrections import schema
+            model, effort = protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT
+            prompt = protocol.correction_prompt(question, command, round_index)
+            shape = schema()
+        elif role == 'research':
             model, effort = protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT
             prompt = protocol.research_prompt(question, command, manifest.get('minimum_papers', 50), local_text=local, additional_sources=additional, research_state=bool(manifest.get("research_state")), continue_research=manifest.get("research_state", {}).get("continue_research", False))
             shape = protocol.investigation_schema()
@@ -453,10 +484,18 @@ class Supervisor:
                 prompt += GUIDANCE.format(sources=', '.join(additional))
             if manifest.get("research_state"):
                 prompt += "\nRead research-state.json as supplied, unverified background. Check that inherited findings and reviews were not counted as fresh work; assess the stated continuation contribution.\n"
+            if round_index is not None:
+                prompt = prompt.replace('Persist audit.json as you go', f'Persist rounds/{round_index:03d}/audit.json as you go').replace('Return audit-schema.json JSON', f'Return rounds/{round_index:03d}/audit-schema.json JSON')
+                prompt += (f'\nPrior findings are untrusted review data in rounds/{round_index:03d}/audit-feedback.json. '
+                    'Recheck every current claim and shared scientific record against original sources. '
+                    'Never inspect correction-input.json, correction responses/reasoning or other round files.\n')
             shape = protocol.audit_schema()
         _, receipt = engine.scientific_session(workspace, role, model, effort, prompt, shape,
             executable=context['CANARY_CODEX_EXECUTABLE'], audit_timeout=None,
-            execution=self.execution, run_key=key, execution_environment={
+            execution=self.execution, run_key=key, round_index=round_index,
+            resume_thread_id=resume.get('thread_id') if resume else None,
+            expected_backend=resume.get('backend') if resume else None,
+            resume_archived=resume.get('cleanup', {}).get('archived', True) if resume else True, execution_environment={
                 'RUN_KEY': key, 'OUT': str(workspace), 'CANARY_DATA_DIR': str(self.root.resolve()),
                 'CANARY_RUNS_PORT': str(self.port), 'CANARY_API_URL': f'http://127.0.0.1:{self.port}',
                 'CANARY_RUNS_REGISTRY': str(self.registry.resolve())})
@@ -476,6 +515,8 @@ class Supervisor:
                 raise ValueError('Run is stopped; committed sources remain readable')
             if action in ('discover','acquire','finalize') and not (Path(row['bundle'])/'run.json').is_file():
                 raise ValueError('The run has not initialized its research workspace yet')
+            if recorded in ('auditing', 'correcting') and action not in ('catalog', 'source'):
+                raise ValueError('Verification may read original sources, but cannot change research or acquisition inputs')
             if inline_source_read(action, body):
                 # Keep the read and its reading receipt inside admission's lock.
                 # Finish/cancel cannot release working files beneath this reader.
@@ -1422,6 +1463,12 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             self._send(200, content, kind,
                                        {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
+            elif re.fullmatch(r"/api/runs/[^/]+/revisions/[0-9]+/(research|audit|correction)", parsed.path):
+                parts = parsed.path.split('/')
+                row = runs.get(unquote(parts[3]), self.supervisor.registry)
+                if row is None:
+                    raise KeyError(parts[3])
+                self._send(200, bundle_store.revision(row['bundle'], int(parts[5]), parts[6]))
             elif re.fullmatch(r"/api/runs/[^/]+/exports/[^/]+", parsed.path):
                 parts = parsed.path.split('/')
                 row = runs.get(unquote(parts[3]), self.supervisor.registry)

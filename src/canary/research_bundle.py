@@ -75,7 +75,7 @@ def initialize(workspace, packet):
     report['created_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     report['engine'] = {'python': sys.version.split()[0], 'sources': {
         name: file_hash(Path(__file__).parent / name) for name in
-        ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'paper_metadata.py', 'source_adapters.py', 'candidate_index.py', 'codex_execution.py', 'codex_auth.py', 'claim_freshness.py', 'claim_uncertainty.py',
+        ('revision_artifacts.py', 'correction_runtime.py', 'corrections.py', 'audit_validation.py', 'claim_checks.py', 'claim_uncertainty.py', 'coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'paper_metadata.py', 'source_adapters.py', 'candidate_index.py', 'codex_execution.py', 'codex_auth.py', 'claim_freshness.py',
          'research_spec.py', 'research_state.py', 'research_bundle.py', 'bundle_connectors.py', 'compact_bundle.py', 'bundle_encoding.py', 'local_text.py',
          'processes.py', 'pdf_capacity.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py', 'api_client.py', 'redact.py')}}
     lock = resource_root() / 'uv.lock'
@@ -219,7 +219,7 @@ def run_compiled(staged, workspace):
         reserved = True
     try:
         return coverage_runtime.run(spec['question'], workspace,
-            minimum_papers=spec['retrieval']['target_papers'],
+            minimum_papers=spec['retrieval']['target_papers'], max_correction_rounds=spec['audit']['max_correction_rounds'],
             on_reserved=begin, **({k: spec[k] for k in ('research_state', 'continue_research') if k in spec}), **({'additional_sources': spec['retrieval']['additional_sources']} if spec['retrieval'].get('additional_sources') else {}),
             **({'local_text': spec['retrieval']['local_text']}
                                 if spec['retrieval']['corpus'] == 'local_text' else {}))
@@ -238,7 +238,8 @@ def run_compiled(staged, workspace):
                 coverage_export.export_bundle(workspace)
             finally:
                 seal(workspace)
-            if os.environ.get('CANARY_COMPACT_OUTPUT') == '1':
+            if (os.environ.get('CANARY_COMPACT_OUTPUT') == '1' and
+                    not coverage_runtime.read(workspace/'run.json', {}).get('verification_failure')):
                 from .compact_bundle import retain
                 retain(workspace)
 
@@ -256,3 +257,23 @@ if __name__ == '__main__':
     if len(sys.argv) != 3:
         raise SystemExit('Usage: python -m canary.research_bundle STAGED_SPEC WORKSPACE')
     run_compiled(sys.argv[1], sys.argv[2])
+
+
+
+def revision(workspace, round_index, kind):
+    from . import compact_bundle, revision_artifacts
+    for attempt in range(2):
+        try:
+            if compact_bundle.exists(workspace):
+                payload = compact_bundle.payload(compact_bundle.read(workspace))
+            else:
+                manifest = read(workspace)
+                entry = next((a for a in manifest['artifacts'] if a['path'] == 'payload.json'), None)
+                if entry is None and manifest['state'] != 'running':
+                    raise KeyError('Scientific revision artifact not recorded')
+                path = verified_artifact(workspace, entry) if entry is not None else Path(workspace)/'payload.json'
+                payload = json.loads(path.read_text(encoding='utf-8'))
+            return revision_artifacts.read(payload, round_index, kind)
+        except (FileNotFoundError, ValueError):
+            if attempt or not compact_bundle.exists(workspace):
+                raise

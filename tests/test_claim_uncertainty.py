@@ -19,7 +19,7 @@ REVIEW = {'recommended_class': 'moderate', 'reason': 'New inspected E1 addresses
           'prior_match_reason': 'Same proposition, population, conditions and material scope.'}
 CHECK = {'claim_id': 'C1', 'assessment': 'supported', 'reason': 'Synthetic source check.',
          'passage_ids': ['W1-p0001'], 'reference_ids': ['W1'], 'context_checked': ['methods'],
-         'uncertainty_review': REVIEW}
+         'uncertainty_review': REVIEW, 'issue_types': []}
 
 
 @pytest.mark.parametrize('prior,recommended,expected', [
