@@ -346,47 +346,41 @@ assert.match(issue.next,/new run with the same saved model and settings/);
 ''')
 
 
-@pytest.mark.parametrize('backend',['exec','shared'])
-def test_capacity_pause_resumes_the_same_session_and_keeps_earlier_work(native,monkeypatch,capsys,backend):
-    # Issue #158: the terminal capacity event arrives after research activity; the run waits, then resumes.
-    pool,home,root=native
-    if backend=='exec':(home/'personal').write_text('PERSONAL-SENTINEL')
-    (home/'capacity').write_text('1');monkeypatch.setattr(engine,'CAPACITY_PAUSE_SECONDS',2)
-    expected={'code':'server_overloaded','message':'Selected model is at capacity. Please try a different model.',
-              'category':'transient_provider_capacity','same_run_retryable':True}
+CAPACITY_ERROR={'code':'server_overloaded','message':'Selected model is at capacity. Please try a different model.',
+                'category':'transient_provider_capacity','same_run_retryable':True}
+
+
+def capacity_server(pool,root,key):
+    """The run API over the fixture pool, with one registered researching run."""
     server=dashboard.make_server(0,registry=root/'registry.json',root=root)
     supervisor=server.RequestHandlerClass.supervisor
     supervisor.auth.close();supervisor.auth=pool.auth;supervisor.execution=pool;pool.can_start=supervisor._can_execute
-    workspace=root/'paused';workspace.mkdir()
+    workspace=root/key;workspace.mkdir()
     engine.write(workspace/'run.json',{'kind':'question','question':'Synthetic capacity pause?','status':'researching','minimum_papers':50})
-    runs.register_start('paused','Fixture','',kind='question',bundle=str(workspace),status='running',path=supervisor.registry)
+    runs.register_start(key,'Fixture','',kind='question',bundle=str(workspace),status='running',path=supervisor.registry)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-    base=f'http://127.0.0.1:{server.server_port}'
-    def execute_research():
-        with httpx.Client(base_url=base,timeout=30,trust_env=False) as client:
-            return client.post('/api/runs/paused/execution',json={'role':'research'})
+    return server,thread,workspace
+
+
+@pytest.mark.parametrize('backend',['exec','shared'])
+def test_capacity_pause_resumes_the_same_session_and_keeps_earlier_work(native,monkeypatch,backend):
+    # Issue #158: the terminal capacity event arrives after research activity; the run pauses, then resumes.
+    pool,home,root=native
+    if backend=='exec':(home/'personal').write_text('PERSONAL-SENTINEL')
+    (home/'capacity').write_text('1');monkeypatch.setattr(engine,'CAPACITY_PAUSE_SECONDS',.125)
+    server,thread,workspace=capacity_server(pool,root,'paused')
     try:
-        with httpx.Client(base_url=base,timeout=20,trust_env=False) as client, ThreadPoolExecutor(max_workers=1) as workers:
-            pending=workers.submit(execute_research)
-            waiting=eventually(lambda:(row:=client.get('/api/runs/paused').json())['capacity_pause'] and row)
-            assert cli.main(['runs','list','--port',str(server.server_port)])==0
-            listed=capsys.readouterr().out
-            contract=client.get('/openapi.json').json()
-            response=pending.result(timeout=30)
+        with httpx.Client(base_url=f'http://127.0.0.1:{server.server_port}',timeout=20,trust_env=False) as client:
+            response=client.post('/api/runs/paused/execution',json={'role':'research'})
             finished=client.get('/api/runs/paused').json()
     finally:
         server.shutdown();server.server_close();thread.join(5)
-    pause=waiting['capacity_pause']
-    assert pause['role']=='research' and pause['native_error']==expected and pause['ended_at'] is None and pause['resumed'] is None
-    assert (pause['seconds'],pause['paused_seconds'],pause['bound_seconds'])==(2,2,600)
-    assert 'waiting for model capacity; research resumes '+pause['resume_at'] in listed
-    schema=contract['paths']['/api/runs/{key}']['get']['responses']['200']['content']['application/json']['schema']
-    jsonschema.Draft202012Validator(dict(schema,components=contract['components'])).validate(waiting)
     assert response.status_code==200,response.text
     receipt=response.json();jsonschema.validate(receipt,api_contract.schemas()['ExecutionReceipt'])
     assert receipt['exit_code']==0 and receipt['native_error'] is None and finished['capacity_pause'] is None
-    [record]=receipt['capacity_pauses']
-    assert record['resumed'] is True and record['ended_at'] and dict(record,ended_at=None,resumed=None)==pause
+    [pause]=receipt['capacity_pauses']
+    assert pause['role']=='research' and pause['native_error']==CAPACITY_ERROR and pause['resumed'] is True and pause['ended_at']
+    assert (pause['seconds'],pause['paused_seconds'],pause['bound_seconds'])==(.125,.125,600)
     # Earlier work stays committed, both attempts' native responses are counted, and the resumed turn completed the role.
     assert (workspace/'committed-before-capacity.txt').read_text()=='Synthetic review committed before capacity.'
     assert receipt['usage']['response_count']==2 and receipt['model']=='gpt-6.1-sol'
@@ -404,35 +398,78 @@ def test_capacity_pause_resumes_the_same_session_and_keeps_earlier_work(native,m
         turns=[c['params'] for c in recorded if c['method']=='turn/start']
         assert len(turns)==2 and turns[1]['input'][0]['text']==engine.protocol.CAPACITY_RESUME_PROMPT
         assert turns[1]['threadId']==receipt['thread_id'] and turns[1]['outputSchema']==turns[0]['outputSchema']
-    run_dashboard(root,{'row':waiting,'receipt':receipt},r'''
+    run_dashboard(root,{'receipt':receipt},r'''
+const done=capacityPauseHtml({capacity_pause:null},{profile:{roles:{research:graph.receipt}}});
+assert.match(done,/Model capacity pauses · research · 1 · 0\.125 s/);
+assert.match(done,/0\.125 s · resumed the same session · <code>server_overloaded<\/code>/);
+assert.doesNotMatch(done,/Waiting for model capacity/);
+''')
+
+
+def test_capacity_pause_is_live_in_api_cli_and_dashboard_until_cancel_stops_it(native,monkeypatch,capsys):
+    pool,home,root=native
+    (home/'capacity').write_text('1');monkeypatch.setattr(engine,'CAPACITY_PAUSE_SECONDS',60)
+    server,thread,workspace=capacity_server(pool,root,'waiting')
+    base=f'http://127.0.0.1:{server.server_port}'
+    def execute_research():
+        with httpx.Client(base_url=base,timeout=30,trust_env=False) as client:
+            return client.post('/api/runs/waiting/execution',json={'role':'research'})
+    try:
+        with httpx.Client(base_url=base,timeout=20,trust_env=False) as client, ThreadPoolExecutor(max_workers=1) as workers:
+            pending=workers.submit(execute_research)
+            row=eventually(lambda:(found:=client.get('/api/runs/waiting').json())['capacity_pause'] and found)
+            assert cli.main(['runs','list','--port',str(server.server_port)])==0
+            listed=capsys.readouterr().out
+            contract=client.get('/openapi.json').json()
+            cancelled=time.monotonic();pool.cancel('waiting')
+            stopped=pending.result(timeout=10)
+            after=client.get('/api/runs/waiting').json()
+    finally:
+        server.shutdown();server.server_close();thread.join(5)
+    assert time.monotonic()-cancelled<5
+    pause=row['capacity_pause']
+    assert pause['role']=='research' and pause['native_error']==CAPACITY_ERROR and pause['ended_at'] is None and pause['resumed'] is None
+    assert (pause['seconds'],pause['paused_seconds'],pause['bound_seconds'])==(60,60,600)
+    assert 'waiting for model capacity; research resumes '+pause['resume_at'] in listed
+    schema=contract['paths']['/api/runs/{key}']['get']['responses']['200']['content']['application/json']['schema']
+    jsonschema.Draft202012Validator(dict(schema,components=contract['components'])).validate(row)
+    # Cancellation interrupts the pause: the role stops with its receipt and never resumes.
+    assert stopped.status_code==400 and 'failed to produce' in stopped.json()['error'] and after['capacity_pause'] is None
+    receipt=json.loads((workspace/'research-receipt.json').read_text())
+    [record]=receipt['capacity_pauses']
+    assert record['resumed'] is False and record['ended_at'] and receipt['exit_code']==1
+    assert [c['method'] for c in calls(home)].count('turn/start')==1 and pool.status()['active_shared_sessions']==0
+    run_dashboard(root,{'row':row,'receipt':receipt},r'''
 const [kind,label,text]=statusInfo(graph.row);
 assert.equal(label,'Waiting for model capacity');
 assert.match(text,/same research session resumes at \d\d:\d\d:\d\d UTC on the same model and account; committed work is kept/);
 const live=capacityPauseHtml(graph.row,{});
 assert.match(live,/Waiting for model capacity · research · resumes \d\d:\d\d:\d\d UTC/);
 assert.match(live,/Selected model is at capacity\. Please try a different model\./);
-assert.match(live,/This pause 2 s · 2 of 600 s pause bound used/);
-const done=capacityPauseHtml({...graph.row,capacity_pause:null},{profile:{roles:{research:graph.receipt}}});
-assert.match(done,/Model capacity pauses · research · 1 · 2 s/);
-assert.match(done,/2 s · resumed the same session · <code>server_overloaded<\/code>/);
-assert.doesNotMatch(done,/Waiting for model capacity/);
+assert.match(live,/This pause 60 s · 60 of 600 s pause bound used/);
+const ended=capacityPauseHtml({capacity_pause:null},{profile:{roles:{research:graph.receipt}}});
+assert.match(ended,/ended without resuming after \d+(\.\d+)? s of a 60 s pause/);
+assert.doesNotMatch(ended,/· 60 s<\/summary>/);
 ''')
 
 
-def test_cancel_during_capacity_pause_stops_promptly_without_resuming(native,monkeypatch):
+def test_capacity_resumption_is_recorded_only_once_the_resumed_turn_starts(native,monkeypatch):
+    # A cancel lands just after the resumed session is registered: no turn starts, so nothing was resumed.
     pool,home,root=native
-    (home/'capacity').write_text('1');monkeypatch.setattr(engine,'CAPACITY_PAUSE_SECONDS',60)
-    with ThreadPoolExecutor(max_workers=1) as workers:
-        pending=workers.submit(execute,pool,root,'stopped-pause')
-        assert eventually(lambda:pool.capacity_pause('stopped-pause'))['seconds']==60
-        cancelled=time.monotonic();pool.cancel('stopped-pause')
-        with pytest.raises(RuntimeError,match='failed to produce'):pending.result(timeout=10)
-    assert time.monotonic()-cancelled<5
-    receipt=json.loads((root/'stopped-pause/research-receipt.json').read_text())
-    [stopped]=receipt['capacity_pauses']
-    assert stopped['resumed'] is False and stopped['ended_at'] and receipt['exit_code']==1
-    assert pool.capacity_pause('stopped-pause') is None and pool.status()['active_shared_sessions']==0
-    assert [c['method'] for c in calls(home)].count('turn/start')==1
+    (home/'capacity').write_text('1');monkeypatch.setattr(engine,'CAPACITY_PAUSE_SECONDS',.125)
+    opened=pool.open
+    def open_then_cancel(*args,**kwargs):
+        session=opened(*args,**kwargs)
+        if kwargs.get('replacing') is not None:pool.cancel(args[0])
+        return session
+    monkeypatch.setattr(pool,'open',open_then_cancel)
+    with pytest.raises(RuntimeError,match='failed to produce'):execute(pool,root,'unresumed')
+    receipt=json.loads((root/'unresumed/research-receipt.json').read_text())
+    [pause]=receipt['capacity_pauses']
+    assert pause['resumed'] is False and pause['ended_at'] and receipt['exit_code']==130
+    events=[json.loads(line)['event'] for line in (root/'unresumed/runtime-progress.jsonl').read_text().splitlines()]
+    assert 'research_capacity_pause' in events and 'research_capacity_resumed' not in events
+    assert [c['method'] for c in calls(home)].count('turn/start')==1 and pool.status()['active_shared_sessions']==0
 
 
 def test_duplicate_role_does_not_interrupt_the_original_and_shutdown_seals_receipts(native):

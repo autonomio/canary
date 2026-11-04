@@ -3622,17 +3622,22 @@
     const roles=d.profile?.roles || {};
     return ['research','audit'].filter(role=>roles[role]?.native_error).map(role=>{
       const e=roles[role].native_error, capacity=e.category==='transient_provider_capacity';
-      const pauses=Array.isArray(roles[role].capacity_pauses) ? roles[role].capacity_pauses : [], paused=pauses.reduce((sum,p)=>sum+(Number(p.seconds) || 0),0);
+      const pauses=Array.isArray(roles[role].capacity_pauses) ? roles[role].capacity_pauses : [], paused=Math.round(pauses.reduce((sum,p)=>sum+pauseSeconds(p),0)*1000)/1000;
       return `<details class="coverage" open data-detail="native-error-${role}"><summary>${capacity ? 'Model capacity unavailable' : 'Native Codex error'} · ${esc(role)}${e.code ? ` · <code>${esc(e.code)}</code>` : ''}</summary>${e.message ? `<pre class="search-query">${esc(e.message)}</pre>` : ''}<p>${capacity ? 'Native Codex reported transient provider capacity. This is not a scientific refusal or a research error.' : 'Recorded by the native Codex session. Canary does not classify this code.'}</p><p class="hint">${e.same_run_retryable ? `For this error Canary pauses the role and resumes the same native session on the same model and account, up to a bound per role. Recorded pauses: ${pauses.length} (${esc(paused)} s). Repeat these settings to start a new run with the same saved model and settings; this run keeps its committed sources.` : 'Canary does not retry a scientific role within this run. Repeat these settings to start a new run with the same saved model and settings; this run keeps its committed sources.'}</p></details>`;
     }).join('');
+  }
+  function pauseSeconds(p) {
+    // A pause that ended without resuming lasted until ended_at, not its scheduled seconds.
+    const waited=Date.parse(p.ended_at)-Date.parse(p.started_at);
+    return p.ended_at && !p.resumed && Number.isFinite(waited) ? Math.max(0,Math.round(waited))/1000 : Number(p.seconds) || 0;
   }
   function capacityPauseHtml(row,d) {
     const at=s=>{const t=new Date(s);return isNaN(t) ? 'an unrecorded time' : t.toISOString().slice(11,19)+' UTC';}, label=role=>String(role).replace(/_(\d+)$/,(_,n)=>' round '+Number(n));
     const p=row?.capacity_pause, roles=d?.profile?.roles || {};
     const live=p ? `<details class="coverage" open data-detail="capacity-pause"><summary>Waiting for model capacity · ${esc(label(p.role))} · resumes ${esc(at(p.resume_at))}</summary>${p.native_error?.message ? `<pre class="search-query">${esc(p.native_error.message)}</pre>` : ''}<p>Native Codex reported the selected model at capacity${p.native_error?.code ? ` (<code>${esc(p.native_error.code)}</code>)` : ''}. Canary paused this role and resumes the same native session on the same model and account. Committed work is kept.</p><p class="hint">This pause ${esc(p.seconds)} s · ${esc(p.paused_seconds)} of ${esc(p.bound_seconds)} s pause bound used. If capacity stays unavailable through the bound, the run stops with this error.</p></details>` : '';
     return live+Object.entries(roles).filter(([,r])=>Array.isArray(r?.capacity_pauses) && r.capacity_pauses.length).map(([role,r])=>{
-      const pauses=r.capacity_pauses, paused=pauses.reduce((sum,x)=>sum+(Number(x.seconds) || 0),0);
-      return `<details class="coverage" data-detail="capacity-pauses-${esc(role)}"><summary>Model capacity pauses · ${esc(label(role))} · ${pauses.length} · ${esc(paused)} s</summary><p class="hint">Native Codex reported transient model capacity. Canary resumed the same native session on the same model and account after each completed pause; work committed before a pause was kept.</p>${pauses.map(x=>`<p>${esc(at(x.started_at))} · ${esc(x.seconds)} s · ${x.resumed ? 'resumed the same session' : x.ended_at ? 'run stopped before resuming' : 'waiting'}${x.native_error?.code ? ` · <code>${esc(x.native_error.code)}</code>` : ''}</p>`).join('')}</details>`;
+      const pauses=r.capacity_pauses, paused=Math.round(pauses.reduce((sum,x)=>sum+pauseSeconds(x),0)*1000)/1000;
+      return `<details class="coverage" data-detail="capacity-pauses-${esc(role)}"><summary>Model capacity pauses · ${esc(label(role))} · ${pauses.length} · ${esc(paused)} s</summary><p class="hint">Native Codex reported transient model capacity. Canary resumed the same native session on the same model and account after each completed pause; work committed before a pause was kept.</p>${pauses.map(x=>`<p>${esc(at(x.started_at))} · ${x.resumed ? `${esc(x.seconds)} s · resumed the same session` : x.ended_at ? `ended without resuming after ${esc(pauseSeconds(x))} s of a ${esc(x.seconds)} s pause` : `${esc(x.seconds)} s · waiting`}${x.native_error?.code ? ` · <code>${esc(x.native_error.code)}</code>` : ''}</p>`).join('')}</details>`;
     }).join('');
   }
   function answerHtml(row,d) {

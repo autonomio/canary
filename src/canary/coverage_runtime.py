@@ -1134,9 +1134,14 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
             if timer:
                 timer.start()
             try:
+                resuming = None  # a pause counts as resumed only once the resumed turn has started
                 while True:
                     session.start(prompt)
-                    failed_turn = False
+                    if resuming is not None and session.exit_code is None:
+                        resuming["resumed"] = True
+                        event(workspace, role + "_capacity_resumed", role=profile_role,
+                              text="Resumed the same native session after a model capacity pause.")
+                    resuming, failed_turn = None, False
                     for line in session:
                         events.write(line); events.flush()
                         try:
@@ -1198,9 +1203,7 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
                         output_path, stderr, command, environment, resume_thread_id=thread_id, expected_backend=session.backend,
                         resume_archived=cleanup.get("archived", True), replacing=session)
                     paused_session.close()
-                    pause["resumed"], resume_thread_id, prompt = True, thread_id, protocol.CAPACITY_RESUME_PROMPT
-                    event(workspace, role + "_capacity_resumed", role=profile_role,
-                          text="Resumed the same native session after a model capacity pause.")
+                    resuming, resume_thread_id, prompt = pause, thread_id, protocol.CAPACITY_RESUME_PROMPT
             finally:
                 if timer:
                     timer.cancel()
