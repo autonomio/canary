@@ -201,9 +201,13 @@ def _audit_record(audit: dict) -> dict:
 
 def render_markdown(graph: dict):
     """Deterministic downloadable answer; researcher wording stays unchanged."""
-    if not has_native_findings(graph):
+    if not has_native_findings(graph) and not _rows(graph.get("withheld_claims")):
         return
     lines = ["# " + str(graph.get("question", "?")), "", str(graph.get("scope_note", "")), ""]
+    verification = graph.get("verification", {})
+    if verification.get("version"):
+        lines.extend([f"Verification: {verification['supported_claims']} supported claims; {verification['withheld_claims']} withheld "
+            f"({verification['withheld_share']:.0%}); {verification['correction_rounds']} correction rounds.", ""])
     for summary_index, summary in enumerate(graph.get("executive_summary", []), 1):
         if isinstance(summary, str):
             lines.extend([summary, ""])
@@ -310,6 +314,10 @@ def render_markdown(graph: dict):
                         lines.extend([f"Provenance failure: missing {kind} {issue.get(kind + '_id')} in {key} record {row.get('id', record_index)}.", ""])
                     elif issue.get("kind") == "missing_linked_record":
                         lines.extend([f"Provenance failure: missing {issue.get('target_section')} record {issue.get('target_id')} in {key} record {row.get('id', record_index)}.", ""])
+    if graph.get("withheld_claims"):
+        lines.extend(["## Withheld claims", "", "Retained for inspection; excluded from active output.", ""])
+        for record in graph["withheld_claims"]:
+            lines.extend([f"### {record['claim']['id']} · {record['status']}", "", record['claim']['text'], "", record['reason'], ""])
     if graph.get("caveats"):
         lines.extend(["## Caveats", "", *[str(x) for x in graph["caveats"]], ""])
     lines.extend(["## References", ""])
@@ -665,6 +673,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
             audit_case["evidence_checks"] = [dict(check, assessment="unknown",
                 validation_issue="Scientific inputs changed since the independence assessment")
                 for check in audit_case.get("evidence_checks", [])]
+    used_passages.update(p["id"] for r in payload.get("withheld_claims", []) for e in r.get("evidence", []) for p in e.get("verbatims", []))
     used_passages.update(p for c in audit_case.get("evidence_checks", []) for p in c.get("passage_ids", []))
     used_passages.update(p for f in audit_case.get("findings", []) for p in f.get("passage_ids", []))
     checks = {c.get("claim_id"): c for c in _rows(audit_case.get("claim_checks"))}

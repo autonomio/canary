@@ -190,3 +190,30 @@ def test_original_history_cannot_disagree_with_its_retained_bytes(tmp_path):
     final['claim_revisions'][0]['investigation']['claims'][0]['text']='Replaced history.'
     with pytest.raises(ValueError,match='retained JSON bytes disagree'):
         revision_artifacts.read(final,0,'research')
+
+
+
+def test_withdrawn_only_output_keeps_inspectable_passages_and_a_report(tmp_path):
+    payload,_=prepared(tmp_path)
+    original_audit=audit_validation.bind(payload,audit_for(payload,'correction_needed'))
+    from test_corrections import response
+    data=response(payload,'withdraw')
+    data['investigation']['evidence']=[]
+    for kind in ('gaps','residue'):
+        for record in data['investigation'][kind]:record['evidence_ids']=[]
+    proposed,withdrawn=corrections.apply(payload,original_audit,data)
+    candidate=engine.bind_payload(tmp_path,investigation=proposed)
+    bound=audit_validation.bind(candidate,audit_for(candidate))
+    final=corrections.finalize(candidate,bound,[],withdrawn)
+    engine.write(tmp_path/'payload.json',final);engine.write(tmp_path/'audit.json',bound)
+    coverage_export.export_bundle(tmp_path)
+    graph=engine.read(tmp_path/'answer.json')
+    assert not graph['claims'] and not graph['evidence']
+    assert graph['passages'][0]['text']==withdrawn[0]['evidence'][0]['verbatims'][0]['text']
+    report=coverage_export.render_markdown(graph)
+    assert '0 supported claims; 1 withheld' in report
+    assert '## Withheld claims' in report and withdrawn[0]['claim']['text'] in report
+    run_dashboard(tmp_path,graph,"""
+assert.match(withheldClaimsHtml(graph),/Inspect retained source passage/);
+assert.match(withheldClaimsHtml(graph),/data-qa-passage="W1-p0001"/);
+""")

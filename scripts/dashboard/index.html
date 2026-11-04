@@ -3269,7 +3269,7 @@
   }
   function withheldClaimsHtml(g) {
     const rows=g.withheld_claims || [];
-    return rows.length ? `<details data-detail="withheld-claims" open><summary>Withheld claims (${rows.length})</summary><p class="hint">Retained for inspection and excluded from active claims and consumer exports.</p>${rows.map(r=>`<article><h3>${esc(r.claim.id)} · ${esc(r.status)}</h3><p>${esc(r.claim.text)}</p><p>${esc(r.reason)}</p>${claimHistoryHtml(g,r.claim.id)}<details><summary>Retained evidence and final finding</summary><pre class="search-query">${esc(JSON.stringify(r,null,2))}</pre></details></article>`).join('')}</details>` : '';
+    return rows.length ? `<details data-detail="withheld-claims" open><summary>Withheld claims (${rows.length})</summary><p class="hint">Retained for inspection and excluded from active claims and consumer exports.</p>${rows.map(r=>`<article><h3>${esc(r.claim.id)} · ${esc(r.status)}</h3><p>${esc(r.claim.text)}</p><p>${esc(r.reason)}</p>${claimHistoryHtml(g,r.claim.id)}${(r.evidence || []).flatMap(e=>e.verbatims || []).filter(p=>(g.passages || []).some(x=>x.id===p.id)).map(p=>qaButton("data-qa-passage",p.id,"Inspect retained source passage")).join(" ")}<details><summary>Retained evidence and final finding</summary><pre class="search-query">${esc(JSON.stringify(r,null,2))}</pre></details></article>`).join('')}</details>` : '';
   }
   function claimReviewChecksHtml(g) {
     const rows=g?.claim_review_checks || [];
