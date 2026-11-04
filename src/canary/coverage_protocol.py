@@ -175,7 +175,7 @@ def audit_schema():
 
 SCIENTIFIC_RULES = """Use one stateful session; no subagents, other models, nested CLI sessions or delegation.
 Every claim must stand alone for a reader who has not seen this report or any other claim. State one proposition per claim; split compound claims.
-Name what was studied, what was done, the comparator, the endpoint with timing and scale, and the conditions bounding the result.
+Name what was studied, what was done, the comparator, the endpoint with timing and scale, and the conditions bounding the result. Describe named products or devices; a project name alone does not state the system scope.
 Identify the study by author/year or design/setting in the sentence. Never use unresolved references such as "that study", "the same cohort", "the reviewed evidence" or "this corpus".
 A conclusion about the literature states its own question and actual inspection scope. Never invent a source condition: unreported remains unknown.
 Write empirical reported_finding statements from their linked typed study_results; every reported_finding needs at least one study result.
