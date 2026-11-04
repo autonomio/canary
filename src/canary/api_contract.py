@@ -95,6 +95,7 @@ def schemas():
         'evidence':arr(ref('RecordedEvidence')),'passages':arr(ref('Passage')),'references':arr(O),
         'gaps':arr(O),'residue':arr(O),'contradictions':arr(O),'study_results':arr(O),
         'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O),
+        'claim_review_checks':arr(ref('ClaimReviewCheck')),
         'source_checks':arr(ref('RecordedClaimCheck')), 'evidence_independence':arr(ref('EvidenceIndependence'))},closed=False)
     research = obj({'kind':S,'answer':ref('Findings'),'run':O,'peer_review':O,'query_net':O,
         'access':O,'profile':obj({'progress':obj({'updated_at':S,'findings_updated_at':nullable(S),
@@ -151,6 +152,8 @@ def schemas():
         'Findings':findings,'RecordedClaim':claim,'RecordedEvidence':evidence,'Passage':passage,
         'SourceContext':context,'GeneratedInvestigation':generated,'QuestionPlan':_query_schema(),
         'ScientificAudit':protocol.audit_schema(),
+        'ClaimReviewCheck':obj({'kind':{'enum':['missing_study_result','context_wording','possible_duplicate']},
+            'claim_ids':arr(S),'blocking':B,'message':S}, ['kind','claim_ids','blocking','message']),
         'RecordedClaimCheck':obj({'claim_id':S,'assessment':S,'reason':S,'issue_types':arr(S),
             'statement_sha256':S,'claim_snapshot_sha256':S,'validation_issues':arr(S)}, ['claim_id'], closed=False),
         'EvidenceIndependence':dict(protocol.audit_schema()['properties']['evidence_checks']['items'], additionalProperties=True),

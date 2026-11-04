@@ -796,6 +796,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
               else "answered" if lifecycle in ("complete", "completed") and has_findings
               else "complete" if lifecycle == "answered" and not has_findings else lifecycle)
     requests = _load(source / "openalex-requests.json", _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None)))
+    graph["claim_review_checks"] = payload.get("claim_review_checks", [])
     graph["evidence_independence"] = audit_case.get("evidence_checks", [])
     graph["audit"] = {"status": "pending" if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids else "partial",
                        "standard_version": audit_case.get("standard_version"), "validation_issues": audit_case.get("validation_issues", []),

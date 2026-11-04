@@ -849,6 +849,11 @@ def bind_payload(workspace):
     if read(workspace / 'run.json', {}).get('additional_sources'):
         payload['additional_sources'] = read(workspace / 'additional-sources.json', [])
         accounting['additional_documents_reviewed'] = len(additional_admitted)
+    from .claim_checks import check as check_claims
+    payload["claim_review_checks"] = check_claims(payload)
+    issues.extend(
+        ", ".join(record["claim_ids"]) + ": " + record["message"]
+        for record in payload["claim_review_checks"] if record["blocking"])
     mechanical = {"at": now(), "pass": not issues, "issues": issues,
                   "scope": "Identity/span/hash/graph/record checks; does not certify scientific interpretation, relevance or population coverage."}
     payload["raw_investigation_sha256"] = hashlib.sha256((workspace / "investigation.json").read_bytes()).hexdigest()

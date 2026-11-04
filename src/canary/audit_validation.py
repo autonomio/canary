@@ -13,7 +13,7 @@ STANDARD_VERSION = 1
 # Deliberately broad: a shared record edit invalidates every dependent judgment.
 SNAPSHOT_FIELDS = ('claims', 'evidence', 'study_results', 'references', 'contradictions',
                    'gaps', 'residue', 'claim_links', 'question_plan', 'selection', 'reviewed_papers',
-                   'coverage', 'coverage_map', 'accounting', 'mechanical_audit')
+                   'coverage', 'coverage_map', 'accounting', 'mechanical_audit', 'claim_review_checks')
 
 
 def snapshot(payload):
@@ -99,6 +99,12 @@ def bind(payload, raw, *, passages=()):
                 problems.append('Supporting reference not recorded as inspected')
             if any(passages.get(p, {}).get('reference_id') not in refs for p in ids):
                 problems.append('Inspected passage and reference disagree')
+        blockers = [r['message'] for r in payload.get('claim_review_checks', [])
+                    if r.get('blocking') and identifier in r.get('claim_ids', [])]
+        if blockers and check.get('assessment') == 'supported':
+            check['assessment'] = 'correction_needed'
+            check['issue_types'] = list(dict.fromkeys([*check['issue_types'], 'other']))
+            check['reason'] += ' Structural check: ' + '; '.join(blockers)
         if problems:
             check['assessment'] = 'not_checked'
             check['reviewer_reason'] = check.get('reason')

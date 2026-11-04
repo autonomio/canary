@@ -247,6 +247,8 @@ Use issue_types to identify each defect; use [] only when no defect was found. C
 Return one evidence_checks entry per evidence ID. Judge evidence independence from inspected study-family/ancestry facts, never from URL differences, source counts or this audit's separate session.
 Record the study-family identifiers and source-based family_basis. Use unknown when independence cannot be established; same_study_family when evidence reuses the same underlying study.
 Independent requires inspected, addressable original-source evidence and a reason explaining independence from the other evidence supporting the claim. Do not equate independent with true or high quality.
+Read claim_review_checks in audit-input.json. Missing linked study results are structural failures to correct.
+Context wording and possible duplicate checks are review cues, not semantic verdicts. Resolve them against the sources; do not mechanically reject or merge claims.
 Audit the actual claim/result scope, exact source meaning, arithmetic, experiment attribution, selection/coverage and paper-role/family counts.
 Do not reward paper quantity or confidence; identify irrelevant padding, preview inclusion, important adverse alternatives and unsupported claims.
 {timing}
