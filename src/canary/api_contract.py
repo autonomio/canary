@@ -159,7 +159,7 @@ def schemas():
         'ReferenceEncoding':typed(ReferenceEncoding),
         'PaperMetadata':typed(PaperMetadata),
         'AgentReference':{**typed(protocol.AgentReference),
-            'description':'A retrieved source as research and audit agents receive it: catalog rows, acquire receipts, audit and correction inputs. '
+            'description':'A retrieved source in agent tool output and named agent inputs: catalog rows, acquire receipts, audit and correction inputs. '
                 'Only '+', '.join(protocol.AGENT_PAPER_METADATA_FIELDS)+' come from the paper metadata snapshot, present when one was recorded. '
                 'Complete references, hashes and snapshots stay in research, bundle and export responses.'},
         'ResolventExport':obj({'schema_version':S,'sources':arr(O),'evidence':arr(O),'claims':arr(O),

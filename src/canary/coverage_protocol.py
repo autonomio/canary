@@ -61,7 +61,7 @@ class OpenAlexRecheck(TypedDict):
     next_recheck_not_before_epoch: float | None
 
 
-# Snapshot fields agents receive: dates for freshness, type for publication
+# Snapshot fields in agent source rows: dates for freshness, type for publication
 # accounting, retraction visibility. Citation metrics and classifier tags stay out.
 AGENT_PAPER_METADATA_FIELDS = ('publication_date', 'type', 'is_retracted')
 AGENT_AUTHORS_SHOWN = 3
@@ -85,7 +85,7 @@ class _AgentReferenceCore(TypedDict):
 
 
 class AgentReference(_AgentReferenceCore, total=False):
-    """A retrieved source as research and audit agents receive it.
+    """A retrieved source as agent tool output and named agent inputs present it.
 
     `authors` lists the first AGENT_AUTHORS_SHOWN names; `authors_total` counts
     all. Snapshot fields appear only when one was recorded: false is not an

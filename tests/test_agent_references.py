@@ -183,18 +183,19 @@ def test_rows_keep_source_fields_and_never_invent_metadata():
     assert historical['authors'] is None and historical['authors_total'] is None and 'is_retracted' not in historical
 
 
-def test_source_inspector_states_which_snapshot_fields_agents_received(tmp_path):
+def test_source_inspector_states_agent_source_rows_without_overstating_exposure(tmp_path):
     graph = {'references': [{'id': 'W1', 'paper': {'title': 'Synthetic', 'extra': {'paper_metadata': snapshot(rich_work(), RETRIEVED)}}}]}
     run_dashboard(tmp_path, graph, r'''
 const ref=graph.references[0];
-assert.match(qaCitation(ref),/Which of these fields research and audit agents received was not recorded for this run/);
-assert.doesNotMatch(qaCitation(ref),/agents (did not )?receive(d)? this flag/);
+assert.match(qaCitation(ref),/This run did not record which of these fields agent source rows carried/);
+assert.doesNotMatch(qaCitation(ref),/source rows (did not )?include(d)? this flag/);
 S.selected='synthetic';
 S.research={synthetic:{run:{agent_paper_metadata_fields:['publication_date','type','is_retracted']}}};
 const html=qaCitation(ref);
-assert.match(html,/Review claims using this paper\. Research and audit agents received this flag\./);
-assert.match(html,/received only <code>publication_date<\/code>, <code>type<\/code>, <code>is_retracted<\/code> from this snapshot/);
-assert.match(html,/Citation counts and other fields were left out of their source catalog, audit input and correction input/);
+assert.match(html,/Review claims using this paper\. Agent source rows included this flag\./);
+assert.match(html,/\(catalog, audit input and correction input\) carried only <code>publication_date<\/code>, <code>type<\/code>, <code>is_retracted<\/code> from this snapshot/);
+assert.match(html,/During the run, the complete record, including citation counts, remained readable in download receipts and references\.json/);
+assert.doesNotMatch(html,/agents received only/);
 S.research.synthetic.run.agent_paper_metadata_fields=['publication_date'];
-assert.match(qaCitation(ref),/Research and audit agents did not receive this flag/);
+assert.match(qaCitation(ref),/Agent source rows did not include this flag/);
 ''')
