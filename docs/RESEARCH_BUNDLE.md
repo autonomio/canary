@@ -15,13 +15,34 @@ canary runs rerun RUN_KEY
 canary bundle RUN_KEY --connector resolvent
 ```
 
-The [example declaration](examples/research.yaml) records question, exact research/audit model and effort, unlimited audit duration, coverage selection, paper target, fresh retrieval and accessible full-source policy. Omitted supported fields resolve to those same defaults. Positive paper targets are required; scarcity remains a recorded research outcome. Both research and audit use Sol 6.1/xhigh in separate sessions with no time limit. Audit `budget_seconds` is omitted or null; finite limits and older Astra profiles are rejected explicitly. A [local-text source adapter](LOCAL_TEXT.md) accepts a server-side directory and optional JSONL metadata through the same declaration. Reusing earlier research and other model profiles remain unsupported.
+The [example declaration](examples/research.yaml) records question, exact research/audit model and effort, unlimited audit duration, coverage selection, paper target, fresh retrieval and accessible full-source policy. Omitted supported fields resolve to those same defaults. Positive paper targets are required; scarcity remains a recorded research outcome. Both research and audit use Sol 6.1/xhigh in separate sessions with no time limit. Audit `budget_seconds` is omitted or null; finite limits and older Astra profiles are rejected explicitly. A [local-text source adapter](LOCAL_TEXT.md) accepts a server-side directory and optional JSONL metadata through the same declaration. Earlier research can be supplied explicitly as described below; other model profiles remain unsupported.
 
 Compilation rejects duplicate/unknown keys, executable YAML, invalid types, incompatible settings, unsupported versions/models/effort and subagents. It performs no search, extraction or model call. Credentials stay in service configuration/Codex; the declaration has no credential or executable-hook fields. Submission allocates a fresh API-owned workspace. Auth and submission use the owner-operated local-origin boundary; there is no hosted multi-user identity system.
 
 A normal submission compiles once, stages the accepted input, and launches the native worker. Before its scientific session starts, that worker stores the original YAML, resolved settings and compiler report in the reserved bundle. Startup failures before this point retain the staged input and service launcher log; the API labels the input staged rather than inventing a completed manifest.
 
 Repetition uses the saved declaration/resolved settings and verifies their digest, then creates a new run ID and fresh corpus. Unsupported old settings fail explicitly. This repeats configuration, not model output, search results or a previous software installation. Actual prompts, output schemas, CLI versions/invocations, Python, engine source fingerprints and dependency-lock digest remain inspectable. No model or effort fallback is applied.
+
+## Continue from supplied research state
+
+The optional `research_state` object supplies the relevant existing research for the question. Set `continue_research: true` to seek new evidence using that state and avoid reselecting previously reviewed publications. Without the flag, the supplied state is background. Normal requests without these fields retain their existing behavior.
+
+```yaml
+question: Which conditions still need independent testing?
+continue_research: true
+research_state:
+  provenance: {repository: example/world, revision: recorded-revision}
+  claims: []
+  references: [{id: W123, doi: '10.0000/example'}]
+  reviewed_papers:
+    - {work_id: W123, eligibility: core, investigated_sections: [Methods, Results]}
+```
+
+Use the same declaration with `canary run`, HTTP `spec`, or the advertised MCP submission tool. The question form also accepts research-state JSON and the continuation flag. The API freezes the state into the specification, writes `research-state.json`, and shows the supplied input in the run's research bundle. Repeating settings preserves this same supplied state; callers must submit a new state to use a newer world-model revision.
+
+The state is nonempty JSON data (at most 1 MiB and 64 nesting levels; YAML aliases within the state are rejected), never executable instructions or automatically verified evidence. It may include claims, evidence, source passages, references, review records, gaps and provenance; nested data is preserved. A continuation requires a state. Only documented substantive reviews establish previous coverage; a discovered or cited reference is not automatically a covered paper. Scientifically necessary revisits must have recorded selection reasons.
+
+This is an input-only continuation: models, source acquisition, the paper target, fresh evidence binding, findings format and independent audit are unchanged. Previous reviews do not count toward this run's paper target, and inherited claim/passage IDs cannot be used as fresh evidence. Earlier runs and audits remain inaccessible to the scientific sessions except for the explicitly supplied research-state data. The supplied state also remains visible in the retained bundle after working files are released.
 
 ## Storage contract, version 1
 

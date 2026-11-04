@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from . import coverage_protocol as protocol
+from .research_state import validate as validate_state, MAX_DECLARATION_BYTES
 
 
 class CompileError(ValueError):
@@ -47,8 +48,8 @@ def digest(value) -> str:
 
 
 def _declaration(source: str):
-    if not isinstance(source, str) or not source.strip() or len(source.encode()) > 60_000:
-        raise CompileError('yaml', 'Expected a nonempty YAML declaration under 60 KB.')
+    if not isinstance(source, str) or not source.strip() or len(source.encode()) > MAX_DECLARATION_BYTES:
+        raise CompileError('yaml', 'Expected a nonempty YAML declaration under 2 MiB.')
     try:
         draft = yaml.load(source, Loader=DeclarationLoader)
     except (yaml.YAMLError, RecursionError, TypeError):
@@ -68,13 +69,17 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
             raise CompileError(path, 'Unknown fields are not accepted.')
         return value
 
-    block(draft, {'version', 'question', 'research', 'audit', 'retrieval', 'subagents'}, 'spec')
+    block(draft, {'version', 'question', 'research', 'audit', 'retrieval', 'subagents', 'research_state', 'continue_research'}, 'spec')
     version = draft.get('version', 1)
     if type(version) is not int or version != 1:
         raise CompileError('version', 'Only version 1 is supported.')
     question = draft.get('question')
     if not isinstance(question, str) or not question.strip() or len(question) > 20_000:
         raise CompileError('question', 'Expected a question of 1–20,000 characters.')
+    try:
+        state = validate_state(draft.get('research_state'), draft.get('continue_research', False))
+    except ValueError as error:
+        raise CompileError('research_state', str(error)) from None
     research = block(draft.get('research', {}), {'model', 'effort'}, 'research')
     audit = block(draft.get('audit', {}), {'model', 'effort', 'budget_seconds'}, 'audit')
     retrieval = block(draft.get('retrieval', {}), {'selection', 'target_papers', 'corpus', 'access', 'local_text', 'additional_sources'}, 'retrieval')
@@ -122,7 +127,11 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
                               **({'local_text': dict(local)} if local is not None else {}),
                               **({'additional_sources': additional} if additional else {})},
                 'subagents': False}
-    return {'source_yaml': source if source is not None else yaml.safe_dump(draft, sort_keys=False),
+    if 'research_state' in draft:
+        resolved['research_state'] = state
+    if 'continue_research' in draft or state is not None:
+        resolved['continue_research'] = draft.get('continue_research', False)
+    return {'source_yaml': source if source is not None else yaml.safe_dump(draft, sort_keys=False, allow_unicode=True),
             'resolved': resolved, 'spec_sha256': digest(resolved), 'compiler_version': 1,
             'checks': ['strict_declaration', 'supported_research_and_audit', 'source_policy',
                        'positive_limits', 'unlimited_audit', 'no_subagents', 'api_owned_fresh_workspace']}
