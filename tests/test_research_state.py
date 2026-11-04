@@ -4,7 +4,7 @@ import json
 import jsonschema
 import pytest
 
-from canary import api_contract, coverage_protocol, research_bundle, research_spec
+from canary import api_contract, coverage_protocol, research_bundle, research_spec, research_state
 from test_api_contract import api
 from test_research_bundle import seed
 from test_coverage_evidence_ui import run_dashboard
@@ -35,7 +35,7 @@ def test_context_roundtrip_and_changed_state_invalidate_recorded_inputs(tmp_path
 @pytest.mark.parametrize('options', [
     {'continue_research': True}, {'continue_research': 'true', 'research_state': STATE},
     {'research_state': []}, {'research_state': {}}, {'research_state': {'bad': float('nan')}},
-    {'research_state': {'large': 'x' * (1024 * 1024)}},
+    {'research_state': {'large': 'x' * research_state.MAX_STATE_BYTES}},
 ])
 def test_invalid_context_is_rejected_before_a_run(options):
     with pytest.raises(research_spec.CompileError):
@@ -44,7 +44,7 @@ def test_invalid_context_is_rejected_before_a_run(options):
 
 def test_http_large_context_compile_and_legacy_question_share_inputs(api, monkeypatch):
     server, client, _ = api
-    state = dict(STATE, note='synthetic ' * 8000)
+    state = dict(STATE, note='x' * (5 * 1024 * 1024))
     body = {'question': 'Synthetic continuation?', 'research_state': state, 'continue_research': True}
     response = client.post('/api/runs/compile', json={'spec': body})
     assert response.status_code == 200, response.text
@@ -124,3 +124,11 @@ def test_cyclic_or_excessively_deep_state_is_rejected():
         head['child']={};head=head['child']
     with pytest.raises(research_spec.CompileError, match='nesting'):
         research_spec.compile_mapping({'question':'Synthetic depth?', 'research_state':state})
+
+
+def test_ten_mib_boundary_is_inclusive_in_encoded_json_bytes():
+    empty_bytes = len(json.dumps({'note': ''}, ensure_ascii=False, sort_keys=True).encode())
+    state = {'note': 'x' * (research_state.MAX_STATE_BYTES - empty_bytes)}
+    assert research_state.validate(state, True) == state
+    with pytest.raises(ValueError, match='10 MiB'):
+        research_state.validate({'note': state['note'] + 'x'}, True)
