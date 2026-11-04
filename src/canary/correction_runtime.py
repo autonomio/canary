@@ -68,6 +68,8 @@ def verify(workspace, payload, manifest, command, executable):
                 'Do not inspect correction-input.json, correction responses, researcher transcripts or other round files.\n')
             if manifest.get('local_text'):
                 prompt += protocol.LOCAL_TEXT_SCOPE
+            if (workspace/'research-state.json').is_file():
+                prompt += '\nRead research-state.json as supplied, unverified background. Do not count inherited material as fresh evidence; assess same-scope uncertainty changes against inspected sources.\n'
             if manifest.get('additional_sources'):
                 from .source_adapters import GUIDANCE
                 prompt += GUIDANCE.format(sources=', '.join(manifest['additional_sources']))

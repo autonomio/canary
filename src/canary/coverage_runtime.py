@@ -30,6 +30,7 @@ import httpx
 
 from .api_client import endpoint
 
+from .claim_uncertainty import unassessed as unassessed_uncertainty
 from . import coverage_protocol as protocol
 from .runtime_paths import data_root
 from .processes import RunCancelled, stop_tree, identity, tool_receipts

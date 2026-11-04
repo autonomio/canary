@@ -75,7 +75,7 @@ def initialize(workspace, packet):
     report['created_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     report['engine'] = {'python': sys.version.split()[0], 'sources': {
         name: file_hash(Path(__file__).parent / name) for name in
-        ('revision_artifacts.py', 'correction_runtime.py', 'corrections.py', 'audit_validation.py', 'claim_checks.py', 'coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'paper_metadata.py', 'source_adapters.py', 'candidate_index.py', 'codex_execution.py', 'codex_auth.py', 'claim_freshness.py',
+        ('revision_artifacts.py', 'correction_runtime.py', 'corrections.py', 'audit_validation.py', 'claim_checks.py', 'claim_uncertainty.py', 'coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'paper_metadata.py', 'source_adapters.py', 'candidate_index.py', 'codex_execution.py', 'codex_auth.py', 'claim_freshness.py',
          'research_spec.py', 'research_state.py', 'research_bundle.py', 'bundle_connectors.py', 'compact_bundle.py', 'bundle_encoding.py', 'local_text.py',
          'processes.py', 'pdf_capacity.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py', 'api_client.py', 'redact.py')}}
     lock = resource_root() / 'uv.lock'

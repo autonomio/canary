@@ -60,6 +60,7 @@ def matches_investigation(payload, investigation):
 
 def bind(payload, raw, *, passages=()):
     """No fabricated checks; missing, ambiguous or invalid judgments stay explicit."""
+    from .claim_uncertainty import unassessed
     from .coverage_protocol import AUDIT_ISSUE_TYPES
     from .coverage_protocol import audit_schema
     audit = deepcopy(raw) if isinstance(raw, dict) else {}
@@ -75,7 +76,8 @@ def bind(payload, raw, *, passages=()):
     references = {r['id']: r for r in payload.get('references', [])}
     passages = {p['id']: p for p in [*passages, *(p for e in evidence for p in e.get('verbatims', [])),
         *(p for r in payload.get('study_results', []) for f in r.get('fields', {}).values() if f for p in f.get('verbatims', []))]}
-    checks = [c for c in rows(audit.get('claim_checks')) if isinstance(c, dict) and isinstance(c.get('claim_id'), str)]
+    checks = [dict(c, uncertainty_review=c.get('uncertainty_review', unassessed()))
+        for c in rows(audit.get('claim_checks')) if isinstance(c, dict) and isinstance(c.get('claim_id'), str)]
     counts = Counter(c.get('claim_id') for c in checks)
     claim_counts = Counter(c['id'] for c in claims)
     known = set(claim_counts)
@@ -91,7 +93,7 @@ def bind(payload, raw, *, passages=()):
         valid = counts[identifier] == 1 and claim_counts[identifier] == 1 and conforms(candidates[0], check_schema)
         check = deepcopy(candidates[0]) if valid else {
             'claim_id': identifier, 'assessment': 'not_checked', 'reason': 'No unique persisted independent check',
-            'passage_ids': [], 'reference_ids': [], 'context_checked': [], 'issue_types': []}
+            'passage_ids': [], 'reference_ids': [], 'context_checked': [], 'issue_types': [], 'uncertainty_review': unassessed()}
         problems = []
         if check.get('assessment') not in ('supported', 'correction_needed', 'unresolved', 'not_checked'):
             problems.append('Invalid assessment')

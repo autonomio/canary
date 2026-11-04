@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .runs import answers_question, has_native_findings
 from .claim_freshness import unknown as unknown_freshness
+from .claim_uncertainty import review as uncertainty_review
 
 EXECUTION_MODE = "coverage-guided full-paper research"
 
@@ -226,6 +227,15 @@ def render_markdown(graph: dict):
         lines.extend(["## " + label, "", *(["Record kind: " + claim["kind"].replace("_", " "), ""] if claim.get("kind") else []), str(claim.get("text", "")), "",
                       f'Uncertainty: {claim.get("uncertainty_class", "unknown")} ({claim.get("uncertainty_score", "unknown")}/3; ordinal).',
                       str(claim.get("uncertainty_rationale", "")), "Audit: " + str(checks.get(claim["id"], {}).get("assessment", "not_checked")), ""])
+        review = checks.get(claim['id'], {}).get('uncertainty_review', {})
+        lines.extend([f"Auditor uncertainty recommendation: {review.get('recommended_class') or 'not assessed'}; change from supplied prior: {review.get('change', 'not_comparable')}.",
+                      str(review.get('reason', 'No uncertainty review was recorded.')),
+                      f"Proposed prior match: {review.get('prior_claim_id') or 'none'}; auditor-reported prior uncertainty: {review.get('prior_class') or 'unknown'}.",
+                      str(review.get('prior_match_reason', '')),
+                      'Recommendation evidence: ' + ', '.join(review.get('evidence_ids', [])),
+                      *review.get('limitations', []), ''])
+        for recorded in checks.get(claim['id'], {}).get('recorded_checks', []):
+            lines.extend([f"Recorded audit check: {recorded.get('assessment', 'unknown')}; {recorded.get('reason', '')}", ''])
         freshness = claim.get('freshness') or unknown_freshness()
         lines.extend([f"Freshness: {freshness.get('policy', 'unknown')}; source as of {freshness.get('as_of') or 'unknown'}; review after {freshness.get('review_after') or 'not scheduled'}.",
                       freshness.get('rationale', ''), *['Reassessment trigger: ' + t for t in freshness.get('triggers', [])], ''])
@@ -281,6 +291,8 @@ def render_markdown(graph: dict):
                 lines.extend(["Provenance failure: missing evidence " + str(issue.get("evidence_id")), ""])
             elif issue.get("kind") == "duplicate_evidence_id":
                 lines.extend(["Provenance failure: duplicate evidence ID " + str(issue.get("evidence_id")) + "; the ID-only link cannot identify one recorded packet.", ""])
+            elif issue.get("kind") == "duplicate_audit_check":
+                lines.extend(["Provenance failure: " + issue["reason"], ""])
             elif issue.get("kind") == "duplicate_claim_id":
                 lines.extend(["Provenance failure: duplicate claim ID " + str(claim["id"]) + "; ID-only audit checks are not assigned.", ""])
             elif issue.get("kind") == "missing_study_result":
@@ -676,7 +688,16 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     used_passages.update(p["id"] for r in payload.get("withheld_claims", []) for e in r.get("evidence", []) for p in e.get("verbatims", []))
     used_passages.update(p for c in audit_case.get("evidence_checks", []) for p in c.get("passage_ids", []))
     used_passages.update(p for f in audit_case.get("findings", []) for p in f.get("passage_ids", []))
-    checks = {c.get("claim_id"): c for c in _rows(audit_case.get("claim_checks"))}
+    check_rows = _rows(audit_case.get("claim_checks"))
+    check_counts = Counter(c.get("claim_id") for c in check_rows)
+    checks = {c.get("claim_id"): c for c in check_rows if check_counts[c.get("claim_id")] == 1}
+    duplicate_check_ids = {identifier for identifier, count in check_counts.items() if count > 1}
+    duplicate_reason = "Multiple recorded audit checks share this claim ID; no single verdict or uncertainty recommendation can be assigned."
+    for identifier in sorted(duplicate_check_ids, key=str):
+        graph["binding_issues"].append({"kind": "duplicate_audit_check", "claim_id": identifier,
+                                       "record_count": check_counts[identifier], "reason": duplicate_reason})
+    prior_state = _load(bundle / "research-state.json", _load(source / "research-state.json", None))
+    evidence_ids = [e.get("id") for e in _rows(investigation.get("evidence"))]
     recorded_status = run.get("status", "in_progress")
     lifecycle = run.get("runtime_status", recorded_status) if recorded_status in ("in_progress", "answered") else recorded_status
     # A stopped run without a recorded audit will not receive one.
@@ -685,6 +706,11 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     for claim in graph["claims"]:
         ambiguous = claim["id"] in duplicate_claim_ids
         check = {} if ambiguous else checks.get(claim["id"], {})
+        recorded_checks = [r for r in check_rows if r.get("claim_id") == claim["id"]] if claim["id"] in duplicate_check_ids else []
+        if recorded_checks and not ambiguous:
+            check = {"assessment": "not_checked", "reason": duplicate_reason,
+                     "uncertainty_review": {"reason": duplicate_reason},
+                     "passage_ids": [pid for r in recorded_checks for pid in _unique(r.get("passage_ids", r.get("paragraph_ids", [])))]}
         assessment = check.get("assessment", "not_checked")
         # "Corrected" can describe a proposed correction, not a published rewrite.
         normalized = {"correction_needed": "correction_needed", "partly_supported": "unresolved"}.get(assessment, assessment)
@@ -695,7 +721,10 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                            reason=("Duplicate claim ID; the ID-only audit record cannot be assigned to this occurrence."
                                    if ambiguous else check.get("reason", unaudited_reason if not audit else "Not checked in the recorded audit scope.")),
                            correction_applied=any(r.get("action") == "revise" and claim["id"] in r.get("replacement_claim_ids", [])
-                               for h in payload.get("claim_revisions", []) for r in h.get("responses", [])))
+                               for h in payload.get("claim_revisions", []) for r in h.get("responses", [])),
+                           uncertainty_review=uncertainty_review(check, state=prior_state, evidence_ids=evidence_ids))
+        if recorded_checks:
+            bound_check["recorded_checks"] = recorded_checks
         if ambiguous:
             bound_check["claim_occurrence"] = claim["claim_occurrence"]
         graph["source_checks"].append(bound_check)
@@ -844,7 +873,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     graph["claim_revisions"] = payload.get("claim_revisions", [])
     graph["claim_review_checks"] = payload.get("claim_review_checks", [])
     graph["evidence_independence"] = audit_case.get("evidence_checks", [])
-    graph["audit"] = {"status": unaudited if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids else "partial",
+    graph["audit"] = {"status": unaudited if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids and not duplicate_check_ids else "partial",
                        "standard_version": audit_case.get("standard_version"), "validation_issues": audit_case.get("validation_issues", []),
                        "model": audit_model, "reasoning_effort": audit_effort,
                        "checked_claims": sum(check.get("assessment") != "not_checked" for check in (audit_case.get("claim_checks", []) if payload.get("verification") else graph["source_checks"])),
