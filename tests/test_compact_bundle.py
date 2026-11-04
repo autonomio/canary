@@ -68,7 +68,9 @@ def test_retained_ui_and_agent_sources_expose_exact_excerpts_without_full_paper_
     row = {'bundle': str(tmp_path), 'status': 'answered'}
     sources = research_tools.execute(row, 'source', {'reference_id':'W1'}, tmp_path)
     assert sources[0]['text'] == paragraph['text'] and not sources[0]['source_bytes_retained']
-    assert research_tools.execute(row, 'catalog', {}, tmp_path)[0]['body_sha256']
+    catalog = research_tools.execute(row, 'catalog', {}, tmp_path)
+    assert catalog[0]['id'] == 'W1' and catalog[0]['source_bytes_retained'] is False
+    assert 'body_sha256' not in catalog[0] and compact_bundle.payload(compact_bundle.read(tmp_path, expanded=True))['references'][0]['body_sha256']
     with pytest.raises(ValueError):
         research_tools.execute(row, 'source', {'reference_id':'W1','limit':-1}, tmp_path)
 

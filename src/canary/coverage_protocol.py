@@ -1,7 +1,7 @@
 """Typed source-first coverage research contracts, independent of saved experiments."""
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, cast
 
 from .claim_freshness import schema as freshness_schema
 from .claim_uncertainty import schema as uncertainty_review_schema
@@ -59,6 +59,70 @@ class OpenAlexRecheck(TypedDict):
     current_backoff: OpenAlexBackoff | None
     next_recheck_not_before: str | None
     next_recheck_not_before_epoch: float | None
+
+
+# Snapshot fields agents receive: dates for freshness, type for publication
+# accounting, retraction visibility. Citation metrics and classifier tags stay out.
+AGENT_PAPER_METADATA_FIELDS = ('publication_date', 'type', 'is_retracted')
+AGENT_AUTHORS_SHOWN = 3
+_AGENT_SOURCE_FIELDS = ('adapter', 'source_kind', 'source_metadata', 'record_url',
+                        'local_source', 'openalex_id', 'imported_at')
+
+
+class _AgentReferenceCore(TypedDict):
+    id: str
+    title: str | None
+    doi: str | None
+    year: int | None
+    authors: list[str | None] | None
+    authors_total: int | None
+    file: str | None
+    pages: int | None
+    blank_pages: list[int] | None
+    text_chars: int | None
+    full_text_status: str | None
+    preview_marker_detected: bool | None
+
+
+class AgentReference(_AgentReferenceCore, total=False):
+    """A retrieved source as research and audit agents receive it.
+
+    `authors` lists the first AGENT_AUTHORS_SHOWN names; `authors_total` counts
+    all. Snapshot fields appear only when one was recorded: false is not an
+    assurance, null is unknown. Local-text and additional-source fields appear
+    for those sources. Hashes, URLs and the complete snapshot stay in the full
+    reference (references.json, download receipts, payload.json and exports).
+    """
+    publication_date: str | None
+    type: str | None
+    is_retracted: bool | None
+    adapter: str
+    source_kind: str
+    source_metadata: dict
+    record_url: str
+    local_source: dict
+    openalex_id: str | None
+    imported_at: str
+    source_bytes_retained: bool
+
+
+def agent_reference(reference: dict) -> AgentReference:
+    """Allowlist projection, so fields added to references never reach agents silently."""
+    authors = reference.get('authors')
+    listed = isinstance(authors, list)
+    row = {key: reference.get(key) for key in _AgentReferenceCore.__annotations__}
+    row.update(authors=authors[:AGENT_AUTHORS_SHOWN] if listed else None,
+               authors_total=len(authors) if listed else None)
+    metadata = reference.get('paper_metadata')
+    if isinstance(metadata, dict):
+        attributes = metadata.get('attributes') or {}
+        row.update({key: attributes.get(key) for key in AGENT_PAPER_METADATA_FIELDS})
+    row.update({key: reference[key] for key in _AGENT_SOURCE_FIELDS if key in reference})
+    return cast(AgentReference, row)
+
+
+SOURCE_ROWS = (f"compact source rows: identity, the first {AGENT_AUTHORS_SHOWN} authors with authors_total, extraction status and, "
+               "when recorded, OpenAlex publication_date, type and is_retracted (false is not an assurance; null is unknown).")
 
 
 def obj(properties):
@@ -236,6 +300,7 @@ Record selection.json as {{method:'coverage', approach, assessed_candidate_ids, 
 Exact abstract support or null; missing abstracts are uncertainty, not automatic exclusion. All omitted candidates remain unassessed.
 3. Run {command} acquire --ids SOURCE_ID SOURCE_ID for only your selected batch. Launch acquisition in the background if useful;
 read committed sources using {command} catalog and {command} source WORK_ID --match REGEX --context 2 --limit 8.
+catalog prints a JSON array of {SOURCE_ROWS} Read large catalogs with code so output is not silently truncated.
 Do useful screening, reading or synthesis while downloads proceed; never wait idly for an unavailable paper.
 Originals are papers/, full extracted texts texts/, immutable source spans passages/, per-paper receipts download-receipts/.
 Every retrieved source still requires identity, completeness and question relevance verification; source status is not scientific certification.
@@ -266,6 +331,7 @@ def audit_prompt(question, command, budget_seconds=None):
 {question}
 {SCIENTIFIC_RULES}
 Inspect audit-input.json, question-plan.json, selection.json, reviewed-papers.json and the current fresh source corpus.
+References in audit-input.json are {SOURCE_ROWS}
 Never inspect researcher reasoning transcripts, CLI events/stderr/prompts, previous research workspaces or previous audits.
 Use {command} source WORK_ID --match REGEX --context 3 --limit 10 for source rereading; originals are available for table/figure checks.
 Return exactly one claim_checks entry for every claim ID in audit-input.json; do not put evidence or study-result IDs in claim_checks.

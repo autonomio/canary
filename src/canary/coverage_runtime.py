@@ -715,7 +715,7 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
             transport.close()
         references = catalog(workspace)
         write(workspace / "references.json", references)
-        (workspace / "catalog.jsonl").write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in references))
+        (workspace / "catalog.jsonl").write_text("".join(json.dumps(protocol.agent_reference(row), ensure_ascii=False) + "\n" for row in references))
         write(workspace / "acquisition-progress.json", {"at": now(), "batch_selected": ids,
             "batch_attempted": len(results), "sources_retrieved": len(references), "scientific_full_paper_verification": "researcher responsibility"})
         additional = read(workspace / 'run.json', {}).get('additional_sources', [])
@@ -1233,6 +1233,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
         "selection_method": "coverage-guided", "minimum_papers": minimum_papers, "research_model": protocol.RESEARCH_MODEL,
         "research_effort": protocol.RESEARCH_EFFORT, "audit_model": protocol.AUDIT_MODEL, "audit_effort": protocol.AUDIT_EFFORT,
         "max_correction_rounds": max_correction_rounds, "verification_version": 1,
+        "agent_paper_metadata_fields": list(protocol.AGENT_PAPER_METADATA_FIELDS),
         "no_subagents": True, "fresh_assets_only": not bool(local_text),
         **({"local_text": local_text, "corpus": "local_text"} if local_text else {}), "audit_budget_seconds": audit_seconds,
         "accounting_scope": "Native CLI workload; legacy DeepSeek gateway token ledger remains a separate deployment."}
