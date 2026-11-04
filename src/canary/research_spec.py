@@ -106,13 +106,14 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
         raise CompileError('retrieval.local_text', 'Local text settings require corpus: local_text.')
     if draft.get('subagents', False) is not False:
         raise CompileError('subagents', 'Subagents are disabled for research and audit.')
-    target, seconds = retrieval.get('target_papers', 50), audit.get('budget_seconds', 600)
-    for path, value in [('retrieval.target_papers', target), ('audit.budget_seconds', seconds)]:
-        if type(value) is not int or value <= 0:
-            raise CompileError(path, 'Expected a positive integer.')
+    target = retrieval.get('target_papers', 50)
+    if type(target) is not int or target <= 0:
+        raise CompileError('retrieval.target_papers', 'Expected a positive integer.')
+    if audit.get('budget_seconds') is not None:
+        raise CompileError('audit.budget_seconds', 'Audits have no time limit; omit this field or use null.')
     resolved = {'version': 1, 'question': question.strip(),
                 'research': {'model': protocol.RESEARCH_MODEL, 'effort': protocol.RESEARCH_EFFORT},
-                'audit': {'model': protocol.AUDIT_MODEL, 'effort': protocol.AUDIT_EFFORT, 'budget_seconds': seconds},
+                'audit': {'model': protocol.AUDIT_MODEL, 'effort': protocol.AUDIT_EFFORT, 'budget_seconds': None},
                 'retrieval': {'selection': 'coverage', 'target_papers': target, 'corpus': corpus, 'access': 'open_full_text',
                               **({'local_text': dict(local)} if local is not None else {}),
                               **({'additional_sources': additional} if additional else {})},
@@ -120,7 +121,7 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
     return {'source_yaml': source if source is not None else yaml.safe_dump(draft, sort_keys=False),
             'resolved': resolved, 'spec_sha256': digest(resolved), 'compiler_version': 1,
             'checks': ['strict_declaration', 'supported_research_and_audit', 'source_policy',
-                       'positive_limits', 'no_subagents', 'api_owned_fresh_workspace']}
+                       'positive_limits', 'unlimited_audit', 'no_subagents', 'api_owned_fresh_workspace']}
 
 
 def verify_compiled(packet: dict) -> CompiledResearch:

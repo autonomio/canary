@@ -1,6 +1,6 @@
 # Coverage-guided question research
 
-The native operator path uses one stateful **Sol 6.1 / xhigh** research session and one **Astra 6 / ultra** independent audit. Neither scientific session may delegate. Coverage-guided selection is the default: choose question-relevant source batches by the information they add across the typed plan's comparison, outcome, population and condition aspects, including adverse and null findings.
+The native operator path uses one stateful **Sol 6.1 / xhigh** research session and one separate **Sol 6.1 / xhigh** independent audit. Neither scientific session may delegate. Coverage-guided selection is the default: choose question-relevant source batches by the information they add across the typed plan's comparison, outcome, population and condition aspects, including adverse and null findings.
 
 ```sh
 canary ask "Your question" --out out/questions/new-question
@@ -50,7 +50,7 @@ Provider reference: [OpenAlex authentication and rate limits](https://help.opena
 
 The payload stores the full question plan, selection decisions, coverage map, actual reading notes and the chain **prose → claims → evidence → canonical verbatim → references**. Claims carry ordinal uncertainty (low=1, moderate=2, high=3), not calibrated probabilities. Study-result fields cite their supporting spans or remain null. Contradictions, gaps, residue, caveats and justified next questions remain typed.
 
-Raw `investigation.json` remains unchanged. The independent audit is separate; checked and unchecked claims and its limits are exposed. The default audit budget is 600 seconds, with actual start/end and termination recorded. A completed research output or passing mechanical source graph does not certify scientific interpretation. `run.json` reports answer availability separately from audit scope.
+Raw `investigation.json` remains unchanged. The independent audit is separate; checked and unchecked claims and its limits are exposed. Research and audit have no duration limit. Actual start/end and any cancellation or failure are recorded; incomplete checks remain explicit. A completed research output or passing mechanical source graph does not certify scientific interpretation. `run.json` reports answer availability separately from audit scope.
 
 `research-receipt.json`, `audit-receipt.json` and `profile.json` preserve the actual scientific session IDs, CLI version, model/effort, start/end/duration and unique native per-response usage. Cached input and reasoning output are subsets, not added again; unavailable counts remain null. Child-session metadata is checked to verify the no-subagent rule. These receipts exclude the coordinating chat and unrelated account activity.
 

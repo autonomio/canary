@@ -956,3 +956,20 @@ S.selected='audit-missing-citation';S.research[S.selected]={answer:graph};
  assert.equal(JSON.stringify(graph),before);
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """)
+
+
+@pytest.mark.parametrize('recorded_model,effort', [('gpt-6.1-sol','xhigh'), ('gpt-6-astra','ultra')])
+def test_export_uses_recorded_auditor_including_historical_profiles(tmp_path, recorded_model, effort):
+    saved_bundle(tmp_path, {'claims': [], 'evidence': []})
+    (tmp_path/'audit-receipt.json').write_text(json.dumps({'model':recorded_model,'reasoning_effort':effort}))
+    view=export_bundle(tmp_path)
+    assert view['answer']['source_check_model']==recorded_model
+    assert view['answer']['source_check_reasoning_effort']==effort
+    assert view['answer']['audit']['model']==recorded_model
+    assert view['run']['reviewer_model']==recorded_model
+
+
+def test_export_does_not_invent_an_unrecorded_auditor(tmp_path):
+    graph=saved_bundle(tmp_path, {'claims': [], 'evidence': []})
+    assert graph['audit']['model'] is None
+    assert graph['source_check_model'] is None

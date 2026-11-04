@@ -433,7 +433,6 @@ class Supervisor:
         context = self.execution.context()
         command = shlex.join([sys.executable, '-m', 'canary.tools_cli', '--run', key, '--port', str(self.port)])
         question = manifest['question']
-        seconds = manifest.get('audit_budget_seconds', 600)
         local = bool(manifest.get('local_text'))
         additional = manifest.get('additional_sources', [])
         if role == 'research':
@@ -442,13 +441,13 @@ class Supervisor:
             shape = protocol.investigation_schema()
         else:
             model, effort = protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT
-            prompt = protocol.audit_prompt(question, command, seconds) + (protocol.LOCAL_TEXT_SCOPE if local else '')
+            prompt = protocol.audit_prompt(question, command) + (protocol.LOCAL_TEXT_SCOPE if local else '')
             if additional:
                 from .source_adapters import GUIDANCE
                 prompt += GUIDANCE.format(sources=', '.join(additional))
             shape = protocol.audit_schema()
         _, receipt = engine.scientific_session(workspace, role, model, effort, prompt, shape,
-            executable=context['CANARY_CODEX_EXECUTABLE'], audit_timeout=seconds if role == 'audit' else None,
+            executable=context['CANARY_CODEX_EXECUTABLE'], audit_timeout=None,
             execution=self.execution, run_key=key, execution_environment={
                 'RUN_KEY': key, 'OUT': str(workspace), 'CANARY_DATA_DIR': str(self.root.resolve()),
                 'CANARY_RUNS_PORT': str(self.port), 'CANARY_API_URL': f'http://127.0.0.1:{self.port}',

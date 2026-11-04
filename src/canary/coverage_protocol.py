@@ -8,8 +8,8 @@ from .synthesize import QUANTITATIVE_FIDELITY
 
 RESEARCH_MODEL = "gpt-6.1-sol"
 RESEARCH_EFFORT = "xhigh"
-AUDIT_MODEL = "gpt-6-astra"
-AUDIT_EFFORT = "ultra"
+AUDIT_MODEL = RESEARCH_MODEL
+AUDIT_EFFORT = RESEARCH_EFFORT
 
 
 class OpenAlexBackoff(TypedDict):
@@ -211,7 +211,13 @@ No earlier experiment assets, paper lists, answers or audits. No outputs from ot
 """
 
 
-def audit_prompt(question, command, budget_seconds=600):
+def audit_prompt(question, command, budget_seconds=None):
+    # Explicit deadlines remain available to isolated benchmarks, not production declarations.
+    timing = ("No audit time limit. Complete all declared audit scope. Persist audit.json as you go; "
+              "if interrupted, explicitly label every remaining claim not_checked."
+              if budget_seconds is None else
+              f"Budget {budget_seconds} seconds. Track your own elapsed time. Persist audit.json as you go; "
+              "if unfinished, explicitly label every remaining claim not_checked.")
     return f"""Read repository AGENTS.md first, then workspace AGENTS.md. Independently audit this real research question:
 {question}
 {SCIENTIFIC_RULES}
@@ -220,7 +226,7 @@ Never inspect researcher reasoning transcripts, CLI events/stderr/prompts, previ
 Use {command} source WORK_ID --match REGEX --context 3 --limit 10 for source rereading; originals are available for table/figure checks.
 Audit the actual claim/result scope, exact source meaning, arithmetic, experiment attribution, selection/coverage and paper-role/family counts.
 Do not reward paper quantity or confidence; identify irrelevant padding, preview inclusion, important adverse alternatives and unsupported claims.
-Budget {budget_seconds} seconds. Track your own elapsed time. Persist audit.json as you go; if unfinished, explicitly label every remaining claim not_checked.
+{timing}
 Scores 0-5 are judgments within inspected scope, not calibrated probabilities or population recall. 3 means useful but consequential limitations; 5 requires strong inspected support.
 Never rewrite the research answer or invoke another agent/model. Return audit-schema.json JSON; audit_complete=true only if all declared audit scope is actually checked.
 """

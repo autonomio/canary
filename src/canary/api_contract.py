@@ -63,7 +63,7 @@ def schemas():
     declaration = obj({'version':{'type':'integer','const':1},'question':dict(S,minLength=1,maxLength=20000),
         'research':obj({'model':fixed(protocol.RESEARCH_MODEL),'effort':fixed(protocol.RESEARCH_EFFORT)}),
         'audit':obj({'model':fixed(protocol.AUDIT_MODEL),'effort':fixed(protocol.AUDIT_EFFORT),
-                     'budget_seconds':dict(I,minimum=1,default=600)}),
+                     'budget_seconds':{'type':'null','default':None,'description':'Audits have no duration limit.'}}),
         'retrieval':retrieval,
         'subagents':{'type':'boolean','const':False}}, ['question'])
     native = obj({'yaml':dict(S,minLength=1),'spec':ref('ResearchDeclaration'),'name':S,'brief':S})

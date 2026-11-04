@@ -21,7 +21,7 @@ from canary.claim_freshness import issues as freshness_issues, unknown
 DECLARATION = '''version: 1
 question: Synthetic fixture question?
 retrieval: {target_papers: 1}
-audit: {budget_seconds: 9}
+audit: {budget_seconds: null}
 '''
 
 
@@ -79,7 +79,7 @@ def test_resolved_defaults_and_digest_are_stable_and_explicit():
     b=research_spec.compile_mapping(a['resolved'])
     assert a['spec_sha256']==b['spec_sha256']
     assert a['resolved']['research']=={'model':'gpt-6.1-sol','effort':'xhigh'}
-    assert a['resolved']['audit']=={'model':'gpt-6-astra','effort':'ultra','budget_seconds':600}
+    assert a['resolved']['audit']=={'model':'gpt-6.1-sol','effort':'xhigh','budget_seconds':None}
     assert a['resolved']['retrieval']['target_papers']==50
     a['resolved']['audit']['budget_seconds']=1
     with pytest.raises(research_spec.CompileError):research_spec.verify_compiled(a)
@@ -167,7 +167,7 @@ def test_compiled_worker_commits_inputs_before_native_execution_and_keeps_failur
     with pytest.raises(RuntimeError,match='Synthetic stop'):research_bundle.run_compiled(staged,workspace)
     assert research_bundle.read(workspace)['state']=='finished'
     assert json.loads((workspace/'run.json').read_text())['status']=='failed'
-    assert research_bundle.read(workspace)['specification']['resolved']['audit']['budget_seconds']==9
+    assert research_bundle.read(workspace)['specification']['resolved']['audit']['budget_seconds'] is None
 
 
 @pytest.fixture
@@ -185,7 +185,7 @@ def fake(question,workspace,**options):
     options['on_reserved']()
     resolved=json.loads(Path(os.environ['CANARY_RUN_SPEC']).read_text())['resolved']
     assert options['minimum_papers']==resolved['retrieval']['target_papers']
-    assert options['audit_seconds']==resolved['audit']['budget_seconds']
+    assert options.get('audit_seconds') is None and resolved['audit']['budget_seconds'] is None
     return seed(workspace)
 coverage_runtime.run=fake
 research_bundle.run_compiled(os.environ['CANARY_RUN_SPEC'],os.environ['OUT'])
@@ -220,7 +220,7 @@ def test_api_cli_compile_execute_read_archive_and_repeat_exact_settings(api,tmp_
     declaration=tmp_path/'input.yaml';declaration.write_text(DECLARATION)
     assert cli.main(['run',str(declaration),'--dry-run','--port',str(server.server_port)])==0
     compiled=json.loads(capsys.readouterr().out)
-    assert calls==[] and compiled['resolved']['audit']['budget_seconds']==9
+    assert calls==[] and compiled['resolved']['audit']['budget_seconds'] is None
     assert cli.main(['run',str(declaration),'--port',str(server.server_port)])==0
     started=json.loads(capsys.readouterr().out)
     result=wait_bundle(client,started['key'])
@@ -426,3 +426,12 @@ def test_unconfirmed_writer_shutdown_preserves_unsealed_work(tmp_path,monkeypatc
         research_bundle.run_compiled(staged,workspace)
     assert research_bundle.read(workspace)['state']=='running'
     assert (workspace/'run.json').exists() and (workspace/'research.yaml').exists()
+
+
+@pytest.mark.parametrize('audit', [
+    {'model': 'gpt-6-astra', 'effort': 'ultra'},
+    {'budget_seconds': 600}, {'budget_seconds': 1}, {'budget_seconds': True},
+])
+def test_new_submissions_reject_replaced_auditor_and_duration_limits(audit):
+    with pytest.raises(research_spec.CompileError):
+        research_spec.compile_mapping({'question': 'Q?', 'audit': audit})

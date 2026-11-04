@@ -1107,7 +1107,9 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
         elif role == "audit" and (workspace / "audit.json").exists():
             result = read(workspace / "audit.json")
             result["audit_complete"] = False
-            result.setdefault("limitations", []).append("Audit stopped at its recorded time budget; intermediate audit preserved.")
+            result.setdefault("limitations", []).append(
+                "Audit stopped at its recorded time budget; intermediate audit preserved." if timed_out else
+                "Audit ended before a structured final response; intermediate audit preserved.")
             write(workspace / "audit.json", result)
         elif role == "audit":
             result = {"audit_complete": False, "claim_checks": [], "findings": [], "scores": {},
@@ -1126,10 +1128,12 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
             session.close()
 
 
-def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable=None, on_reserved=None, local_text=None, additional_sources=()):
+def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executable=None, on_reserved=None, local_text=None, additional_sources=()):
     workspace = Path(workspace).resolve()
-    if not question.strip() or minimum_papers < 1 or audit_seconds < 1:
-        raise ValueError("Question, paper target and audit duration must be nonempty/positive")
+    if not question.strip() or minimum_papers < 1:
+        raise ValueError("Question and paper target must be nonempty/positive")
+    if audit_seconds is not None:
+        raise ValueError("Audits have no time limit")
     executable = executable or os.environ.get('CANARY_CODEX_EXECUTABLE') or shutil.which("codex")
     if not executable:
         raise RuntimeError("Native Codex CLI is required; no provider/model fallback is configured")
@@ -1183,9 +1187,9 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=600, executable
         write(workspace / "audit-input.json", payload)
         from .source_adapters import GUIDANCE
         audit, _ = scientific_session(workspace, "audit", protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT,
-            protocol.audit_prompt(question, command, audit_seconds) + (protocol.LOCAL_TEXT_SCOPE if local_text else "")
+            protocol.audit_prompt(question, command) + (protocol.LOCAL_TEXT_SCOPE if local_text else "")
             + (GUIDANCE.format(sources=', '.join(additional_sources)) if additional_sources else ''), protocol.audit_schema(), executable=executable,
-            audit_timeout=audit_seconds)
+            audit_timeout=None)
         check_cancelled()
         wait_for_tools(run_key)
         checked = {r["claim_id"] for r in audit.get("claim_checks", [])}
@@ -1258,7 +1262,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="action", required=True)
     p = commands.add_parser("run"); p.add_argument("question"); p.add_argument("--workspace", type=Path, required=True)
-    p.add_argument("--minimum-papers", type=int, default=50); p.add_argument("--audit-seconds", type=int, default=600); p.add_argument("--codex")
+    p.add_argument("--minimum-papers", type=int, default=50); p.add_argument("--codex")
     p = commands.add_parser("discover"); p.add_argument("--workspace", type=Path, required=True); p.add_argument("--plan", type=Path, required=True)
     p.add_argument("--pages", type=int, default=5)
     p = commands.add_parser("acquire"); p.add_argument("--workspace", type=Path, required=True); p.add_argument("--ids", nargs="+", required=True)
@@ -1275,8 +1279,7 @@ def main(argv=None):
         if args.codex:
             print('Codex is configured by the service, not the client.', file=sys.stderr);return 2
         from .cli import main as cli_main
-        return cli_main(['ask',args.question,'--minimum-papers',str(args.minimum_papers),
-                         '--audit-seconds',str(args.audit_seconds),'--port',str(port)])
+        return cli_main(['ask',args.question,'--minimum-papers',str(args.minimum_papers),'--port',str(port)])
     if args.action == 'usage':
         from urllib.parse import quote
         try:

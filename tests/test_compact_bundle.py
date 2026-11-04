@@ -237,3 +237,30 @@ def test_open_original_stream_survives_release_before_http_headers(api,tmp_path,
     assert response.status_code==200 and response.content==expected
     assert compact_bundle.exists(workspace)
     assert client.get('/api/runs/file-race/sources/W1/file').status_code==404
+
+
+def test_historical_astra_bundle_is_readable_but_cannot_execute_old_settings(tmp_path):
+    from canary import research_spec
+    prepared(tmp_path)
+    spec=json.loads((tmp_path/'run-spec.json').read_text())
+    spec['audit']={'model':'gpt-6-astra','effort':'ultra','budget_seconds':600}
+    (tmp_path/'research.yaml').write_text(json.dumps(spec))
+    research_bundle.write_json(tmp_path/'run-spec.json',spec)
+    report=json.loads((tmp_path/'compile-report.json').read_text())
+    report['spec_sha256']=research_spec.digest(spec)
+    research_bundle.write_json(tmp_path/'compile-report.json',report)
+    research_bundle.seal(tmp_path)
+    compact_bundle.retain(tmp_path)
+    recorded=research_bundle.read(tmp_path)['specification']
+    assert recorded['resolved']['audit']==spec['audit']
+    with pytest.raises(research_spec.CompileError):research_spec.verify_compiled(recorded)
+
+    contribution=compact_bundle.read(tmp_path,expanded=True)
+    artifact=next(a for a in contribution['result']['artifacts'] if a['name']=='canary-bundle.json')
+    manifest=json.loads(artifact['content'])
+    manifest['specification']['source_yaml']='question: substituted'
+    artifact['content']=json.dumps(manifest,ensure_ascii=False)
+    body=(bundle_encoding.dumps(bundle_encoding.encode(contribution))+'\n').encode()
+    (tmp_path/compact_bundle.NAME).write_bytes(body)
+    (tmp_path/compact_bundle.CHECKSUM).write_text(hashlib.sha256(body).hexdigest()+'\n')
+    with pytest.raises(ValueError,match='recorded hashes'):research_bundle.read(tmp_path)

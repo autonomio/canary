@@ -213,7 +213,7 @@ def run_compiled(staged, workspace):
         reserved = True
     try:
         return coverage_runtime.run(spec['question'], workspace,
-            minimum_papers=spec['retrieval']['target_papers'], audit_seconds=spec['audit']['budget_seconds'],
+            minimum_papers=spec['retrieval']['target_papers'],
             on_reserved=begin, **({'additional_sources': spec['retrieval']['additional_sources']} if spec['retrieval'].get('additional_sources') else {}),
             **({'local_text': spec['retrieval']['local_text']}
                                 if spec['retrieval']['corpus'] == 'local_text' else {}))
