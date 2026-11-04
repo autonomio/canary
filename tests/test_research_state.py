@@ -92,6 +92,7 @@ def test_supplied_state_survives_working_file_release(tmp_path):
     from canary import compact_bundle
     packet=research_spec.compile_mapping({'question':'Synthetic continuation?',
         'research_state':STATE,'continue_research':True})
+    (tmp_path/'.run-reservation').touch()
     research_bundle.initialize(tmp_path,packet);seed(tmp_path);research_bundle.seal(tmp_path)
     compact_bundle.retain(tmp_path)
     resolved=research_bundle.read(tmp_path)['specification']['resolved']
