@@ -35,7 +35,7 @@ def test_generation_protocol_and_recorded_api_contract(tmp_path):
         jsonschema.validate(value, {'$ref': '#/components/schemas/'+name, 'components': {'schemas': contract}})
 
 
-@pytest.mark.parametrize('edit', ['text', 'evidence', 'result', 'source', 'shared'])
+@pytest.mark.parametrize('edit', ['text', 'evidence', 'result', 'source', 'shared', 'coverage_map'])
 def test_any_scientific_input_edit_invalidates_verdict(tmp_path, edit):
     payload = seed(tmp_path)
     check = audit.bind(payload, review())['claim_checks'][0]
@@ -43,6 +43,7 @@ def test_any_scientific_input_edit_invalidates_verdict(tmp_path, edit):
     elif edit == 'evidence': payload['evidence'][0]['interpretation'] += ' Changed.'
     elif edit == 'result': payload['study_results'].append({'id': 'S1', 'fields': {}})
     elif edit == 'source': payload['references'][0]['body_sha256'] = '0'*64
+    elif edit == 'coverage_map': payload['coverage_map'] = {'changed': True}
     else: payload['contradictions'].append({'id': 'X1', 'description': 'Shared change.'})
     assert not audit.current(payload, payload['claims'][0], check)
 
@@ -119,3 +120,54 @@ def test_missing_independence_scope_cannot_report_a_finished_audit(tmp_path):
     bound = audit.bind(payload, raw)
     assert not bound['audit_complete']
     assert bound['evidence_checks'][0]['assessment'] == 'unknown'
+
+
+@pytest.mark.parametrize('field', ['evidence', 'study_results', 'claims', 'gaps', 'contradictions'])
+def test_edits_to_the_rendered_investigation_invalidate_old_verdicts(tmp_path, field):
+    _, payload = completed(tmp_path)
+    (tmp_path/'audit.json').write_text(json.dumps(audit.bind(payload, review())))
+    raw = json.loads((tmp_path/'investigation.json').read_text())
+    if field == 'evidence': raw[field][0]['interpretation'] += ' Changed.'
+    elif field == 'study_results': raw[field] = [{'id': 'S1', 'fields': {}}]
+    elif field == 'claims': raw[field].append(dict(raw[field][0], id='C2'))
+    elif field == 'gaps': raw[field][0]['description'] += ' Changed.'
+    else: raw[field] = [{'id': 'X1', 'claim_ids': [], 'evidence_ids': []}]
+    (tmp_path/'investigation.json').write_text(json.dumps(raw))
+    coverage_export.export_bundle(tmp_path)
+    graph = json.loads((tmp_path/'answer.json').read_text())
+    assert graph['audit']['status'] == 'partial'
+    assert all(c['assessment'] == 'not_checked' for c in graph['source_checks'])
+
+
+@pytest.mark.parametrize('assessment', ['same_study_family', 'independent'])
+def test_independence_can_cite_inspected_sibling_source_facts(tmp_path, assessment):
+    payload, raw = seed(tmp_path), review()
+    reference = dict(payload['references'][0], id='W2')
+    passage = dict(payload['evidence'][0]['verbatims'][0], id='W2-p0001', reference_id='W2')
+    payload['references'].append(reference)
+    payload['evidence'].append(dict(deepcopy(payload['evidence'][0]), id='E2', passage_ids=[passage['id']],
+        reference_ids=['W2'], verbatims=[passage]))
+    raw['source_reviewed_ids'].append('W2')
+    raw['evidence_checks'][0].update(assessment=assessment, reference_ids=['W1', 'W2'], passage_ids=['W1-p0001', 'W2-p0001'])
+    assert audit.bind(payload, raw)['evidence_checks'][0]['assessment'] == assessment
+
+
+def test_dashboard_distinguishes_historical_scope_validation_failures_and_nonempirical_records(tmp_path):
+    _, payload = completed(tmp_path)
+    raw = review(); raw['claim_checks'][0]['context_checked'] = []
+    (tmp_path/'audit.json').write_text(json.dumps(audit.bind(payload, raw)))
+    coverage_export.export_bundle(tmp_path)
+    graph = json.loads((tmp_path/'answer.json').read_text())
+    run_dashboard(tmp_path, graph, """
+const data={run:{selection_method:'coverage-guided'},answer:graph};
+assert.match(coverageAuditHtml(data),/stand alone/);
+assert.match(sourceCheckHtml(graph,graph.claims[0]),/Audit output validation/);
+const old={...graph,audit:{...graph.audit,standard_version:null}};
+assert.doesNotMatch(coverageAuditHtml({...data,answer:old}),/stand alone/);
+for(const kind of ['recommendation','source_record']) {
+  const c={...graph.claims[0],kind};
+  assert.match(claimRecordHtml(graph,c,''),new RegExp(kind.replaceAll('_',' ')));
+}
+""")
+    graph['claims'][0]['kind'] = 'recommendation'
+    assert 'Record kind: recommendation' in coverage_export.render_markdown(graph)

@@ -13,7 +13,7 @@ STANDARD_VERSION = 1
 # Deliberately broad: a shared record edit invalidates every dependent judgment.
 SNAPSHOT_FIELDS = ('claims', 'evidence', 'study_results', 'references', 'contradictions',
                    'gaps', 'residue', 'claim_links', 'question_plan', 'selection', 'reviewed_papers',
-                   'coverage', 'accounting', 'mechanical_audit')
+                   'coverage', 'coverage_map', 'accounting', 'mechanical_audit')
 
 
 def snapshot(payload):
@@ -35,6 +35,20 @@ def current(payload, claim, check):
     return (check.get('statement_sha256') == statement_hash(claim) and
             check.get('claim_snapshot_sha256') == claim_hash(payload, claim))
 
+
+
+def matches_investigation(payload, investigation):
+    from .coverage_protocol import investigation_schema
+    shape = investigation_schema()['properties']
+    for field in shape:
+        left, right = payload.get(field), investigation.get(field)
+        if field == 'evidence':
+            keys = shape[field]['items']['properties']
+            left = [{k: e[k] for k in keys if k in e} for e in (left or [])]
+            right = [{k: e[k] for k in keys if k in e} for e in (right or [])]
+        if left != right:
+            return False
+    return True
 
 def bind(payload, raw, *, passages=()):
     """No fabricated checks; missing, ambiguous or invalid judgments stay explicit."""
@@ -87,6 +101,8 @@ def bind(payload, raw, *, passages=()):
                 problems.append('Inspected passage and reference disagree')
         if problems:
             check['assessment'] = 'not_checked'
+            check['reviewer_reason'] = check.get('reason')
+            check['reason'] = 'Audit output failed validation: ' + '; '.join(problems)
             check['validation_issues'] = problems
             errors.extend(identifier + ': ' + p for p in problems)
         check.update(statement_sha256=statement_hash(claim), claim_snapshot_sha256=claim_hash(payload, claim))
@@ -104,13 +120,15 @@ def bind(payload, raw, *, passages=()):
         eligible = (check.get('assessment') in ('independent', 'same_study_family', 'unknown') and
             bool(check.get('reason', '').strip()) and bool(check.get('family_basis', '').strip()) and
             bool(refs) and bool(ids) and all(r in reviewed for r in refs) and
-            all(r in item.get('reference_ids', []) for r in refs) and
-            all(p in item.get('passage_ids', []) for p in ids) and
+            bool(set(refs) & set(item.get('reference_ids', []))) and
+            bool(set(ids) & set(item.get('passage_ids', []))) and
             all(passages.get(p, {}).get('reference_id') in refs for p in ids))
         if check.get('assessment') != 'unknown' and (not eligible or not check.get('study_family_ids')):
             check.update(assessment='unknown', validation_issue='Independence lacks inspected source/family basis')
         if check.get('assessment') == 'independent' and any(not (references[r].get('url') or references[r].get('doi') or references[r].get('record_url')) for r in refs):
             check.update(assessment='unknown', validation_issue='Independent evidence lacks an addressable source')
+        if not valid:
+            errors.append(item['id'] + ': No unique valid evidence-independence check')
         independence.append(check)
     audit.update(claim_checks=bound, evidence_checks=independence, validation_issues=errors,
         snapshot_sha256=snapshot(payload), standard_version=STANDARD_VERSION,
