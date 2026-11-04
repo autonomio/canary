@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-MAX_STATE_BYTES = 1024 * 1024
+MAX_STATE_BYTES = 10 * 1024 * 1024
 MAX_DECLARATION_BYTES = 2 * MAX_STATE_BYTES
 
 
@@ -44,7 +44,7 @@ def validate(state, continuation):
         for chunk in encoder.iterencode(state):
             size += len(chunk.encode())
             if size > MAX_STATE_BYTES:
-                raise ValueError('research_state must be at most 1 MiB.')
+                raise ValueError('research_state must be at most 10 MiB.')
             chunks.append(chunk)
         return json.loads(''.join(chunks))
     except (TypeError, RecursionError, OverflowError) as error:
