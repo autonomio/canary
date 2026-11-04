@@ -19,10 +19,17 @@ def schema():
 
 
 def targets(payload, audit):
+    known = {c['id'] for c in payload.get('claims', [])}
     selected = {c['claim_id'] for c in audit.get('claim_checks', []) if c.get('assessment') != 'supported'}
+    selected.update(known - {c['claim_id'] for c in audit.get('claim_checks', [])})
     for finding in audit.get('findings', []):
         if finding.get('severity') == 'material':
-            selected.update(finding.get('claim_ids') or [c['id'] for c in payload.get('claims', [])])
+            identifiers = set(finding.get('claim_ids', []))
+            selected.update(identifiers if identifiers and identifiers <= known else known)
+    invalid_evidence = {e['evidence_id'] for e in audit.get('evidence_checks', []) if e.get('validation_issue')}
+    selected.update(c['id'] for c in payload.get('claims', []) if invalid_evidence & set(c.get('evidence_ids', [])))
+    if payload.get('mechanical_audit', {}).get('pass') is not True:
+        selected.update(known)
     selected.update(i for r in payload.get('claim_review_checks', []) if r.get('blocking') for i in r['claim_ids'])
     return [c['id'] for c in payload.get('claims', []) if c['id'] in selected]
 
@@ -89,8 +96,14 @@ def finalize(payload, audit, history, withdrawn=(), *, failure=None):
         if eligible:
             accepted.append(deepcopy(claim))
         else:
+            material = [f.get('description', '') for f in audit.get('findings', []) if f.get('severity') == 'material'
+                and (not f.get('claim_ids') or claim['id'] in f['claim_ids'] or not set(f['claim_ids']) <= {c['id'] for c in payload.get('claims', [])})]
+            reason = (failure or ('Source binding checks failed: ' + '; '.join(mechanical.get('issues', [])) if mechanical.get('pass') is not True else None)
+                or ('Material finding remains: ' + '; '.join(material) if material else None)
+                or (check.get('reason') if check.get('assessment') != 'supported' else None)
+                or 'The audit has incomplete evidence assessments or a stale verdict')
             withheld.append({'claim': deepcopy(claim), 'status': 'withheld',
-                'reason': failure or check.get('reason') or 'No current supported verdict', 'final_check': deepcopy(check),
+                'reason': reason, 'final_check': deepcopy(check),
                 'evidence': [deepcopy(e) for e in payload.get('evidence', []) if e['id'] in claim.get('evidence_ids', [])]})
     active = {c['id'] for c in accepted}
     # Entire shared snapshots were audited. Keep the basis for verifiable hashes after filtering.

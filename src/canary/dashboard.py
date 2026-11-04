@@ -433,10 +433,12 @@ class Supervisor:
                 raise ValueError('This run is not active in the requested scientific phase')
             if role == 'research' and round_index is not None:
                 raise ValueError('Initial research has no correction round')
+            frozen = _load_json_file(Path(row['run_spec_path']), {}).get('resolved', {}) if row.get('run_spec_path') else {}
+            max_rounds = frozen.get('audit', {}).get('max_correction_rounds', manifest.get('max_correction_rounds', 3))
             if role == 'correction' or round_index is not None:
                 field = 'correction_round' if role == 'correction' else 'audit_round'
                 if (round_index is None or manifest.get(field) != round_index or
-                        round_index > manifest.get('max_correction_rounds', 3)):
+                        round_index > max_rounds):
                     raise ValueError('This scientific round has not been authorized by the run')
             directory = workspace if round_index is None else workspace / 'rounds' / f'{round_index:03d}'
             phase = role if round_index is None else f'{role}:{round_index}'

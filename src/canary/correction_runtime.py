@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 from . import audit_validation, corrections, coverage_protocol as protocol
@@ -11,9 +12,11 @@ from . import audit_validation, corrections, coverage_protocol as protocol
 def protected(workspace):
     """Auditing and correction may read scientific inputs, never rewrite them."""
     names = ('investigation.json', 'question-plan.json', 'selection.json', 'reviewed-papers.json',
-             'references.json', 'research.yaml', 'run-spec.json', 'research-state.json')
+             'references.json', 'research.yaml', 'run-spec.json', 'research-state.json', 'payload.json',
+             'audit-input.json', 'mechanical-audit.json', 'coverage-map.json', 'scarcity.json',
+             'local-corpus.json', 'research-receipt.json')
     paths = [workspace / name for name in names]
-    for name in ('papers', 'texts', 'passages', 'rounds'):
+    for name in ('papers', 'texts', 'passages', 'download-receipts', 'rounds'):
         paths.extend(p for p in (workspace / name).rglob('*') if p.is_file())
     return {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths if p.is_file()}
 
@@ -54,7 +57,7 @@ def verify(workspace, payload, manifest, command, executable):
             raw, receipt = engine.scientific_session(workspace, 'audit', protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT,
                 prompt, protocol.audit_schema(), executable=executable, round_index=round_index)
             engine.check_cancelled()
-            engine.wait_for_tools(manifest.get('run_key'))
+            engine.wait_for_tools(os.environ.get('RUN_KEY'))
             if any(not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest() != sha for p, sha in before.items()):
                 raise ValueError('Read-only audit changed protected scientific inputs')
             passages = [json.loads(line) for p in (workspace/'passages').glob('*.jsonl') for line in p.read_text().splitlines()]
@@ -81,7 +84,7 @@ def verify(workspace, payload, manifest, command, executable):
                 protocol.correction_prompt(manifest['question'], command, next_round), corrections.schema(),
                 executable=executable, round_index=next_round)
             engine.check_cancelled()
-            engine.wait_for_tools(manifest.get('run_key'))
+            engine.wait_for_tools(os.environ.get('RUN_KEY'))
             if any(not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest() != sha for p, sha in before.items()):
                 raise ValueError('Correction changed protected inputs instead of returning a typed revision')
             proposed, removed = corrections.apply(dict(payload, canonical_passage_ids=[p['id'] for p in passages]), audit, response)

@@ -227,3 +227,8 @@ scientific audit was partial at its time budget and remains part of the handoff.
 
 
 New native audits require standalone claims, typed defects and source-based evidence-independence assessments. `ScientificAudit` describes generation; `RecordedClaimCheck` and `EvidenceIndependence` expose saved judgments through the research API and its CLI/MCP clients. Verdicts carry `statement_sha256` and `claim_snapshot_sha256`; changes to shared scientific input invalidate them. Older audits remain readable and do not acquire retrospective hashes or new scientific judgments.
+
+
+`audit.max_correction_rounds` defaults to 3; 0 performs an audit and withholds anything uncleared without a correction turn. This limits revision rounds, not research or audit duration. The API's scientific execution request accepts `role: correction` with a server-authorized `round`; callers cannot select a thread, model, prompt or artifact path. CLI and MCP clients consume the same research contract.
+
+Final bundles expose `verification`, `withheld_claims` and `claim_revisions`. A fresh audit covers every revised/shared input; SHA-256 bindings remain verifiable against the recorded `verification.audit_basis` after filtering. The original investigation and all round records remain immutable scientific history. The dashboard shows counts/share withheld, per-claim history, split lineage and reasons. Original historical bundles retain their prior semantics; they are never retroactively corrected or filtered. New runs that fail before final projection cannot export raw claims.
