@@ -35,6 +35,7 @@ from .runtime_paths import data_root
 from .processes import RunCancelled, stop_tree, identity, tool_receipts
 from .candidate_index import CandidateIndex, abstract_text, SOURCE_ID
 from .redact import redact_text
+from .paper_metadata import OPENALEX_SELECT, snapshot as paper_metadata_snapshot
 
 WORK_ID = re.compile(r"W[1-9][0-9]{0,19}\Z")
 _LOCK = threading.Lock()
@@ -489,7 +490,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                     try:
                         response = client.get("https://api.openalex.org/works",
                             params={"search": query["search"], "per_page": 200, "cursor": cursor,
-                                    "select": "id,doi,display_name,title,publication_year,abstract_inverted_index,open_access,primary_location,best_oa_location,locations,authorships,ids,type"}, headers=headers)
+                                    "select": OPENALEX_SELECT}, headers=headers)
                     except httpx.HTTPError as error:
                         receipt = {"query_id": query["id"], "search": query["search"], "page": state["pages"] + 1,
                             "requested_at": now(), "status": None, "error": type(error).__name__, "local_cache_used": False}
@@ -529,6 +530,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                         identifier = work["id"].rsplit("/", 1)[-1]
                         if not WORK_ID.fullmatch(identifier):
                             raise ValueError("Invalid OpenAlex work ID")
+                        work["metadata_retrieved_at"] = receipt["requested_at"]
                     index.add_page(body.get('results', []), query['id'])
                     state.update(pages=state["pages"] + 1, cursor=body.get("meta", {}).get("next_cursor"),
                                  matched=body.get("meta", {}).get("count"))
@@ -687,6 +689,8 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
                         "pages": pages, "blank_pages": blank, "text_chars": len(text), "fresh_download_at": now(),
                         "preview_marker_detected": preview,
                         "full_text_status": "preview_suspected" if preview else "requires_source_verification"}
+                    if work.get("metadata_retrieved_at") is not None:
+                        reference["paper_metadata"] = paper_metadata_snapshot(work, work["metadata_retrieved_at"])
                     if local:
                         reference.update(adapter='local_text', local_source=work['local_text'],
                             openalex_id=work.get('openalex_id'), imported_at=reference.pop('fresh_download_at'),
