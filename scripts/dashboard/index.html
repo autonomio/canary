@@ -3426,6 +3426,12 @@
     return (Array.isArray(g.source_checks) ? g.source_checks : [])
       .find(c=>c?.claim_id===claimId && ['supported','corrected','correction_needed','unresolved','not_checked'].includes(c.assessment)) || null;
   }
+  function uncertaintyReviewHtml(g,c) {
+    const review=qaSourceCheck(g,c.id)?.uncertainty_review;
+    if(review?.status!=='assessed') return `<div class="coverage"><h3>Auditor uncertainty recommendation</h3><p>Not assessed.</p><p>${esc(review?.reason || 'No uncertainty review was recorded.')}</p>${(review?.limitations || []).map(x=>`<p class="notice">${esc(x)}</p>`).join('')}</div>`;
+    const prior=review.prior_claim_id ? `<p>Proposed prior match: ${esc(review.prior_claim_id)} · auditor-reported ${esc(review.prior_class || 'unknown')} uncertainty.</p><p>${esc(review.prior_match_reason || '')}</p>` : '';
+    return `<div class="coverage"><h3>Auditor uncertainty recommendation</h3><p>${esc(review.recommended_class)} uncertainty · ${esc(review.change==='not_comparable' ? 'No comparable prior grade established' : review.change+' from supplied prior')}</p><p>${esc(review.reason)}</p>${prior}<div class="source-actions">${qaEvidencePackets(g,review.evidence_ids).map(qaEvidencePacketButton).join(' ')}</div>${(review.limitations || []).map(x=>`<p class="notice">${esc(x)}</p>`).join('')}<p class="hint">Ordinal model judgment. Writer’s grade retained. Prior match requires destination review; no stored claim has been changed.</p></div>`;
+  }
   function sourceCheckHtml(g,c) {
     if((g?.claims || []).filter(x=>x.id===c.id).length>1) return '<p class="hint">Source check · Not checked: ambiguous claim ID. An ID-only audit cannot identify this occurrence.</p>';
     const check=qaSourceCheck(g,c.id);
@@ -3435,6 +3441,7 @@
       const p=g.passages?.find(p=>p.id===id),ref=g.references?.find(r=>r.id===p?.source_id);
       return p ? `<button type="button" class="text-action" data-qa-passage="${esc(id)}" data-source-check-claim="${esc(c.id)}">Source ${i+1} · ${esc(ref?.paper?.title || ref?.id || p.source_id || id)}${ref ? '' : ' · Citation not recorded'}</button>` : '<span class="hint">Source passage unavailable.</span>';
     }).join(' ');
+    const recorded=(Array.isArray(check.recorded_checks) ? check.recorded_checks : []).map((r,i)=>`<div data-recorded-audit="${i+1}"><h3>Recorded check ${i+1} · ${esc(auditAssessmentLabel(r))}</h3><p>${esc(r.reason || 'Reason not recorded.')}</p>${r.uncertainty_review ? `<p>Recorded uncertainty recommendation: ${esc(r.uncertainty_review.recommended_class || 'not assessed')} · ${esc(r.uncertainty_review.reason || '')}</p>` : ''}<div class="source-actions">${(Array.isArray(r.passage_ids) ? r.passage_ids : []).map(id=>qaButton('data-qa-passage',id,'Source passage '+id)).join(' ')}</div></div>`).join('');
     const changed=typeof check.original_text==='string' && check.original_text.length && check.original_text!==c.text;
     const effort=['high','xhigh','max','ultra'].includes(g.source_check_reasoning_effort) ? g.source_check_reasoning_effort : '';
     const separateAudit=['independent_full_paper_audit','astra_full_paper_audit'].includes(g.source_check_method);
@@ -3454,7 +3461,7 @@
       : g.source_check_method==='responses_source_interpretation'
         ? `Source interpretation generated through the Muse Responses API${effort ? ` using ${effort} reasoning` : ''}. Support assessment is a model judgment, not independent scientific validation.`
         : 'Model judgment against saved source passages; not independent scientific validation.') + (model ? ` Model: ${model}.` : separateAudit ? ' Auditor model not recorded.' : '');
-    return `<details data-detail="source-check-${esc(c.id)}"><summary>Source check · ${esc(auditAssessmentLabel(check))}</summary><p class="hint">${esc(notice)}</p>${check.source_meaning!==c.text ? `<h3>What the source says</h3><p>${esc(check.source_meaning || 'Source meaning not recorded.')}</p>` : ''}<h3>Why this assessment?</h3><p>${esc(check.reason || 'Reason not recorded.')}</p>${changed ? `<h3>Original draft wording</h3><p>${esc(check.original_text)}</p>` : ''}${check.correction ? `<h3>Proposed correction</h3><p>${esc(check.correction)}</p>` : ""}${check.correction || check.source_meaning ? `<p class="hint">${check.correction_applied===true ? "Correction recorded as applied." : "Researcher wording retained; any correction above is a proposal."}</p>` : ""}<div class="source-actions">${sources || '<span class="hint">No source passage saved.</span>'}</div></details>`;
+    return `<details data-detail="source-check-${esc(c.id)}"><summary>Source check · ${esc(auditAssessmentLabel(check))}</summary><p class="hint">${esc(notice)}</p>${check.source_meaning!==c.text ? `<h3>What the source says</h3><p>${esc(check.source_meaning || 'Source meaning not recorded.')}</p>` : ''}<h3>Why this assessment?</h3><p>${esc(check.reason || 'Reason not recorded.')}</p>${changed ? `<h3>Original draft wording</h3><p>${esc(check.original_text)}</p>` : ''}${check.correction ? `<h3>Proposed correction</h3><p>${esc(check.correction)}</p>` : ""}${check.correction || check.source_meaning ? `<p class="hint">${check.correction_applied===true ? "Correction recorded as applied." : "Researcher wording retained; any correction above is a proposal."}</p>` : ""}${recorded}<div class="source-actions">${sources || '<span class="hint">No source passage saved.</span>'}</div></details>`;
   }
   function qaClaimOccurrence(g,c) {
     const records=(g?.claims || []).filter(x=>x.id===c.id);
@@ -3504,7 +3511,7 @@
     return `<h2 tabindex="-1">${esc(id)} · Ambiguous claim ID</h2><p role="alert">${records.length} recorded claims share this ID. ID-only links and audit judgments cannot identify one occurrence.</p>${records.map((c,i)=>`<section data-claim-occurrence="${esc(c.claim_occurrence || i+1)}">${claimRecordHtml(g,c,`<h3>Recorded claim ${esc(c.claim_occurrence || i+1)}</h3>`)}</section>`).join('')}`;
   }
   function claimRecordHtml(g,c,heading) {
-    return `${heading}${uncertaintyGauge(c)}${freshnessHtml(c,true)}<p class="finding-text">${esc(c.text)}</p>${qaProvenanceDetails(g,c)}${sourceCheckHtml(g,c)}<h3>Why this uncertainty?</h3><p>${esc(c.uncertainty_rationale || "Rationale not recorded.")}</p>${claimStudyResults(g,c).length ? `<h3>Study results</h3><div class="finding-links">${claimStudyResults(g,c).map(r=>studyResultButton(r.id,c.id)).join('')}</div>` : ''}<h3>Evidence packets</h3>${qaEvidencePackets(g,c.evidence_ids).map(packet => {
+    return `${heading}${uncertaintyGauge(c)}${freshnessHtml(c,true)}<p class="finding-text">${esc(c.text)}</p>${qaProvenanceDetails(g,c)}${sourceCheckHtml(g,c)}${uncertaintyReviewHtml(g,c)}<h3>Why this uncertainty?</h3><p>${esc(c.uncertainty_rationale || "Rationale not recorded.")}</p>${claimStudyResults(g,c).length ? `<h3>Study results</h3><div class="finding-links">${claimStudyResults(g,c).map(r=>studyResultButton(r.id,c.id)).join('')}</div>` : ''}<h3>Evidence packets</h3>${qaEvidencePackets(g,c.evidence_ids).map(packet => {
       const x = qaLinks(g,packet.id);
       return `<div class="inspector-quote">${qaEvidencePacketButton(packet)}<p class="hint">${esc(x.reference?.paper?.title || "Evidence")} · ${esc(x.reference?.paper?.year || "")} · ${x.passage ? (x.passage.kind === "abstract" ? "Abstract passage" : x.reference?.paper?.extra?.source_kind ? "Source record passage" : "Full paper passage") : packet.ambiguous ? "Ambiguous packet" : "No verbatim recorded"}</p></div>`;
     }).join("")}`;

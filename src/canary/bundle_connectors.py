@@ -7,6 +7,7 @@ from functools import lru_cache
 
 from . import research_bundle
 from .claim_freshness import unknown as unknown_freshness
+from .claim_uncertainty import review as uncertainty_review
 
 RESOLVENT_REVISION = '7d7e2da29b97814a70b42bd7bf442ee455b3da09'
 UNCERTAINTY_POLICY = ('Resolvent candidate uncertainty is at least medium because this adapter does not '
@@ -93,6 +94,22 @@ def resolvent(workspace):
             'source_ids': list(dict.fromkeys(links)), 'independent': False,
             'limitations': ['Source independence is not established by this adapter.',
                            'Recorded evidence relation: ' + item.get('relation', 'unknown')], 'premise_claim_ids': []})
+    audit_checks = {}
+    audit = payload.get('independent_audit')
+    checks = audit.get('claim_checks') if isinstance(audit, dict) else None
+    for check in checks if isinstance(checks, list) else []:
+        if isinstance(check, dict) and isinstance(check.get('claim_id'), str):
+            audit_checks.setdefault(check['claim_id'], []).append(check)
+    def reviewed_uncertainty(claim):
+        checks = audit_checks.get(claim['id'], [])
+        check = checks[0] if len(checks) == 1 else {}
+        reviewed = uncertainty_review(check, state=bundle['specification']['resolved'].get('research_state'),
+                                      evidence_ids=evidence_map)
+        if len(checks) > 1:
+            reviewed['reason'] = 'Multiple recorded audit checks share this claim ID; no single uncertainty recommendation can be assigned.'
+            reviewed['limitations'].append('Duplicate audit checks; inspect all rows in independent_audit before destination review.')
+        return dict(reviewed, evidence_ids=[evidence_map[e] for e in reviewed.get('evidence_ids', []) if e in evidence_map],
+                    original_evidence_ids=reviewed.get('evidence_ids', []), disposition='requires_destination_review')
     uncertainty = {'low': 'medium', 'moderate': 'medium', 'high': 'high'}
     for index, item in enumerate(payload.get('claims', []), 1):
         identifier = item['id']
@@ -127,7 +144,9 @@ def resolvent(workspace):
             'artifacts': [{'name': 'canary-bundle.json', 'content': json.dumps(bundle, ensure_ascii=False)},
                           {'name': 'canary-research.json', 'content': json.dumps(payload, ensure_ascii=False)}]},
         'sources': sources, 'evidence': evidence, 'claims': claims, 'connectors': [], 'questions': [],
-        'handoff': {'summary': 'Normalize this source contribution through Resolvent admission. Preserve provenance and retained residue.'
+        'handoff': {'summary': 'Normalize this source contribution through Resolvent admission. Preserve provenance and retained residue. '
+                    'Explicitly accept, override or defer each assessed claim_metadata.uncertainty_review with a reason; '
+                    'for a matched existing claim, use recorded reassessment. A recommendation is not an applied change.'
                     + (' Source kinds and provider metadata are retained in source locators and method_metadata.source_metadata. '
                        'Distinguish posted clinical results from registry plans; OSF study plans do not establish findings; '
                        'patent disclosures are not independent empirical validation. Related reports may share the same trial or patent family.'
@@ -139,7 +158,7 @@ def resolvent(workspace):
             'uncertainty_policy': UNCERTAINTY_POLICY,
             'destination_contract_revision': RESOLVENT_REVISION, 'id_map': id_map,
             'claim_metadata': {id_map['claims'][c['id']]: {'original_kind': c.get('kind'),
-                'uncertainty': c.get('uncertainty'), 'freshness': c.get('freshness') or unknown_freshness()} for c in payload.get('claims', [])},
+                'uncertainty': c.get('uncertainty'), 'uncertainty_review': reviewed_uncertainty(c), 'freshness': c.get('freshness') or unknown_freshness()} for c in payload.get('claims', [])},
             'evidence_relations': {evidence_map[e['id']]: e.get('relation') for e in payload.get('evidence', [])},
             **({'source_metadata': source_metadata} if source_metadata else {}),
             **({'paper_metadata': paper_metadata} if paper_metadata else {}),
