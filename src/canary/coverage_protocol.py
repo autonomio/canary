@@ -292,7 +292,7 @@ This is correction round {round_index}. Read rounds/{round_index:03d}/correction
 Re-read the original sources using {command} source WORK_ID --match REGEX --context 3 --limit 10. Never fabricate missing scope.
 Respond to every flagged claim with revise, withdraw or dispute and a source-based reason. Disputes must cite original passage IDs.
 Return JSON matching the correction schema: responses plus the complete proposed investigation. Do not overwrite investigation.json or any original source, review, plan or prior round.
-For revise, name every replacement claim ID, including the original ID if it remains. Split compound claims into individually scoped replacements with explicit lineage.
+For revise, name every replacement claim ID, including the original ID if it remains. Split compound claims into individually scoped replacements with explicit lineage. Each replacement has exactly one parent: never list the same replacement under two responses or reuse another original claim ID.
 For withdraw, remove the claim and leave replacement_claim_ids empty; preserve the relevant gap/residue with honest limitations.
 For dispute, preserve the claim exactly, leave replacement_claim_ids empty and cite passages supporting the dispute. A fresh independent audit decides.
 Keep unchanged claims intact. Any other changed/removed claim also needs an explicit response. New claims need a revision parent.

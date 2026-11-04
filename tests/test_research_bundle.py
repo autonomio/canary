@@ -40,7 +40,7 @@ def seed(workspace):
            'evidence_ids':['E1'],'study_result_ids':[]}
     evidence={'id':'E1','passage_ids':[passage['id']],'interpretation':'Synthetic reading.','relation':'qualifies'}
     raw={'executive_summary':[{'text':'Synthetic summary.','claim_ids':['C1']}], 'claims':[claim], 'evidence':[evidence],
-        'study_results':[], 'contradictions':[],
+        'study_results':[], 'claim_links':[], 'clarification':None, 'contradictions':[],
         'gaps':[{'id':'G1','kind':'missing_data','description':'Synthetic missing comparator.','basis':'Scoped fixture.',
                  'claim_ids':['C1'],'evidence_ids':['E1'],'needed_to_resolve':'A comparator.'}],
         'residue':[{'id':'R1','observation':'A detail worth keeping.','basis':'Scoped fixture.',
