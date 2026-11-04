@@ -109,14 +109,18 @@ def resolvent(workspace):
     for check in checks if isinstance(checks, list) else []:
         if isinstance(check, dict) and isinstance(check.get('claim_id'), str):
             audit_checks.setdefault(check['claim_id'], []).append(check)
+    withheld_evidence = {e['id'] for e in payload.get('withheld_evidence', [])}
     def reviewed_uncertainty(claim):
         checks = audit_checks.get(claim['id'], [])
         check = checks[0] if len(checks) == 1 else {}
+        # Evidence withheld with other claims remains this run's audited basis for the recommendation.
         reviewed = uncertainty_review(check, state=bundle['specification']['resolved'].get('research_state'),
-                                      evidence_ids=evidence_map)
+                                      evidence_ids=evidence_map.keys() | withheld_evidence)
         if len(checks) > 1:
             reviewed['reason'] = 'Multiple recorded audit checks share this claim ID; no single uncertainty recommendation can be assigned.'
             reviewed['limitations'].append('Duplicate audit checks; inspect all rows in independent_audit before destination review.')
+        if withheld_evidence & set(reviewed.get('evidence_ids', [])):
+            reviewed['limitations'].append('Recommendation also cites evidence withheld from active output; see method_metadata.withheld_evidence.')
         return dict(reviewed, evidence_ids=[evidence_map[e] for e in reviewed.get('evidence_ids', []) if e in evidence_map],
                     original_evidence_ids=reviewed.get('evidence_ids', []), disposition='requires_destination_review')
     uncertainty = {'low': 'medium', 'moderate': 'medium', 'high': 'high'}
@@ -241,6 +245,7 @@ def verified_export(result, payload):
             for r in payload.get('study_results', [])],
         contradictions=[linked(r) for r in payload.get('contradictions', [])],
         withheld_claims=payload.get('withheld_claims', []), withheld_evidence=payload.get('withheld_evidence', []),
+        withheld_study_results=payload.get('withheld_study_results', []),
         claim_revisions=payload.get('claim_revisions', []), history_manifest=payload.get('history_manifest', []),
         verification={k: v for k, v in payload['verification'].items() if k != 'audit_basis'})
     result['connectors'] = connectors
@@ -248,6 +253,19 @@ def verified_export(result, payload):
         and not line.startswith('Candidate claim classes require Resolvent admission;')]
     result['result']['limitations'].extend([VERIFIED_UNCERTAINTY_POLICY,
         'Observed facts are source-attributed reported findings, bounded by the stated study and audit scope; they are not universal truths. Resolvent still owns admission.'])
+    verification = payload['verification']
+    result['result']['limitations'].extend(
+        ['Run-level audit finding (material; names no current claim, so no claim was withheld for it): ' + str(f.get('description', ''))
+         for f in verification.get('run_findings', [])]
+        + (['Verification stopped: ' + str(verification['failure']) + '. Every claim was withheld; working sources are kept.']
+           if verification.get('failure') else [])
+        + ([] if verification.get('audit_complete') else
+           ['The final independent audit did not cover its full declared scope; see method_metadata.independent_audit.']))
+    result['result']['limitations'] = list(dict.fromkeys(result['result']['limitations']))
+    if not result['claims'] and payload.get('withheld_claims'):
+        statuses = [r.get('status') for r in payload['withheld_claims']]
+        result['handoff']['no_claims_reason'] = (f"No claim passed verification: {statuses.count('withheld')} withheld, "
+            f"{statuses.count('withdrawn')} withdrawn. Reasons are in method_metadata.withheld_claims.")
     return result
 
 

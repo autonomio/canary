@@ -102,6 +102,7 @@ def schemas():
         'history_manifest':arr(ref('RevisionDigest')),'claim_links':arr(ref('ClaimLink')),
         'verification_progress':nullable(obj({'phase':S,'round':I})),
         'verification':ref('VerificationSummary'),'withheld_claims':arr(ref('WithheldClaim')),'claim_revisions':arr(ref('ClaimRevision')),
+        'withheld_evidence':dict(arr(O),description='Evidence records used only by withheld or withdrawn claims; excluded from active evidence.'),
         'claim_review_checks':arr(ref('ClaimReviewCheck')),
         'source_checks':arr(ref('RecordedSourceCheck')), 'evidence_independence':arr(ref('EvidenceIndependence'))},closed=False)
     research = obj({'kind':S,'answer':ref('Findings'),'run':O,'peer_review':O,'query_net':O,
@@ -174,9 +175,16 @@ def schemas():
         'RevisionDigest':obj({'round':I,'kind':{'enum':['research','audit','correction']},'sha256':S}, ['round','kind','sha256']),
         'RevisionArtifact':obj({'round':I,'kind':{'enum':['research','audit','correction']},'sha256':S,'content':S}, ['round','kind','sha256','content']),
         'CorrectionResponse':corrections.schema(),
-        'VerificationSummary':obj({'version':I,'candidate_claims':I,'supported_claims':I,'withheld_claims':I,
+        'VerificationSummary':obj({'version':I,'projection_version':dict(I,description='Active-graph rule the payload was '
+                'finalized with. 2 also moves evidence and study results used only by withheld or withdrawn claims to '
+                'withheld records; absent means rule 1, which payloads finalized earlier keep.'),
+            'candidate_claims':I,'supported_claims':I,'withheld_claims':I,
             'withheld_share':{'type':'number','minimum':0,'maximum':1},'correction_rounds':I,
-            'audit_complete':B,'failure':nullable(S),'run_issues':arr(S)}),
+            'audit_complete':B,'failure':nullable(S),'run_issues':arr(S),
+            'run_findings':dict(arr(obj({'id':S,'severity':S,'description':S,'claim_ids':arr(S),
+                'reference_ids':arr(S),'passage_ids':arr(S)},['severity','description'],closed=False)),
+                description='Material audit findings that name no current claim. They are disclosed for the run, '
+                    'leave its status partial and withhold no claim; each claim keeps its own source check.')}),
         'WithheldClaim':obj({'evidence':arr(O),'claim':ref('RecordedClaim'),'status':S,'reason':S,'final_check':O}, ['claim','status','reason'],closed=False),
         'ClaimRevision':obj({'round':I,'kind':{'enum':['research','audit','correction']},
             'investigation':O,'payload':O,'audit':O,'responses':arr(O),'receipt':O,

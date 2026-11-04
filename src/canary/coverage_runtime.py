@@ -777,7 +777,10 @@ def bind_payload(workspace, *, investigation=None):
     for kind, rows, indexed in (("claim", raw.get("claims", []), claims), ("evidence", raw.get("evidence", []), evidence), ("result", raw.get("study_results", []), results)):
         if len(rows) != len(indexed):
             issues.append("Duplicate " + kind + " ID")
+    # A claim's own record failures withhold that claim only; shared failures withhold every claim.
+    claim_issues, scoped = {}, set()
     for claim in raw.get("claims", []):
+        start = len(issues)
         require(claim.get("evidence_ids", []), evidence, "evidence", claim["id"])
         require(claim.get("study_result_ids", []), results, "result", claim["id"])
         if not claim.get("evidence_ids"):
@@ -788,6 +791,8 @@ def bind_payload(workspace, *, investigation=None):
         uncertainty = claim.get("uncertainty", {})
         if {"low": 1, "moderate": 2, "high": 3}.get(uncertainty.get("class")) != uncertainty.get("score"):
             issues.append("Uncertainty class/score mismatch: " + claim["id"])
+        scoped.update(range(start, len(issues)))
+        claim_issues.setdefault(claim["id"], []).extend(issues[start:])
     for summary in raw.get("executive_summary", []):
         require(summary.get("claim_ids", []), claims, "claim", "executive_summary")
         if not summary.get("claim_ids"):
@@ -828,7 +833,7 @@ def bind_payload(workspace, *, investigation=None):
     for question in raw.get("next_questions", []):
         require(question.get("gap_ids", []), {r["id"] for r in raw.get("gaps", [])}, "gap", question["id"])
         require(question.get("residue_ids", []), {r["id"] for r in raw.get("residue", [])}, "residue", question["id"])
-    claim_blocking_issues = list(issues)
+    claim_blocking_issues = [issue for index, issue in enumerate(issues) if index not in scoped]
     reviews = read(workspace / "reviewed-papers.json", [])
     selected = set(read(workspace / "selection.json", {}).get("selected_for_review_ids", []))
     admitted, additional_admitted, seen_publications, seen_bodies = [], [], set(), set()
@@ -874,12 +879,15 @@ def bind_payload(workspace, *, investigation=None):
         accounting['additional_documents_reviewed'] = len(additional_admitted)
     from .claim_checks import check as check_claims
     payload["claim_review_checks"] = check_claims(payload)
-    structural_issues = [", ".join(record["claim_ids"]) + ": " + record["message"]
-        for record in payload["claim_review_checks"] if record["blocking"]]
-    issues.extend(structural_issues)
-    claim_blocking_issues.extend(structural_issues)
+    for record in payload["claim_review_checks"]:
+        if record["blocking"]:
+            issue = ", ".join(record["claim_ids"]) + ": " + record["message"]
+            issues.append(issue)
+            for identifier in record["claim_ids"]:
+                claim_issues.setdefault(identifier, []).append(issue)
     mechanical = {"at": now(), "pass": not issues, "issues": issues,
                   "claim_blocking_issues": claim_blocking_issues,
+                  "claim_issues": {identifier: found for identifier, found in claim_issues.items() if found},
                   "scope": "Identity/span/hash/graph/record checks; does not certify scientific interpretation, relevance or population coverage."}
     payload["raw_investigation_sha256"] = hashlib.sha256((workspace / "investigation.json").read_bytes()).hexdigest()
     payload["mechanical_audit"] = mechanical
@@ -1191,6 +1199,11 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
             raise RuntimeError("Research session failed to produce structured final research; partial files and receipts are preserved" + detail)
         if exit_code and role in ("research", "correction"):
             raise RuntimeError("Research session failed; existing partial investigation remains available" + detail)
+        if role == "audit" and (exit_code or timed_out or not output_path.exists()):
+            # Partial verdicts are preserved for inspection; none is accepted as an audit.
+            ended = ("stopped at its time budget" if timed_out else f"exited with code {exit_code}" if exit_code
+                     else "ended without a final structured response")
+            raise RuntimeError("Audit session " + ended + "; its intermediate audit is preserved and no verdict was accepted" + detail)
         refresh_committed_progress(workspace, profile_role, model, effort, thread_id, started, receipt["seconds"], finished=True,
             codex_home=session.home, execution=invocation, progress_state=progress_state, previous_usage=previous_usage)
         return result, receipt
@@ -1274,7 +1287,9 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
         write(workspace / "payload.json", payload)
         target = "met" if payload["accounting"]["minimum_met"] else (
             "scarcity_reported_not_certified" if payload["accounting"]["scarcity_statement"] else "unmet")
-        manifest.update(status="partial" if target == "unmet" or payload["verification"].get("failure") else "complete", minimum_target_status=target,
+        # A material run-level audit finding keeps supported claims but leaves the run partial.
+        manifest.update(status="partial" if target == "unmet" or payload["verification"].get("failure")
+                        or payload["verification"].get("run_findings") else "complete", minimum_target_status=target,
                         audit_complete=audit.get("audit_complete", False), answered=bool(payload.get("claims")),
                         scientific_acceptance="See individual independent claim checks and audit limitations")
     except Exception as error:

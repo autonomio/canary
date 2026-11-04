@@ -9,6 +9,9 @@ import jsonschema
 from . import audit_validation, coverage_protocol as protocol
 
 VERSION = 1
+# Active-graph projection rule. Rule 2 also moves evidence and study results that only withheld or
+# withdrawn claims use to withheld records; payloads finalized earlier keep their recorded rule 1.
+PROJECTION = 2
 
 
 def schema():
@@ -19,15 +22,63 @@ def schema():
 
 
 def blocking_issues(payload):
+    """Mechanical failures shared by every claim, such as source hash or graph defects."""
     mechanical = payload.get("mechanical_audit") or {}
     return mechanical.get("claim_blocking_issues", mechanical.get("issues", ["Source binding was not checked"])
         if mechanical.get("pass") is not True else [])
 
 
-def projected_evidence(payload, active):
-    rows = payload.get("evidence", [])
+def claim_issues(payload):
+    """Record failures of one claim, by claim ID; each withholds only its own claim."""
+    mechanical = payload.get("mechanical_audit") or {}
+    return {} if mechanical.get("pass") is True else mechanical.get("claim_issues") or {}
+
+
+def run_findings(payload, audit):
+    """Material findings naming no current or audited claim: disclosed for the run, never a claim verdict."""
+    # A stopped later audit leaves an earlier audit final; claims it checked were since corrected, not unknown.
+    known = {c['id'] for c in payload.get('claims', [])} | {c.get('claim_id') for c in audit.get('claim_checks', [])}
+    return [deepcopy(f) for f in audit.get('findings', [])
+            if f.get('severity') == 'material' and not set(f.get('claim_ids') or []) & known]
+
+
+def withheld_only(payload, active, withdrawn=()):
+    """Evidence and study-result IDs that only withheld or withdrawn claims, or their dropped links, use."""
+    active = set(active)
+    claims = payload.get('claims') or []
+    links = payload.get('claim_links') or []
+    retired = [c for c in claims if c['id'] not in active] + [r['claim'] for r in withdrawn]
+    def kept(link):
+        return {link.get('from_claim_id'), link.get('to_claim_id')} <= active
+    # Contradiction, gap and residue records keep their evidence while they name an active claim or no claim.
+    records = [r for name in ('contradictions', 'gaps', 'residue') for r in payload.get(name) or []]
+    def live(record):
+        return not record.get('claim_ids') or bool(set(record['claim_ids']) & active)
+    used = {e for c in claims if c['id'] in active for e in c.get('evidence_ids', [])}
+    used.update(e for r in links if kept(r) for e in r.get('evidence_ids', []))
+    used.update(e for r in records if live(r) for e in r.get('evidence_ids', []))
+    hidden = {e for c in retired for e in c.get('evidence_ids', [])}
+    hidden.update(e for r in links if not kept(r) for e in r.get('evidence_ids', []))
+    hidden.update(e for r in records if not live(r) for e in r.get('evidence_ids', []))
+    results = {s for c in claims if c['id'] in active for s in c.get('study_result_ids', [])}
+    return hidden - used, {s for c in retired for s in c.get('study_result_ids', [])} - results
+
+
+def projection(payload):
+    return payload.get('verification', {}).get('projection_version', 1)
+
+
+def projected_evidence(payload, active, withdrawn=(), rule=PROJECTION):
+    rows = payload.get("evidence") or []
     counts = Counter(e["id"] for e in rows)
-    return [e for e in rows if counts[e["id"]] == 1 and set(e.get("premise_claim_ids", [])) <= active]
+    hidden = withheld_only(payload, active, withdrawn)[0] if rule >= 2 else set()
+    return [e for e in rows if counts[e["id"]] == 1 and set(e.get("premise_claim_ids", [])) <= active
+            and e["id"] not in hidden]
+
+
+def projected_results(payload, active, withdrawn=()):
+    _, hidden = withheld_only(payload, active, withdrawn)
+    return [r for r in payload.get('study_results') or [] if r['id'] not in hidden]
 
 
 def targets(payload, audit):
@@ -36,12 +87,13 @@ def targets(payload, audit):
     selected.update(known - {c['claim_id'] for c in audit.get('claim_checks', [])})
     for finding in audit.get('findings', []):
         if finding.get('severity') == 'material':
-            identifiers = set(finding.get('claim_ids', []))
-            selected.update(identifiers if identifiers and identifiers <= known else known)
+            # Unknown or absent IDs never widen a finding to every claim; see run_findings.
+            selected.update(set(finding.get('claim_ids') or []) & known)
     invalid_evidence = {e['evidence_id'] for e in audit.get('evidence_checks', []) if e.get('validation_issue')}
     selected.update(c['id'] for c in payload.get('claims', []) if invalid_evidence & set(c.get('evidence_ids', [])))
     if blocking_issues(payload):
         selected.update(known)
+    selected.update(identifier for identifier, issues in claim_issues(payload).items() if issues)
     selected.update(i for r in (payload.get('claim_review_checks') or []) if r.get('blocking') for i in r['claim_ids'])
     return [c['id'] for c in payload.get('claims', []) if c['id'] in selected]
 
@@ -74,6 +126,7 @@ def apply(payload, audit, response):
                 raise ValueError('Withdrawn claim cannot remain active or name replacements')
             withdrawn.append({'claim': deepcopy(old[identifier]), 'reason': record['reason'], 'status': 'withdrawn',
                 'evidence': [deepcopy(e) for e in payload.get('evidence', []) if e['id'] in old[identifier].get('evidence_ids', [])],
+                'study_results': [deepcopy(r) for r in payload.get('study_results', []) if r['id'] in old[identifier].get('study_result_ids', [])],
                 'final_check': next((deepcopy(c) for c in audit.get('claim_checks', []) if c['claim_id'] == identifier), {})})
         elif record['action'] == 'dispute':
             if replacements or new.get(identifier) != old[identifier] or not record['passage_ids']:
@@ -101,6 +154,7 @@ def finalize(payload, audit, history, withdrawn=(), *, failure=None):
     flagged = set(targets(payload, audit))
     accepted, withheld = [], deepcopy(list(withdrawn))
     mechanical_issues = blocking_issues(payload)
+    scoped_issues = claim_issues(payload)
     eligible_ids = {c['id'] for c in payload.get('claims', []) if not failure and not mechanical_issues
         and c['id'] not in flagged and checks.get(c['id'], {}).get('assessment') == 'supported'
         and audit_validation.current(payload, c, checks[c['id']])}
@@ -126,29 +180,37 @@ def finalize(payload, audit, history, withdrawn=(), *, failure=None):
             accepted.append(deepcopy(claim))
         else:
             material = [f.get('description', '') for f in audit.get('findings', []) if f.get('severity') == 'material'
-                and (not f.get('claim_ids') or claim['id'] in f['claim_ids'] or not set(f['claim_ids']) <= {c['id'] for c in payload.get('claims', [])})]
+                and claim['id'] in (f.get('claim_ids') or [])]
             reason = (failure or ('Source binding checks failed: ' + '; '.join(mechanical_issues) if mechanical_issues else None)
+                or ('Claim record checks failed: ' + '; '.join(scoped_issues[claim['id']]) if scoped_issues.get(claim['id']) else None)
                 or ('Material finding remains: ' + '; '.join(material) if material else None)
                 or ('Depends on withheld or unknown premise claims: ' + ', '.join(sorted(dependencies[claim['id']] - eligible_ids)) if dependencies[claim['id']] - eligible_ids else None)
                 or (check.get('reason') if check.get('assessment') != 'supported' else None)
                 or 'The audit has incomplete evidence assessments or a stale verdict')
             withheld.append({'claim': deepcopy(claim), 'status': 'withheld',
                 'reason': reason, 'final_check': deepcopy(check),
-                'evidence': [deepcopy(e) for e in payload.get('evidence', []) if e['id'] in claim.get('evidence_ids', [])]})
+                'evidence': [deepcopy(e) for e in payload.get('evidence', []) if e['id'] in claim.get('evidence_ids', [])],
+                'study_results': [deepcopy(r) for r in payload.get('study_results', []) if r['id'] in claim.get('study_result_ids', [])]})
     active = {c['id'] for c in accepted}
+    scoped = {issue for issues in scoped_issues.values() for issue in issues}
     # Entire shared snapshots were audited. Keep the basis for verifiable hashes after filtering.
     final = deepcopy(payload)
     final.update(claims=accepted, withheld_claims=withheld, claim_revisions=deepcopy(history),
-        independent_audit=deepcopy(audit), verification={'version': VERSION,
+        independent_audit=deepcopy(audit), verification={'version': VERSION, 'projection_version': PROJECTION,
             'audit_basis': {k: original.get(k) for k in audit_validation.SNAPSHOT_FIELDS},
             'candidate_claims': len(payload.get('claims', [])) + len(withdrawn),
             'supported_claims': len(accepted), 'withheld_claims': len(withheld),
             'withheld_share': len(withheld)/(len(accepted)+len(withheld)) if accepted or withheld else 0,
             'correction_rounds': sum(h.get('kind') == 'correction' for h in history),
             'audit_complete': audit.get('audit_complete', False), 'failure': failure,
-            'run_issues': [issue for issue in (payload.get('mechanical_audit') or {}).get('issues', []) if issue not in mechanical_issues]})
-    final['evidence'] = projected_evidence(payload, active)
+            'run_issues': [issue for issue in (payload.get('mechanical_audit') or {}).get('issues', [])
+                           if issue not in mechanical_issues and issue not in scoped],
+            'run_findings': run_findings(payload, audit)})
+    # Evidence and study results used only by withheld or withdrawn claims leave the active graph.
+    final['evidence'] = projected_evidence(payload, active, withdrawn)
     final['withheld_evidence'] = [e for e in payload.get('evidence', []) if e not in final['evidence']]
+    final['study_results'] = projected_results(payload, active, withdrawn)
+    final['withheld_study_results'] = [r for r in payload.get('study_results', []) if r not in final['study_results']]
     active_evidence = {e['id'] for e in final['evidence']}
     final['executive_summary'] = [s for s in final.get('executive_summary', [])
         if s.get('claim_ids') and set(s['claim_ids']) <= active]
@@ -181,6 +243,8 @@ def audit_basis(payload):
     active = {c['id']: c for c in payload.get('claims', [])}
     known = {c['id'] for c in basis.get('claims', [])}
     withheld = {r['claim']['id'] for r in payload.get('withheld_claims', [])}
+    withdrawn = [r for r in payload.get('withheld_claims', []) if r.get('status') == 'withdrawn']
+    rule = projection(payload)
     current['claims'] = [active.get(c['id'], c) for c in basis.get('claims', [])]
     current['claims'].extend(c for identifier, c in active.items() if identifier not in known)
     if known - active.keys() - withheld:
@@ -190,7 +254,9 @@ def audit_basis(payload):
             continue
         expected = deepcopy(basis.get(field))
         if field == 'evidence':
-            expected = projected_evidence(basis, active.keys())
+            expected = projected_evidence(basis, active.keys(), withdrawn, rule)
+        elif field == 'study_results' and rule >= 2:
+            expected = projected_results(basis, active.keys(), withdrawn)
         elif field in ('contradictions', 'gaps', 'residue') and isinstance(expected, list):
             for record in expected:
                 removed = [i for i in record.get('claim_ids', []) if i not in active]
@@ -237,6 +303,10 @@ def verify_final(payload):
             raise ValueError('Empirical claim has no linked study result: ' + claim['id'])
     if any(not set(e.get('premise_claim_ids', [])) <= active for e in evidence.values()):
         raise ValueError('Active evidence refers to a withheld premise')
+    hidden_evidence, hidden_results = withheld_only(basis, active,
+        [r for r in payload.get('withheld_claims', []) if r.get('status') == 'withdrawn'])
+    if projection(payload) >= 2 and (hidden_evidence & evidence.keys() or hidden_results & results):
+        raise ValueError('Active output keeps evidence or study results used only by withheld claims')
     for link in payload.get('claim_links', []):
         if not jsonschema.Draft202012Validator(protocol.investigation_schema()['properties']['claim_links']['items']).is_valid(link):
             raise ValueError('Claim link lacks its typed scientific basis')

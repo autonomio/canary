@@ -209,6 +209,10 @@ def render_markdown(graph: dict):
     if verification.get("version"):
         lines.extend([f"Verification: {verification['supported_claims']} supported claims; {verification['withheld_claims']} withheld "
             f"({verification['withheld_share']:.0%}); {verification['correction_rounds']} correction rounds.", ""])
+        if verification.get("failure"):
+            lines.extend(["Verification stopped: " + str(verification["failure"]), ""])
+        for finding in _rows(verification.get("run_findings")):
+            lines.extend(["Run-level audit finding (material; names no current claim): " + str(finding.get("description", "")), ""])
     for summary_index, summary in enumerate(graph.get("executive_summary", []), 1):
         if isinstance(summary, str):
             lines.extend([summary, ""])
@@ -686,6 +690,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                 validation_issue="Scientific inputs changed since the independence assessment")
                 for check in audit_case.get("evidence_checks", [])]
     used_passages.update(p["id"] for r in payload.get("withheld_claims", []) for e in r.get("evidence", []) for p in e.get("verbatims", []))
+    used_passages.update(p["id"] for e in _rows(payload.get("withheld_evidence")) for p in e.get("verbatims", []))
     used_passages.update(p for c in audit_case.get("evidence_checks", []) for p in c.get("passage_ids", []))
     used_passages.update(p for f in audit_case.get("findings", []) for p in f.get("passage_ids", []))
     check_rows = _rows(audit_case.get("claim_checks"))
@@ -697,7 +702,9 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         graph["binding_issues"].append({"kind": "duplicate_audit_check", "claim_id": identifier,
                                        "record_count": check_counts[identifier], "reason": duplicate_reason})
     prior_state = _load(bundle / "research-state.json", _load(source / "research-state.json", None))
-    evidence_ids = [e.get("id") for e in _rows(investigation.get("evidence"))]
+    # Evidence withheld with other claims stays a valid, disclosed basis for an active claim's recommendation.
+    withheld_evidence_ids = {e.get("id") for e in _rows(payload.get("withheld_evidence"))}
+    evidence_ids = [e.get("id") for e in _rows(investigation.get("evidence"))] + sorted(withheld_evidence_ids, key=str)
     recorded_status = run.get("status", "in_progress")
     lifecycle = run.get("runtime_status", recorded_status) if recorded_status in ("in_progress", "answered") else recorded_status
     # A stopped run without a recorded audit will not receive one.
@@ -716,13 +723,19 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         normalized = {"correction_needed": "correction_needed", "partly_supported": "unresolved"}.get(assessment, assessment)
         ids = _unique(check.get("passage_ids", check.get("paragraph_ids", [])))
         used_passages.update(ids)
+        recommendation = uncertainty_review(check, state=prior_state, evidence_ids=evidence_ids)
+        withheld = [e for e in recommendation["evidence_ids"] if e in withheld_evidence_ids]
+        if withheld:
+            recommendation["withheld_evidence_ids"] = withheld
+            recommendation["limitations"].append("Recommendation also cites evidence withheld from active output: "
+                                                 + ", ".join(withheld) + ". It is retained in withheld_evidence.")
         bound_check = dict(check, claim_id=claim["id"], assessment=normalized,
                            raw_assessment=assessment, paragraph_ids=ids,
                            reason=("Duplicate claim ID; the ID-only audit record cannot be assigned to this occurrence."
                                    if ambiguous else check.get("reason", unaudited_reason if not audit else "Not checked in the recorded audit scope.")),
                            correction_applied=any(r.get("action") == "revise" and claim["id"] in r.get("replacement_claim_ids", [])
                                for h in payload.get("claim_revisions", []) for r in h.get("responses", [])),
-                           uncertainty_review=uncertainty_review(check, state=prior_state, evidence_ids=evidence_ids))
+                           uncertainty_review=recommendation)
         if recorded_checks:
             bound_check["recorded_checks"] = recorded_checks
         if ambiguous:
@@ -870,10 +883,14 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     graph["claim_links"] = payload.get("claim_links", [])
     graph["verification"] = {k: v for k, v in payload.get("verification", {}).items() if k != "audit_basis"}
     graph["withheld_claims"] = payload.get("withheld_claims", [])
+    graph["withheld_evidence"] = payload.get("withheld_evidence", [])
     graph["claim_revisions"] = payload.get("claim_revisions", [])
     graph["claim_review_checks"] = payload.get("claim_review_checks", [])
     graph["evidence_independence"] = audit_case.get("evidence_checks", [])
-    graph["audit"] = {"status": unaudited if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids and not duplicate_check_ids else "partial",
+    # An audit session that ran and stopped is reported as such, never as not run.
+    latest_audit = next((r for r in reversed(_rows(payload.get("claim_revisions"))) if r.get("kind") == "audit"), {})
+    stopped_audit = latest_audit.get("status") if latest_audit.get("status") in ("failed", "cancelled") else None
+    graph["audit"] = {"status": stopped_audit or (unaudited if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids and not duplicate_check_ids else "partial"),
                        "standard_version": audit_case.get("standard_version"), "validation_issues": audit_case.get("validation_issues", []),
                        "model": audit_model, "reasoning_effort": audit_effort,
                        "checked_claims": sum(check.get("assessment") != "not_checked" for check in (audit_case.get("claim_checks", []) if payload.get("verification") else graph["source_checks"])),
