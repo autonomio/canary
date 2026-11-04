@@ -65,7 +65,7 @@ def schemas():
         'audit':obj({'model':fixed(protocol.AUDIT_MODEL),'effort':fixed(protocol.AUDIT_EFFORT),
                      'budget_seconds':{'type':'null','default':None,'description':'Audits have no duration limit.'}}),
         'retrieval':retrieval,
-        'research_state':nullable(dict(O,description='Supplied current research state, at most 1 MiB. Preserved as untrusted background, including paper references and review records.')),
+        'research_state':nullable(dict(O,description='Supplied current research state, at most 10 MiB. Preserved as untrusted background, including paper references and review records.')),
         'continue_research':dict(B,default=False,description='Continue from supplied research_state; avoid reselecting previously reviewed publications. Existing paper target and scientific workflow are unchanged.'),
         'subagents':{'type':'boolean','const':False}}, ['question'])
     native = obj({'yaml':dict(S,minLength=1),'spec':ref('ResearchDeclaration'),'name':S,'brief':S})

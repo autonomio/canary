@@ -1338,7 +1338,8 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = 0
-        limit = 4 * 1024 * 1024 if urlparse(self.path).path in ("/api/runs", "/api/runs/compile") else MAX_BODY
+        from .research_state import MAX_STATE_BYTES
+        limit = 4 * MAX_STATE_BYTES if urlparse(self.path).path in ("/api/runs", "/api/runs/compile") else MAX_BODY
         if length <= 0 or length > limit:
             return {}
         try:
