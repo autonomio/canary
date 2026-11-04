@@ -40,22 +40,12 @@ def payload(contribution):
 
 
 def manifest(workspace):
-    from .research_spec import digest
+    from .research_spec import verify_recorded
     result = read(workspace)
     decoded = bundle_encoding.expand(result)
     value = json.loads(next(a['content'] for a in decoded['result']['artifacts']
                             if a['name'] == 'canary-bundle.json'))
-    # Reading history validates its recorded identity, not today's runnable profile.
-    spec = value.get('specification')
-    if (not isinstance(spec, dict) or spec.get('compiler_version') != 1
-            or not isinstance(spec.get('source_yaml'), str) or not isinstance(spec.get('resolved'), dict)
-            or digest(spec['resolved']) != spec.get('spec_sha256')):
-        raise ValueError('Retained bundle specification digest is invalid')
-    recorded = {entry['path']: entry['sha256'] for entry in value['artifacts']}
-    inputs = {'research.yaml': spec['source_yaml'],
-              'run-spec.json': json.dumps(spec['resolved'], ensure_ascii=False, indent=2) + '\n'}
-    if any(recorded.get(name) != hashlib.sha256(body.encode()).hexdigest() for name, body in inputs.items()):
-        raise ValueError('Retained bundle inputs disagree with their recorded hashes')
+    verify_recorded(value['specification'])
     value['artifacts'] = [{'path': NAME, 'bytes': (Path(workspace) / NAME).stat().st_size,
                           'sha256': (Path(workspace) / CHECKSUM).read_text().strip()}]
     value['retention'] = result['method_metadata']['retention']

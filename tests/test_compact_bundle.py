@@ -239,19 +239,24 @@ def test_open_original_stream_survives_release_before_http_headers(api,tmp_path,
     assert client.get('/api/runs/file-race/sources/W1/file').status_code==404
 
 
-def test_historical_astra_bundle_is_readable_but_cannot_execute_old_settings(tmp_path):
+@pytest.mark.parametrize('newline', ['\n', '\r\n'])
+def test_historical_astra_bundle_is_readable_but_cannot_execute_old_settings(tmp_path, newline):
     from canary import research_spec
     prepared(tmp_path)
     spec=json.loads((tmp_path/'run-spec.json').read_text())
     spec['audit']={'model':'gpt-6-astra','effort':'ultra','budget_seconds':600}
-    (tmp_path/'research.yaml').write_text(json.dumps(spec))
+    (tmp_path/'research.yaml').write_text(json.dumps(spec,indent=2).replace('\n',newline))
     research_bundle.write_json(tmp_path/'run-spec.json',spec)
     report=json.loads((tmp_path/'compile-report.json').read_text())
     report['spec_sha256']=research_spec.digest(spec)
     research_bundle.write_json(tmp_path/'compile-report.json',report)
     research_bundle.seal(tmp_path)
     compact_bundle.retain(tmp_path)
-    recorded=research_bundle.read(tmp_path)['specification']
+    historical=research_bundle.read(tmp_path)
+    from canary import api_contract
+    jsonschema.validate(historical,{'$ref':'#/components/schemas/BundleManifest',
+        'components':{'schemas':api_contract.schemas()}})
+    recorded=historical['specification']
     assert recorded['resolved']['audit']==spec['audit']
     with pytest.raises(research_spec.CompileError):research_spec.verify_compiled(recorded)
 
@@ -263,4 +268,4 @@ def test_historical_astra_bundle_is_readable_but_cannot_execute_old_settings(tmp
     body=(bundle_encoding.dumps(bundle_encoding.encode(contribution))+'\n').encode()
     (tmp_path/compact_bundle.NAME).write_bytes(body)
     (tmp_path/compact_bundle.CHECKSUM).write_text(hashlib.sha256(body).hexdigest()+'\n')
-    with pytest.raises(ValueError,match='recorded hashes'):research_bundle.read(tmp_path)
+    with pytest.raises(ValueError,match='disagrees with resolved settings'):research_bundle.read(tmp_path)

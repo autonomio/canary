@@ -33,7 +33,7 @@ from . import runs
 from .codex_auth import AuthError, CodexAuth
 from . import bundle_connectors
 from . import research_bundle as bundle_store
-from .research_spec import CompileError, compile_research, compile_mapping, verify_compiled
+from .research_spec import CompileError, compile_research, compile_mapping, verify_compiled, verify_recorded
 from .runtime_paths import resource_root
 from . import processes
 
@@ -1432,7 +1432,7 @@ class Handler(BaseHTTPRequestHandler):
                     try:
                         bundle = bundle_store.read(row['bundle'])
                         if bundle['state'] == 'legacy_unversioned' and row.get('run_spec_path'):
-                            packet = verify_compiled(json.loads(Path(row['run_spec_path']).read_text()))
+                            packet = verify_recorded(json.loads(Path(row['run_spec_path']).read_text()))
                             bundle.update(state='staged', specification=packet,
                                           limitations=['No versioned manifest is available; showing the stored compiled input.'])
                     except (ValueError, OSError, KeyError, TypeError) as error:

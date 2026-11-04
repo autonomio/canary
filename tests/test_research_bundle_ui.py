@@ -55,3 +55,17 @@ d.answer.audit={};
 assert.match(coverageAuditHtml(d),/Model not recorded/);
 assert.doesNotMatch(coverageAuditHtml(d),/gpt-6.1-sol|gpt-6-astra/);
 ''')
+
+
+def test_source_check_does_not_attribute_an_unknown_auditor_to_the_writer(tmp_path):
+    run_dashboard(tmp_path, {}, r'''
+const claim={id:'C1',text:'Recorded claim.'};
+const g={model:'writer-only-model',claims:[claim],source_check_method:'independent_full_paper_audit',source_check_model:null,source_checks:[{claim_id:'C1',assessment:'supported',reason:'Recorded assessment.'}]};
+const unknown=sourceCheckHtml(g,claim);
+assert.match(unknown,/Auditor model not recorded/);
+assert.doesNotMatch(unknown,/writer-only-model/);
+g.source_check_model='gpt-6.1-sol';
+assert.match(sourceCheckHtml(g,claim),/Model: gpt-6.1-sol/);
+g.source_check_method='astra_full_paper_audit';g.source_check_model='gpt-6-astra';
+assert.match(sourceCheckHtml(g,claim),/Model: gpt-6-astra/);
+''')

@@ -46,14 +46,18 @@ def digest(value) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
 
-def compile_research(source: str) -> CompiledResearch:
+def _declaration(source: str):
     if not isinstance(source, str) or not source.strip() or len(source.encode()) > 60_000:
         raise CompileError('yaml', 'Expected a nonempty YAML declaration under 60 KB.')
     try:
         draft = yaml.load(source, Loader=DeclarationLoader)
     except (yaml.YAMLError, RecursionError, TypeError):
         raise CompileError('yaml', 'Invalid declarative YAML; executable tags and recursive structures are unsupported.') from None
-    return compile_mapping(draft, source=source)
+    return draft
+
+
+def compile_research(source: str) -> CompiledResearch:
+    return compile_mapping(_declaration(source), source=source)
 
 
 def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
@@ -133,3 +137,33 @@ def verify_compiled(packet: dict) -> CompiledResearch:
     if original['resolved'] != resolved['resolved'] or resolved['spec_sha256'] != packet.get('spec_sha256'):
         raise CompileError('spec_sha256', 'Declaration, resolved settings and digest disagree.')
     return original
+
+
+def verify_recorded(packet: dict) -> CompiledResearch:
+    """Validate saved inputs without imposing today's executable model defaults."""
+    if not isinstance(packet, dict) or packet.get('compiler_version') != 1:
+        raise CompileError('compiler_version', 'Unsupported compiled specification.')
+    resolved = packet.get('resolved')
+    if not isinstance(resolved, dict) or digest(resolved) != packet.get('spec_sha256'):
+        raise CompileError('spec_sha256', 'Recorded settings and digest disagree.')
+    draft = _declaration(packet.get('source_yaml'))
+    if not isinstance(draft, dict) or not isinstance(draft.get('question'), str) or not draft['question'].strip():
+        raise CompileError('question', 'A recorded research question is required.')
+
+    # Omitted fields retain their saved defaults. Execution still uses verify_compiled.
+    def compare(supplied, recorded, path=()):
+        if isinstance(supplied, dict):
+            if not isinstance(recorded, dict):
+                raise CompileError('source_yaml', 'Recorded input structure disagrees with resolved settings.')
+            for key, value in supplied.items():
+                if key not in recorded:
+                    raise CompileError('source_yaml', 'Recorded input field is absent from resolved settings.')
+                compare(value, recorded[key], (*path, key))
+            return
+        if path == ('question',):
+            supplied = supplied.strip()
+        if type(supplied) is not type(recorded) or supplied != recorded:
+            raise CompileError('source_yaml', 'Recorded declaration disagrees with resolved settings.')
+
+    compare(draft, resolved)
+    return packet

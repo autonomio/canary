@@ -435,3 +435,42 @@ def test_unconfirmed_writer_shutdown_preserves_unsealed_work(tmp_path,monkeypatc
 def test_new_submissions_reject_replaced_auditor_and_duration_limits(audit):
     with pytest.raises(research_spec.CompileError):
         research_spec.compile_mapping({'question': 'Q?', 'audit': audit})
+
+
+def test_crlf_declaration_retains_reads_downloads_and_repeats(api):
+    server,client,_=api
+    started=client.post('/api/runs',json={'yaml':DECLARATION.replace('\n','\r\n')})
+    assert started.status_code==201,started.text
+    key=started.json()['key']
+    view=wait_bundle(client,key)
+    assert view['bundle']['state']=='finished'
+    assert client.get(f'/api/runs/{key}/bundle/artifacts/resolvent.json').status_code==200
+    archive=client.get(f'/api/runs/{key}/bundle/archive')
+    assert archive.status_code==200 and zipfile.is_zipfile(io.BytesIO(archive.content))
+    repeated=client.post(f'/api/runs/{key}/rerun',json={})
+    assert repeated.status_code==201,repeated.text
+    assert wait_bundle(client,repeated.json()['key'])['bundle']['state']=='finished'
+
+
+def test_historical_staged_settings_remain_readable_and_match_the_response_schema(api,tmp_path):
+    from canary import runs
+    from test_api_contract import validate_response
+    server,client,calls=api
+    packet=research_spec.compile_research('question: Historical staged fixture?')
+    packet['resolved']['audit']={'model':'gpt-6-astra','effort':'ultra','budget_seconds':600}
+    packet['source_yaml']=json.dumps(packet['resolved'])
+    packet['spec_sha256']=research_spec.digest(packet['resolved'])
+    stage=tmp_path/'historical-stage.json';research_bundle.write_json(stage,packet)
+    workspace=tmp_path/'failed-before-manifest';workspace.mkdir()
+    registry=server.RequestHandlerClass.supervisor.registry
+    runs.upsert({'key':'historical-stage','kind':'question','status':'failed',
+                 'bundle':str(workspace),'run_spec_path':str(stage)},registry)
+    response=client.get('/api/runs/historical-stage/bundle')
+    assert response.status_code==200
+    saved=response.json()
+    assert saved['bundle']['state']=='staged'
+    assert saved['bundle']['specification']['resolved']['audit']==packet['resolved']['audit']
+    validate_response(client.get('/openapi.json').json(),'/api/runs/{key}/bundle','get',200,saved)
+    assert client.post('/api/runs/historical-stage/rerun',json={}).status_code==400
+    assert client.post('/api/runs/compile',json={'spec':packet['resolved']}).status_code==400
+    assert calls==[]
