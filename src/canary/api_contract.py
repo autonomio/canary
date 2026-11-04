@@ -63,15 +63,21 @@ def schemas():
     declaration = obj({'version':{'type':'integer','const':1},'question':dict(S,minLength=1,maxLength=20000),
         'research':obj({'model':fixed(protocol.RESEARCH_MODEL),'effort':fixed(protocol.RESEARCH_EFFORT)}),
         'audit':obj({'model':fixed(protocol.AUDIT_MODEL),'effort':fixed(protocol.AUDIT_EFFORT),
-                     'budget_seconds':dict(I,minimum=1,default=600)}),
+                     'budget_seconds':{'type':'null','default':None,'description':'Audits have no duration limit.'}}),
         'retrieval':retrieval,
         'subagents':{'type':'boolean','const':False}}, ['question'])
     native = obj({'yaml':dict(S,minLength=1),'spec':ref('ResearchDeclaration'),'name':S,'brief':S})
     native['oneOf'] = [{'required':['yaml']},{'required':['spec']}]
     compiled = typed(CompiledResearch);compiled['additionalProperties'] = True
     compiled['properties']['resolved'] = ref('ResearchDeclaration')
+    recorded_declaration = deepcopy(declaration)
+    for role in ('research', 'audit'):
+        recorded_declaration['properties'][role]['properties'].update(model=deepcopy(S), effort=deepcopy(S))
+    recorded_declaration['properties']['audit']['properties']['budget_seconds'] = nullable(dict(I,minimum=1))
+    recorded_compiled = deepcopy(compiled)
+    recorded_compiled['properties']['resolved'] = ref('RecordedResearchDeclaration')
     manifest = typed(ResearchBundle)
-    manifest['properties'].update({'specification':nullable(ref('CompiledResearch')),
+    manifest['properties'].update({'specification':nullable(ref('RecordedCompiledResearch')),
         'artifacts':arr(obj({'path':S,'bytes':dict(I,minimum=0),'sha256':dict(S,pattern='^[a-f0-9]{64}$')},['path','bytes','sha256']))})
     generated = protocol.investigation_schema()
     claim = deepcopy(generated['properties']['claims']['items'])
@@ -118,7 +124,8 @@ def schemas():
         'RunSubmission':{'anyOf':[ref('NativeSubmission'),
             obj({'kind':fixed('question'),'question':S,'name':S,'brief':S},['kind','question'],closed=False),
             obj({'name':S,'brief':S,'argv':arr(S),'env':obj({name:S for name in ('CANARY_STAGE','CANARY_TIMEOUT_S','CANARY_WHEELS')})},['name','argv'],closed=False)]},
-        'CompiledResearch':compiled,'BundleManifest':manifest,'AuthStatus':typed(AuthStatus),'Login':typed(Login),
+        'CompiledResearch':compiled,'RecordedCompiledResearch':recorded_compiled,
+        'RecordedResearchDeclaration':recorded_declaration,'BundleManifest':manifest,'AuthStatus':typed(AuthStatus),'Login':typed(Login),
         'AuthUsage':{**typed(AuthUsage),
             'description':'Provider-reported rate-limit windows for the connected account, observed at observed_at and cached by the service for up to a minute. Windows carry used_percent and reset only when the provider supplies them; unavailable stays explicit and never blocks research.'},
         'ServiceStatus':typed(ServiceStatus),'ConnectionStatus':typed(ConnectionStatus),'Run':run,'Runs':obj({'runs':arr(ref('Run'))},['runs']),

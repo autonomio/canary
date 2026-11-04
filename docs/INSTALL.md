@@ -1,7 +1,7 @@
 # Install the research service
 
-Canary's current research pipeline uses native Codex with Sol 6.1 extra-high and
-Astra 6 ultra, one agent per stage. Install Codex on the service host using the
+Canary uses native Codex with Sol 6.1/xhigh for research and audit, in separate
+sessions with no duration limits. Install Codex on the service host using the
 [official npm distribution](https://developers.openai.com/cookbook/examples/codex/build_iterative_repair_loops_with_codex):
 
 ```sh

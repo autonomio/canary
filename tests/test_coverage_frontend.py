@@ -23,7 +23,7 @@ def test_ask_routes_to_coverage_without_touching_legacy_review(tmp_path, monkeyp
     monkeypatch.setattr(cli, "review", lambda *a, **k: pytest.fail("legacy review invoked"))
     workspace = tmp_path / "new"
     assert cli.engine_main(["ask", "Question?", "--out", str(workspace)]) == 0
-    assert calls[0] == ("Question?", str(workspace), {"minimum_papers": 50, "audit_seconds": 600})
+    assert calls[0] == ("Question?", str(workspace), {"minimum_papers": 50})
     assert calls[1] == str(workspace)
 
 

@@ -405,3 +405,29 @@ def test_finish_closes_admission_before_a_late_native_start(native):
         assert not [c for c in calls(home) if c['method']=='thread/start']
     finally:
         server.server_close()
+
+
+def test_api_audit_uses_sol_xhigh_without_a_deadline(native,monkeypatch):
+    pool,home,root=native
+    server=dashboard.make_server(0,registry=root/'registry.json',root=root)
+    supervisor=server.RequestHandlerClass.supervisor
+    supervisor.auth.close();supervisor.auth=pool.auth;supervisor.execution=pool
+    workspace=root/'unlimited';workspace.mkdir()
+    engine.write(workspace/'run.json',{'question':'Synthetic audit?','status':'auditing','audit_budget_seconds':None})
+    runs.register_start('unlimited','Fixture','',kind='question',bundle=str(workspace),status='running',path=supervisor.registry)
+    captured=[]
+    def scientific(*args,**kwargs):
+        captured.append((args,kwargs))
+        return {},{'model':args[2],'reasoning_effort':args[3],'timed_out':False}
+    monkeypatch.setattr(engine,'scientific_session',scientific)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        with httpx.Client(base_url=f'http://127.0.0.1:{server.server_port}',timeout=10,trust_env=False) as client:
+            response=client.post('/api/runs/unlimited/execution',json={'role':'audit'})
+        assert response.status_code==200,response.text
+        args,kwargs=captured[0]
+        assert args[2:4]==('gpt-6.1-sol','xhigh')
+        assert 'No audit time limit' in args[4]
+        assert kwargs['audit_timeout'] is None
+    finally:
+        server.shutdown();server.server_close();thread.join(5)

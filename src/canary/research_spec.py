@@ -46,14 +46,18 @@ def digest(value) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
 
 
-def compile_research(source: str) -> CompiledResearch:
+def _declaration(source: str):
     if not isinstance(source, str) or not source.strip() or len(source.encode()) > 60_000:
         raise CompileError('yaml', 'Expected a nonempty YAML declaration under 60 KB.')
     try:
         draft = yaml.load(source, Loader=DeclarationLoader)
     except (yaml.YAMLError, RecursionError, TypeError):
         raise CompileError('yaml', 'Invalid declarative YAML; executable tags and recursive structures are unsupported.') from None
-    return compile_mapping(draft, source=source)
+    return draft
+
+
+def compile_research(source: str) -> CompiledResearch:
+    return compile_mapping(_declaration(source), source=source)
 
 
 def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
@@ -106,13 +110,14 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
         raise CompileError('retrieval.local_text', 'Local text settings require corpus: local_text.')
     if draft.get('subagents', False) is not False:
         raise CompileError('subagents', 'Subagents are disabled for research and audit.')
-    target, seconds = retrieval.get('target_papers', 50), audit.get('budget_seconds', 600)
-    for path, value in [('retrieval.target_papers', target), ('audit.budget_seconds', seconds)]:
-        if type(value) is not int or value <= 0:
-            raise CompileError(path, 'Expected a positive integer.')
+    target = retrieval.get('target_papers', 50)
+    if type(target) is not int or target <= 0:
+        raise CompileError('retrieval.target_papers', 'Expected a positive integer.')
+    if audit.get('budget_seconds') is not None:
+        raise CompileError('audit.budget_seconds', 'Audits have no time limit; omit this field or use null.')
     resolved = {'version': 1, 'question': question.strip(),
                 'research': {'model': protocol.RESEARCH_MODEL, 'effort': protocol.RESEARCH_EFFORT},
-                'audit': {'model': protocol.AUDIT_MODEL, 'effort': protocol.AUDIT_EFFORT, 'budget_seconds': seconds},
+                'audit': {'model': protocol.AUDIT_MODEL, 'effort': protocol.AUDIT_EFFORT, 'budget_seconds': None},
                 'retrieval': {'selection': 'coverage', 'target_papers': target, 'corpus': corpus, 'access': 'open_full_text',
                               **({'local_text': dict(local)} if local is not None else {}),
                               **({'additional_sources': additional} if additional else {})},
@@ -120,7 +125,7 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
     return {'source_yaml': source if source is not None else yaml.safe_dump(draft, sort_keys=False),
             'resolved': resolved, 'spec_sha256': digest(resolved), 'compiler_version': 1,
             'checks': ['strict_declaration', 'supported_research_and_audit', 'source_policy',
-                       'positive_limits', 'no_subagents', 'api_owned_fresh_workspace']}
+                       'positive_limits', 'unlimited_audit', 'no_subagents', 'api_owned_fresh_workspace']}
 
 
 def verify_compiled(packet: dict) -> CompiledResearch:
@@ -132,3 +137,33 @@ def verify_compiled(packet: dict) -> CompiledResearch:
     if original['resolved'] != resolved['resolved'] or resolved['spec_sha256'] != packet.get('spec_sha256'):
         raise CompileError('spec_sha256', 'Declaration, resolved settings and digest disagree.')
     return original
+
+
+def verify_recorded(packet: dict) -> CompiledResearch:
+    """Validate saved inputs without imposing today's executable model defaults."""
+    if not isinstance(packet, dict) or packet.get('compiler_version') != 1:
+        raise CompileError('compiler_version', 'Unsupported compiled specification.')
+    resolved = packet.get('resolved')
+    if not isinstance(resolved, dict) or digest(resolved) != packet.get('spec_sha256'):
+        raise CompileError('spec_sha256', 'Recorded settings and digest disagree.')
+    draft = _declaration(packet.get('source_yaml'))
+    if not isinstance(draft, dict) or not isinstance(draft.get('question'), str) or not draft['question'].strip():
+        raise CompileError('question', 'A recorded research question is required.')
+
+    # Omitted fields retain their saved defaults. Execution still uses verify_compiled.
+    def compare(supplied, recorded, path=()):
+        if isinstance(supplied, dict):
+            if not isinstance(recorded, dict):
+                raise CompileError('source_yaml', 'Recorded input structure disagrees with resolved settings.')
+            for key, value in supplied.items():
+                if key not in recorded:
+                    raise CompileError('source_yaml', 'Recorded input field is absent from resolved settings.')
+                compare(value, recorded[key], (*path, key))
+            return
+        if path == ('question',):
+            supplied = supplied.strip()
+        if type(supplied) is not type(recorded) or supplied != recorded:
+            raise CompileError('source_yaml', 'Recorded declaration disagrees with resolved settings.')
+
+    compare(draft, resolved)
+    return packet

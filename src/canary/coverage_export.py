@@ -441,6 +441,10 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         if issue["work_id"] not in admitted:
             issue["counted_record_index"] = None  # Duplicate publication/version, not another counted paper.
     roles = Counter(row["eligibility"] for row in counted.values())
+    audit_receipt = _load(bundle / "audit-receipt.json", _load(research / "audit-receipt.json", {}))
+    audit_receipt = audit_receipt if isinstance(audit_receipt, dict) else {}
+    audit_model = audit_receipt.get("model") or run.get("audit_model") or run.get("reviewer_model")
+    audit_effort = audit_receipt.get("reasoning_effort") or run.get("audit_effort") or run.get("reviewer_reasoning_effort")
     graph = {"question": question, "model": run.get("model", "gpt-6.1-sol"),
              "executive_summary": investigation.get("executive_summary", []), "claims": [],
              "evidence": [], "passages": [], "references": [], "study_results": [],
@@ -448,8 +452,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
              "unanswered": [dict(g, text=g.get("description", "")) for g in _rows(investigation.get("gaps"))],
              "gaps": investigation.get("gaps", []), "contradictions": investigation.get("contradictions", []),
              "residue": investigation.get("residue", []), "scope_note": investigation.get("scope_note", ""),
-             "source_check_method": "astra_full_paper_audit", "source_check_model": "gpt-6-astra",
-             "source_check_reasoning_effort": "ultra", "source_checks": [], "binding_issues": []}
+             "source_check_method": "independent_full_paper_audit", "source_check_model": audit_model,
+             "source_check_reasoning_effort": audit_effort, "source_checks": [], "binding_issues": []}
     efficiency = _load(research / "efficiency.json", _load(bundle / "source-efficiency.json", {}))
     efficiency = efficiency if isinstance(efficiency, dict) else {}
     used_passages = {pid for comparison in _rows(efficiency.get("comparisons"))
@@ -774,14 +778,14 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
               else "complete" if lifecycle == "answered" and not has_findings else lifecycle)
     requests = _load(source / "openalex-requests.json", _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None)))
     graph["audit"] = {"status": "pending" if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids else "partial",
-                       "model": "gpt-6-astra", "reasoning_effort": "ultra",
+                       "model": audit_model, "reasoning_effort": audit_effort,
                        "checked_claims": sum(check.get("assessment") != "not_checked" for check in graph["source_checks"]),
                        "total_claims": len(graph["claims"]), "scope_note": audit.get("scope_note", audit_case.get("scope_note", "")),
                        "limitations": audit_case.get("limitations", []), "scores": audit_case.get("scores", {}),
                        "is_scientific_certification": False}
     run.update(kind="question", run_id=run.get("run_id", bundle.name), question=question,
                execution_mode=EXECUTION_MODE, selection_method="coverage-guided", model=run.get("model", "gpt-6.1-sol"),
-               reasoning_effort="xhigh", reviewer_model="gpt-6-astra", reviewer_reasoning_effort="ultra",
+               reasoning_effort="xhigh", reviewer_model=audit_model, reviewer_reasoning_effort=audit_effort,
                generated_at=run.get("generated_at", run.get("started_at", context.get("started_at"))),
                status=status, runtime_status=lifecycle, answered=has_findings, receipts=model_receipts,
                discovered=candidate_count, accepted=len(accepted), available_unique_sources=len(refs),

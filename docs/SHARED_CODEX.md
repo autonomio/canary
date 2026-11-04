@@ -3,12 +3,13 @@
 The API owns one long-lived Codex app-server over stdio, shared with its native
 authentication connection. Each research and audit gets a separate fresh thread,
 working directory, model, reasoning effort, tool environment and output schema.
-The current Sol xhigh/Astra ultra, disabled delegation, full-paper rules and
+Both scientific roles use Sol 6.1 xhigh without a duration limit. Disabled delegation, full-paper rules and
 independent audit prompts remain unchanged.
 
 Detached orchestration workers call `POST /api/runs/{key}/execution` with
 `{"role":"research"}` or `{"role":"audit"}`. The service derives the prompt,
-schema, models, source-tool command and budget from the active run. Clients cannot
+schema, model profiles and source-tool command from the active run. Neither
+scientific stage has a duration limit. Clients cannot
 supply native commands, credentials, model substitutions or workspace paths.
 Each role is claimed atomically in the persistent run registry before native
 initialization. Delayed or restarted duplicate requests cannot execute that role

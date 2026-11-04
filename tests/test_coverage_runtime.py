@@ -687,7 +687,7 @@ def test_scientific_invocation_keeps_authorized_models_and_approval_review(tmp_p
     assert "--approve-for-me" in command and "agents.enabled=false" in command
     assert '--sandbox' not in command  # approve-for-me already selects workspace-write
     assert "--dangerously-bypass-approvals-and-sandbox" not in command
-    assert protocol.AUDIT_MODEL == "gpt-6-astra" and protocol.AUDIT_EFFORT == "ultra"
+    assert protocol.AUDIT_MODEL == "gpt-6.1-sol" and protocol.AUDIT_EFFORT == "xhigh"
 
 
 def test_successful_upstream_search_count_survives_bad_metadata(tmp_path):
@@ -986,3 +986,16 @@ def test_canonical_passage_boundary_fix_retains_pdf_page_and_long_paragraph_chun
     assert "".join(r["text"] for r in chunks) == body
     assert all(left["end"] == right["start"] for left, right in zip(chunks, chunks[1:]))
     assert all(r["page"] == 8 and text[r["start"]:r["end"]] == r["text"] for r in rows)
+
+
+def test_production_audit_prompt_has_no_duration_limit():
+    prompt=protocol.audit_prompt('Q?', 'canary tools')
+    assert 'No audit time limit' in prompt
+    assert 'Budget ' not in prompt and '600 seconds' not in prompt
+    assert 'Persist audit.json as you go' in prompt
+
+
+def test_production_research_refuses_a_finite_audit_limit(tmp_path):
+    import pytest
+    with pytest.raises(ValueError,match='Audits have no time limit'):
+        runtime.run('Q?',tmp_path,audit_seconds=600)

@@ -42,8 +42,8 @@ retrieval:
 ```
 
 The research and audit model profiles, evidence rules and default 50-paper target
-are unchanged. A declaration can set a positive `target_papers` and audit budget
-using the existing fields. Missing or incomplete publications remain a documented
+are unchanged. A declaration can set a positive `target_papers`. Research and audit
+have no time limit. Missing or incomplete publications remain a documented
 coverage limitation; the engine must not pad the review count.
 
 ## Input and retrieval contract

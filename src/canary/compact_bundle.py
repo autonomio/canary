@@ -40,12 +40,12 @@ def payload(contribution):
 
 
 def manifest(workspace):
-    from .research_spec import verify_compiled
+    from .research_spec import verify_recorded
     result = read(workspace)
     decoded = bundle_encoding.expand(result)
     value = json.loads(next(a['content'] for a in decoded['result']['artifacts']
                             if a['name'] == 'canary-bundle.json'))
-    verify_compiled(value['specification'])
+    verify_recorded(value['specification'])
     value['artifacts'] = [{'path': NAME, 'bytes': (Path(workspace) / NAME).stat().st_size,
                           'sha256': (Path(workspace) / CHECKSUM).read_text().strip()}]
     value['retention'] = result['method_metadata']['retention']

@@ -64,7 +64,7 @@ Finished sources remain readable without appending to sealed scientific artifact
 
 Network access is enabled for the native workspace sandbox so these local HTTP calls
 can reach the service. This follows the [Codex network configuration](https://learn.chatgpt.com/docs/agent-approvals-security).
-The fixed Sol/Astra models, reasoning effort, disabled delegation, source rules and
+The fixed Sol 6.1/xhigh research and audit profiles, disabled delegation, source rules and
 independent audit remain unchanged. The legacy `coverage_runtime` command also relays
 through the API; its `--workspace` is an explicit service-host directory reference.
 Prefer run IDs. Thread-usage inspection calls `/api/usage/threads/{id}`; the service
