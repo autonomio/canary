@@ -30,6 +30,7 @@ import httpx
 
 from .api_client import endpoint
 
+from .claim_uncertainty import unassessed as unassessed_uncertainty
 from . import coverage_protocol as protocol
 from .runtime_paths import data_root
 from .processes import RunCancelled, stop_tree, identity, tool_receipts
@@ -1202,7 +1203,8 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
         for claim in payload["claims"]:
             if claim["id"] not in checked:
                 audit.setdefault("claim_checks", []).append({"claim_id": claim["id"], "assessment": "not_checked",
-                    "reason": "No persisted independent check", "passage_ids": [], "reference_ids": [], "context_checked": []})
+                    "reason": "No persisted independent check", "passage_ids": [], "reference_ids": [], "context_checked": [],
+                    "uncertainty_review": unassessed_uncertainty()})
                 audit["audit_complete"] = False
         write(workspace / "audit.json", audit)
         payload["independent_audit"] = audit

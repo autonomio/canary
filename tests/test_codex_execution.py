@@ -428,6 +428,9 @@ def test_api_audit_uses_sol_xhigh_without_a_deadline(native,monkeypatch):
         args,kwargs=captured[0]
         assert args[2:4]==('gpt-6.1-sol','xhigh')
         assert 'No audit time limit' in args[4]
+        assert 'uncertainty_review' in args[4] and 'freshness policy' in args[4]
+        assert args[5]['properties']['claim_checks']['items']['properties']['uncertainty_review']['required']
+        assert len(captured) == 1
         assert kwargs['audit_timeout'] is None
     finally:
         server.shutdown();server.server_close();thread.join(5)

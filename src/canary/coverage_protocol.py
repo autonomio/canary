@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Literal, TypedDict
 
 from .claim_freshness import schema as freshness_schema
+from .claim_uncertainty import schema as uncertainty_review_schema
 from .synthesize import QUANTITATIVE_FIDELITY
 
 RESEARCH_MODEL = "gpt-6.1-sol"
@@ -133,7 +134,8 @@ def investigation_schema():
 def audit_schema():
     return obj({
         "claim_checks": arr(obj({"claim_id": S, "assessment": enum("supported", "correction_needed", "unresolved", "not_checked"),
-            "reason": S, "passage_ids": SS, "reference_ids": SS, "context_checked": SS})),
+            "reason": S, "passage_ids": SS, "reference_ids": SS, "context_checked": SS,
+            "uncertainty_review": uncertainty_review_schema()})),
         "findings": arr(obj({"id": S, "severity": enum("material", "minor", "uncertain"),
             "description": S, "claim_ids": SS, "reference_ids": SS, "passage_ids": SS})),
         "scores": obj({area: obj({"score": {"type": "integer", "minimum": 0, "maximum": 5}, "reason": S})
@@ -229,6 +231,9 @@ Never inspect researcher reasoning transcripts, CLI events/stderr/prompts, previ
 Use {command} source WORK_ID --match REGEX --context 3 --limit 10 for source rereading; originals are available for table/figure checks.
 Audit the actual claim/result scope, exact source meaning, arithmetic, experiment attribution, selection/coverage and paper-role/family counts.
 Do not reward paper quantity or confidence; identify irrelevant padding, preview inclusion, important adverse alternatives and unsupported claims.
+For every claim_check, independently recommend uncertainty in uncertainty_review: low/moderate/high, with an evidence-based reason and evidence_ids from audit-input.json supporting that judgment. These IDs refer to this run's retained evidence, not inherited IDs. Assess methodological quality, directness, scope, limitations, contradictory/null findings and study/cohort independence. Source counts, repeated reports, a supported source check and agreement between models do not establish independent evidence or justify lower uncertainty. Low means comparatively well supported within the stated scope; moderate means material limitations or indirectness remain; high means substantial doubt, sparse evidence or an untested assumption. Grades are ordinal judgments, never probabilities. If not checked or no defensible assessment is possible, recommended_class=null and explain why; never copy a default grade.
+If research-state.json is supplied, propose a prior_claim_id only for an unambiguous claim with the same proposition and material scope; explain that match in prior_match_reason and copy its recorded prior_class (medium maps to moderate). Otherwise set both prior fields null and explain any noncomparability. Identify in reason which new inspected evidence justifies an increase, decrease or no change; revisiting the same observations alone is not corroboration. Prior state remains unverified background. Never rewrite the writer's grade or the prior claim.
+Check each claim's freshness policy, source as_of, review_after, triggers and rationale. Flag unsupported dates, wrong policies or passed review horizons in findings, distinguishing review due from evidence against the claim. Never invent a deadline, automatically expire a claim or alter uncertainty merely because a review date passed.
 {timing}
 Scores 0-5 are judgments within inspected scope, not calibrated probabilities or population recall. 3 means useful but consequential limitations; 5 requires strong inspected support.
 Never rewrite the research answer or invoke another agent/model. Return audit-schema.json JSON; audit_complete=true only if all declared audit scope is actually checked.

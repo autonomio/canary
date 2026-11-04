@@ -2,6 +2,12 @@
 
 The native operator path uses one stateful **Sol 6.1 / xhigh** research session and one separate **Sol 6.1 / xhigh** independent audit. Neither scientific session may delegate. Coverage-guided selection is the default: choose question-relevant source batches by the information they add across the typed plan's comparison, outcome, population and condition aspects, including adverse and null findings.
 
+The same audit records a separate per-claim `uncertainty_review`: recommended low/moderate/high (or null when unassessed), reason, fresh evidence IDs and a proposed same-proposition/scope prior match. The API findings, claim inspector, Markdown report and Resolvent metadata preserve this alongside the writer's unchanged grade. Ordinal increased/decreased/unchanged comparisons require the prior ID and recorded grade to match the supplied snapshot; semantic equivalence remains the auditor's proposal. Missing legacy reviews and unverifiable comparisons stay explicit. Source counts, a supported audit or model agreement do not establish independent evidence. No extra model session is added.
+
+Resolvent export keeps its minimum-medium evidence-independence safeguard and maps the recommendation's evidence IDs to destination candidate IDs while retaining the originals. Its handoff requires an explicit accept/override/defer decision; a matched canonical claim needs recorded destination reassessment. Recommendations alone never mutate a world model. Consumer implementation is tracked in [Resolvent #33](https://github.com/autonomio/resolvent/issues/33).
+
+Freshness remains a **review horizon**. `scheduled` records a review date; `event_driven` records reassessment triggers; `historical` needs no scheduled expiry for a bounded observation; `unknown` records no defensible horizon. `as_of` is the source's date, not the agent's review timestamp. The audit flags unsupported freshness metadata and due horizons in its existing findings. A passed date does not invalidate a claim, decay uncertainty, launch research or change Resolvent valid time. Automated expiry actions are separate scope.
+
 ```sh
 canary ask "Your question" --out out/questions/new-question
 # Dashboard launches the fixed script with OUT supplied by its supervisor:

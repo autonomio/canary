@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .runs import has_native_findings
 from .claim_freshness import unknown as unknown_freshness
+from .claim_uncertainty import review as uncertainty_review
 
 EXECUTION_MODE = "coverage-guided full-paper research"
 
@@ -222,6 +223,13 @@ def render_markdown(graph: dict):
         lines.extend(["## " + label, "", str(claim.get("text", "")), "",
                       f'Uncertainty: {claim.get("uncertainty_class", "unknown")} ({claim.get("uncertainty_score", "unknown")}/3; ordinal).',
                       str(claim.get("uncertainty_rationale", "")), "Audit: " + str(checks.get(claim["id"], {}).get("assessment", "not_checked")), ""])
+        review = checks.get(claim['id'], {}).get('uncertainty_review', {})
+        lines.extend([f"Auditor uncertainty recommendation: {review.get('recommended_class') or 'not assessed'}; change from supplied prior: {review.get('change', 'not_comparable')}.",
+                      str(review.get('reason', 'No uncertainty review was recorded.')),
+                      f"Proposed prior match: {review.get('prior_claim_id') or 'none'}; auditor-reported prior uncertainty: {review.get('prior_class') or 'unknown'}.",
+                      str(review.get('prior_match_reason', '')),
+                      'Recommendation evidence: ' + ', '.join(review.get('evidence_ids', [])),
+                      *review.get('limitations', []), ''])
         freshness = claim.get('freshness') or unknown_freshness()
         lines.extend([f"Freshness: {freshness.get('policy', 'unknown')}; source as of {freshness.get('as_of') or 'unknown'}; review after {freshness.get('review_after') or 'not scheduled'}.",
                       freshness.get('rationale', ''), *['Reassessment trigger: ' + t for t in freshness.get('triggers', [])], ''])
@@ -641,7 +649,11 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     audit = _load(bundle / "audit" / "audit.json", _load(bundle / "audit.json", {}))
     audit = audit if isinstance(audit, dict) else {}
     audit_case = _audit_record(audit)
-    checks = {c.get("claim_id"): c for c in _rows(audit_case.get("claim_checks"))}
+    check_rows = _rows(audit_case.get("claim_checks"))
+    check_counts = Counter(c.get("claim_id") for c in check_rows)
+    checks = {c.get("claim_id"): c for c in check_rows if check_counts[c.get("claim_id")] == 1}
+    prior_state = _load(bundle / "research-state.json", _load(source / "research-state.json", None))
+    evidence_ids = [e.get("id") for e in _rows(investigation.get("evidence"))]
     for claim in graph["claims"]:
         ambiguous = claim["id"] in duplicate_claim_ids
         check = {} if ambiguous else checks.get(claim["id"], {})
@@ -654,7 +666,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                            raw_assessment=assessment, paragraph_ids=ids,
                            reason=("Duplicate claim ID; the ID-only audit record cannot be assigned to this occurrence."
                                    if ambiguous else check.get("reason", "Audit pending." if not audit else "Not checked in the recorded audit scope.")),
-                           correction_applied=False)
+                           correction_applied=False,
+                           uncertainty_review=uncertainty_review(check, state=prior_state, evidence_ids=evidence_ids))
         if ambiguous:
             bound_check["claim_occurrence"] = claim["claim_occurrence"]
         graph["source_checks"].append(bound_check)
