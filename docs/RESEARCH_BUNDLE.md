@@ -224,3 +224,6 @@ idempotent retry passed. The canonical record retained the submitted statement,
 class and consumer uncertainty. This proves ingestion without inventing independent
 semantic approval or publishing data into the template repository. The producer's
 scientific audit was partial at its time budget and remains part of the handoff.
+
+
+New native audits require standalone claims, typed defects and source-based evidence-independence assessments. `ScientificAudit` describes generation; `RecordedClaimCheck` and `EvidenceIndependence` expose saved judgments through the research API and its CLI/MCP clients. Verdicts carry `statement_sha256` and `claim_snapshot_sha256`; changes to shared scientific input invalidate them. Older audits remain readable and do not acquire retrospective hashes or new scientific judgments.

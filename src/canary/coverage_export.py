@@ -641,6 +641,24 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     audit = _load(bundle / "audit" / "audit.json", _load(bundle / "audit.json", {}))
     audit = audit if isinstance(audit, dict) else {}
     audit_case = _audit_record(audit)
+    if audit_case.get("standard_version"):
+        from .audit_validation import current, snapshot
+        current_claims = {c["id"]: c for c in investigation.get("claims", [])}
+        stale = False
+        verified_checks = []
+        for check in _rows(audit_case.get("claim_checks")):
+            claim = current_claims.get(check.get("claim_id"))
+            if claim is not None and not current(payload, claim, check):
+                check = dict(check, assessment="not_checked",
+                    reason="Scientific inputs changed since this verdict; a fresh audit is required.")
+                stale = True
+            verified_checks.append(check)
+        audit_case = dict(audit_case, claim_checks=verified_checks,
+            audit_complete=audit_case.get("audit_complete", False) and not stale)
+        if snapshot(payload) != audit_case.get("snapshot_sha256"):
+            audit_case["evidence_checks"] = [dict(check, assessment="unknown",
+                validation_issue="Scientific inputs changed since the independence assessment")
+                for check in audit_case.get("evidence_checks", [])]
     checks = {c.get("claim_id"): c for c in _rows(audit_case.get("claim_checks"))}
     for claim in graph["claims"]:
         ambiguous = claim["id"] in duplicate_claim_ids
@@ -777,6 +795,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
               else "answered" if lifecycle in ("complete", "completed") and has_findings
               else "complete" if lifecycle == "answered" and not has_findings else lifecycle)
     requests = _load(source / "openalex-requests.json", _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None)))
+    graph["evidence_independence"] = audit_case.get("evidence_checks", [])
     graph["audit"] = {"status": "pending" if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids else "partial",
                        "model": audit_model, "reasoning_effort": audit_effort,
                        "checked_claims": sum(check.get("assessment") != "not_checked" for check in graph["source_checks"]),
