@@ -183,7 +183,6 @@ def test_new_unverified_run_cannot_export_raw_claims(tmp_path):
 
 def test_final_output_history_and_withheld_claims_survive_api_export_and_retention(api,tmp_path):
     from canary import runs, bundle_connectors, bundle_encoding
-    from test_api_contract import validate_response
     server,client,_ = api
     workspace=tmp_path/'verified-output';workspace.mkdir()
     payload,_ = prepared(workspace)
@@ -202,7 +201,9 @@ def test_final_output_history_and_withheld_claims_survive_api_export_and_retenti
     runs.register_start('verified-output','Synthetic verified output','',kind='question',bundle=str(workspace),status='done',path=supervisor.registry)
     result=client.get('/api/runs/verified-output/research')
     assert result.status_code==200,result.text
-    validate_response(client.get('/openapi.json').json(),'/api/runs/{key}/research','get',200,result.json())
+    contract=client.get('/openapi.json').json()
+    schema=contract['paths']['/api/runs/{key}/research']['get']['responses']['200']['content']['application/json']['schema']
+    jsonschema.validate(result.json(),dict(schema,components=contract['components']))
     graph=result.json()['research']['answer']
     assert not graph['claims'] and graph['withheld_claims'][0]['claim']['id']=='C1'
     assert graph['claim_revisions'][0]['investigation']['claims'][0]['id']=='C1'
@@ -214,3 +215,15 @@ assert.equal(qaGraph({answer:graph}),graph);
 assert.match(withheldClaimsHtml(graph),/Synthetic fixture|synthetic/);
 assert.match(verificationHtml(graph),/100% withheld/);
 """)
+
+
+@pytest.mark.parametrize('edit',['added_claim','gap','source','evidence'])
+def test_final_projection_never_preserves_a_verdict_after_new_shared_edits(tmp_path,edit):
+    payload,_=prepared(tmp_path)
+    bound=audit_validation.bind(payload,audit_for(payload))
+    final=corrections.finalize(payload,bound,[])
+    if edit=='added_claim': final['claims'].append(dict(deepcopy(final['claims'][0]),id='C2'))
+    elif edit=='gap': final['gaps'][0]['description']+=' Changed.'
+    elif edit=='source': final['references'][0]['title']+=' Changed.'
+    else: final['evidence'][0]['interpretation']+=' Changed.'
+    assert not audit_validation.current(corrections.audit_basis(final),final['claims'][0],bound['claim_checks'][0])

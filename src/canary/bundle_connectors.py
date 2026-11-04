@@ -32,7 +32,8 @@ def resolvent(workspace):
     else:
         payload = {}
     run = json.loads((workspace/'run.json').read_text()) if (workspace/'run.json').is_file() else {}
-    if run.get('verification_version') and not payload.get('verification', {}).get('version'):
+    if (run.get('verification_version') and not payload.get('verification', {}).get('version')
+            and (payload.get('claims') or payload.get('executive_summary'))):
         raise ValueError('This run has not produced a verified final claim projection; working sources remain available')
     refs = {r['id']: r for r in payload.get('references', [])}
     claims, evidence, sources, source_map, evidence_map = [], [], [], {}, {}

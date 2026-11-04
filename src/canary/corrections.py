@@ -135,10 +135,27 @@ def audit_basis(payload):
     basis = payload.get('verification', {}).get('audit_basis')
     if not isinstance(basis, dict):
         return payload
-    # Active statements and evidence must still match the audited snapshot.
+    # Reinsert only the exact records filtered by finalization, never new or edited facts.
     current = deepcopy(basis)
     active = {c['id']: c for c in payload.get('claims', [])}
+    known = {c['id'] for c in basis.get('claims', [])}
+    withheld = {r['claim']['id'] for r in payload.get('withheld_claims', [])}
     current['claims'] = [active.get(c['id'], c) for c in basis.get('claims', [])]
-    for field in ('evidence', 'study_results', 'references'):
-        current[field] = payload.get(field)
+    current['claims'].extend(c for identifier, c in active.items() if identifier not in known)
+    if known - active.keys() - withheld:
+        current['claims'] = payload.get('claims', [])  # Undocumented removal is not a valid projection.
+    for field in audit_validation.SNAPSHOT_FIELDS:
+        if field == 'claims':
+            continue
+        expected = deepcopy(basis.get(field))
+        if field in ('contradictions', 'gaps', 'residue') and isinstance(expected, list):
+            for record in expected:
+                removed = [i for i in record.get('claim_ids', []) if i not in active]
+                record['claim_ids'] = [i for i in record.get('claim_ids', []) if i in active]
+                if removed:
+                    record['withheld_claim_ids'] = removed
+        elif field == 'claim_links':
+            expected = [r for r in (expected or []) if r.get('from_claim_id') in active and r.get('to_claim_id') in active]
+        if payload.get(field) != expected:
+            current[field] = payload.get(field)
     return current

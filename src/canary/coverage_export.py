@@ -649,7 +649,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         checked_payload = audit_basis(payload)
         current_claims = {c["id"]: c for c in investigation.get("claims", [])}
         inputs_changed = not matches_investigation(payload, investigation)
-        stale = inputs_changed
+        checked_ids = {c.get("claim_id") for c in _rows(audit_case.get("claim_checks"))}
+        stale = inputs_changed or bool(current_claims.keys() - checked_ids)
         verified_checks = []
         for check in _rows(audit_case.get("claim_checks")):
             claim = current_claims.get(check.get("claim_id"))
