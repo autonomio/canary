@@ -54,7 +54,8 @@ stopped, not only that it stopped:
   run. The dashboard shows the question on the answer page and in the question list.
 - `failed`: the run could not complete. `failure` holds the recorded reason verbatim;
   `native_error` adds the native Codex terminal error when one was recorded. The dashboard's
-  Run issue view shows the recorded reason before any log inference.
+  Run issue view shows the recorded reason before any log inference. `answered` is true only
+  when the run committed claims; claim-free summary text from a stopped run is not an answer.
 - `cancelled` and `interrupted` keep their meanings above.
 
 A stopped run without a recorded audit reports `audit_status: not_run`; `pending` means the

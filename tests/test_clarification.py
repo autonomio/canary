@@ -156,17 +156,59 @@ def test_research_ending_before_discovery_fails_with_its_recorded_reason(tmp_pat
     recorded = json.loads((workspace / 'run.json').read_text())
     assert recorded['status'] == 'failed' and recorded['audit_status'] == 'not_run'
     assert recorded['failure'].startswith('ValueError: Research ended before discovery committed a question plan')
+    assert recorded['answered'] is False  # claim-free summary text from a stopped run is not an answer
     registry = finish(tmp_path, workspace, 'stopped', 1)
     with serve(tmp_path, registry, 'stopped') as seen:
         row = seen['row']
     assert row['status'] == 'failed' and row.get('clarification') is None
     assert row['failure'] == recorded['failure']
-    run_dashboard(tmp_path, {'row': row}, r'''
+    assert row['answered'] is False and seen['listed']['answered'] is False and seen['log']['answered'] is False
+    run_dashboard(tmp_path, {'row': row, 'listed': seen['listed']}, r'''
 const issue=diagnoseRun(graph.row,{timeline:[],console:{lines:['TypeError: unrelated later log line']}});
 assert.equal(issue.title,'The run recorded why it stopped');
 assert.equal(issue.text,graph.row.failure);
 assert.equal(issue.recorded,'the run record');
 assert.equal(statusInfo(graph.row)[0],'attention');
+assert.equal(graph.listed.research_summary.has_synthesis,true);
+const elements={};
+global.document={activeElement:null,getElementById:id=>elements[id]||(elements[id]={textContent:'',innerHTML:'',querySelectorAll:()=>[],contains:()=>false})};
+S.runs=[graph.listed];renderLibrary();
+assert.doesNotMatch(elements['research-list'].innerHTML,/Answer available/);
+''')
+
+
+def test_a_stopped_run_never_reports_a_pending_audit(tmp_path):
+    bundle = tmp_path / 'bundle'; bundle.mkdir()
+    claim = {'id': 'C1', 'text': 'Committed attributed finding.', 'evidence_ids': []}
+    coverage_runtime.write(bundle / 'investigation.json', dict(investigation(None), claims=[claim]))
+    run = {'kind': 'question', 'execution_mode': coverage_export.EXECUTION_MODE, 'question': 'Synthetic?',
+           'status': 'researching', 'generated_at': '2026-11-04T00:00:00+00:00'}
+    coverage_runtime.write(bundle / 'run.json', run)
+    progress = coverage_export.export_bundle(bundle)  # the last progress export before the worker dies
+    assert progress['run']['audit_status'] == 'pending' and progress['answer']['source_checks'][0]['reason'] == 'Audit pending.'
+    registry = tmp_path / 'registry.json'
+    runs.register_start('dead', 'Synthetic run', '', 'question', str(bundle), path=registry)
+    with serve(tmp_path, registry, 'dead') as active:
+        assert active['row']['audit_status'] == 'pending'
+        assert active['research']['research']['answer']['audit']['status'] == 'pending'
+    class Died:
+        def wait(self): return 1
+    dashboard.Supervisor(registry=registry, root=tmp_path)._wait('dead', Died(), io.StringIO())
+    assert json.loads((bundle / 'run.json').read_text())['status'] == 'in_progress'  # no final export happened
+    with serve(tmp_path, registry, 'dead') as seen:
+        pass
+    assert seen['row']['status'] == 'failed' and seen['row']['audit_status'] == 'not_run'
+    assert seen['log']['audit_status'] == 'not_run' and seen['log']['answered'] is True  # committed claim kept
+    research = seen['research']['research']
+    assert research['answer']['audit']['status'] == 'not_run' and research['run']['audit_status'] == 'not_run'
+    # A worker that records its own stop exports the same state, including each claim's audit reason.
+    coverage_runtime.write(bundle / 'run.json', dict(run, status='failed', failure='RuntimeError: Synthetic stop'))
+    stopped = coverage_export.export_bundle(bundle)
+    assert stopped['run']['audit_status'] == 'not_run' and stopped['run']['answered'] is True
+    assert stopped['answer']['source_checks'][0]['reason'] == 'No independent audit was run.'
+    run_dashboard(tmp_path, {'research': research, 'row': seen['row']}, r'''
+assert.match(coverageAuditHtml(graph.research),/Independent audit · not run/);
+assert.match(technicalHtml(graph.row,graph.research),/<dt>Audit<\/dt><dd>not run<\/dd>/);
 ''')
 
 
