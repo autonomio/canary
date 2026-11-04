@@ -132,3 +132,19 @@ def test_ten_mib_boundary_is_inclusive_in_encoded_json_bytes():
     assert research_state.validate(state, True) == state
     with pytest.raises(ValueError, match='10 MiB'):
         research_state.validate({'note': state['note'] + 'x'}, True)
+
+
+def test_declaration_error_reports_the_enforced_limit(monkeypatch):
+    message = 'Expected a nonempty YAML declaration of at most {} MiB.'
+    with pytest.raises(research_spec.CompileError) as caught:
+        research_spec.compile_research('x' * (research_state.MAX_DECLARATION_BYTES + 1))
+    assert caught.value.issues == [{'path': 'yaml', 'message': message.format('20')}]
+
+    limit = 512 * 1024
+    monkeypatch.setattr(research_spec, 'MAX_DECLARATION_BYTES', limit)
+    source = 'question: Synthetic?\n#'
+    source += 'x' * (limit - len(source))
+    assert research_spec.compile_research(source)['resolved']['question'] == 'Synthetic?'
+    with pytest.raises(research_spec.CompileError) as caught:
+        research_spec.compile_research(source + 'x')
+    assert caught.value.issues == [{'path': 'yaml', 'message': message.format('0.5')}]
