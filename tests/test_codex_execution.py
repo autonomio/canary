@@ -223,14 +223,17 @@ def test_native_rejection_and_cleanup_failure_do_not_destroy_findings_or_other_s
     assert execute(pool,root,'next')[1]['cleanup']['archived'] is True
 
 
-def test_audit_timeout_preserves_intermediate_audit_and_releases_only_its_thread(native):
+def test_audit_timeout_fails_closed_preserves_intermediate_audit_and_releases_only_its_thread(native):
     pool,home,root=native
     workspace=root/'audit';workspace.mkdir();(workspace/'hold').touch()
     engine.write(workspace/'audit.json',{'claim_checks':[],'limitations':['intermediate fixture']})
-    result,receipt=engine.scientific_session(workspace,'audit','gpt-6-astra','ultra','Fixture',{},
-        executable=str(root/'codex'),execution=pool,run_key='audit',audit_timeout=.15)
+    with pytest.raises(RuntimeError,match='time budget; its intermediate audit is preserved and no verdict was accepted'):
+        engine.scientific_session(workspace,'audit','gpt-6-astra','ultra','Fixture',{},
+            executable=str(root/'codex'),execution=pool,run_key='audit',audit_timeout=.15)
+    receipt=json.loads((workspace/'audit-receipt.json').read_text())
     assert receipt['timed_out'] and receipt['exit_code']==130 and receipt['cleanup']['archived']
-    assert result['audit_complete'] is False and 'intermediate fixture' in result['limitations']
+    partial=json.loads((workspace/'audit.json').read_text())
+    assert partial['audit_complete'] is False and 'intermediate fixture' in partial['limitations']
     assert pool.auth.proc.poll() is None
 
 

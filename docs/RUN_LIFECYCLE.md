@@ -59,7 +59,9 @@ stopped, not only that it stopped:
 - `cancelled` and `interrupted` keep their meanings above.
 
 A stopped run without a recorded audit reports `audit_status: not_run`; `pending` means the
-run is still active.
+run is still active. An audit session that ran and then exited nonzero, timed out or returned no
+final structured response reports `audit_status: failed` (`cancelled` when stopped by the
+service). The run is `partial` with `verification.failure` set, and no claim is active.
 
 ## Scientific tools
 

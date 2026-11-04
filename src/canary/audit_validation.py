@@ -151,7 +151,22 @@ def bind(payload, raw, *, passages=()):
             check['validation_issue'] = 'No unique valid evidence-independence check'
             errors.append(item['id'] + ': No unique valid evidence-independence check')
         independence.append(check)
-    audit.update(claim_checks=bound, evidence_checks=independence, validation_issues=errors,
+    findings = []
+    for index, finding in enumerate(rows(audit.get('findings')), 1):
+        if not isinstance(finding, dict):
+            errors.append(f'Audit finding {index} is not a typed record')
+            continue
+        label = str(finding.get('id') or index)
+        named = finding.get('claim_ids', [])
+        if not isinstance(named, list) or any(not isinstance(i, str) for i in named):
+            errors.append('Audit finding ' + label + ' has invalid claim IDs')
+            named = [i for i in rows(named) if isinstance(i, str)]
+        unknown = [i for i in named if i not in known]
+        if unknown:
+            # Unknown IDs never widen a finding; one naming no current claim is reported for the run.
+            errors.append('Audit finding ' + label + ' names unknown claim IDs: ' + ', '.join(unknown))
+        findings.append(dict(finding, claim_ids=named))
+    audit.update(claim_checks=bound, evidence_checks=independence, findings=findings, validation_issues=errors,
         snapshot_sha256=snapshot(payload), standard_version=STANDARD_VERSION,
         audit_complete=audit.get('audit_complete') is True and not errors and not missing_independence and
             all(c['assessment'] != 'not_checked' for c in bound))

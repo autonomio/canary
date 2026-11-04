@@ -96,8 +96,8 @@ def test_dependency_and_premise_closure_withholds_supported_dependents(tmp_path)
     final=corrections.finalize(payload,bound,[])
     assert not final['claims'] and len(final['withheld_claims'])==3
     assert not final['claim_links']
-    assert not any(e.get('premise_claim_ids') for e in final['evidence'])
-    assert len(final['withheld_evidence'])==1
+    # E1 serves only withheld claims and their dropped link; E2 also has a withheld premise.
+    assert not final['evidence'] and [e['id'] for e in final['withheld_evidence']]==['E1','E2']
     assert 'Depends on withheld' in final['withheld_claims'][1]['reason']
 
 
@@ -243,6 +243,70 @@ def test_failed_correction_receipt_closes_profile_and_remains_inspectable(tmp_pa
     run_dashboard(tmp_path,graph,"""
 assert.match(claimHistoryHtml(graph,'C1'),/correction failed/);
 assert.match(claimHistoryHtml(graph,'C1'),/Synthetic connection failure/);
+""")
+
+
+def test_withheld_only_evidence_and_results_leave_active_output_while_active_links_stay(tmp_path):
+    payload,_=prepared(tmp_path)
+    text=(tmp_path/'texts/W1.txt').read_text();start=text.index('This is not')
+    with (tmp_path/'passages/W1.jsonl').open('a') as stream:
+        stream.write(json.dumps({'id':'W1-p0002','reference_id':'W1','page':None,'start':start,'end':len(text),'text':text[start:]})+'\n')
+    raw=engine.read(tmp_path/'investigation.json')
+    def result(identifier,value):
+        return {'id':identifier,'reference_ids':['W1'],'result_type':'measured','version_or_cohort_note':'Synthetic cohort only.',
+            'fields':{name:({'text':value,'passage_ids':['W1-p0001']} if name=='value' else None)
+                for name in ('system','intervention','comparator','conditions','endpoint','value','units','sample_size','reported_uncertainty')}}
+    raw['study_results']=[result('S1','Synthetic value'),result('S2','Withheld synthetic value')]
+    first=raw['claims'][0];first.update(kind='reported_finding',study_result_ids=['S1'])
+    raw['claims']+=[dict(deepcopy(first),id='C2',text='Second synthetic finding.',evidence_ids=['E2'],study_result_ids=['S2']),
+        dict(deepcopy(first),id='C3',text='Third synthetic record.',kind='source_record',evidence_ids=['E3'],study_result_ids=[])]
+    raw['evidence']+=[dict(deepcopy(raw['evidence'][0]),id='E2',relation='contradicts'),
+        dict(deepcopy(raw['evidence'][0]),id='E3',passage_ids=['W1-p0002']),dict(deepcopy(raw['evidence'][0]),id='E4')]
+    raw['contradictions']=[{'id':'K1','kind':'between_sources','description':'Synthetic contrast.','claim_ids':['C1','C2'],
+        'evidence_ids':['E2'],'comparability':'Synthetic.','resolution':'unresolved','why_it_matters':'Synthetic.'}]
+    raw['gaps'].append({'id':'G2','kind':'missing_data','description':'Synthetic standalone gap.','basis':'Fixture.',
+        'claim_ids':[],'evidence_ids':['E4'],'needed_to_resolve':'More data.'})
+    engine.write(tmp_path/'investigation.json',raw)
+    payload=engine.bind_payload(tmp_path)
+    assert payload['mechanical_audit']['pass'],payload['mechanical_audit']['issues']
+    review=audit_for(payload)
+    review['claim_checks'][0]['uncertainty_review']={'recommended_class':'high','reason':'Synthetic contrast requires caution.',
+        'evidence_ids':['E1','E3'],'prior_claim_id':None,'prior_class':None,'prior_match_reason':'No prior supplied.'}
+    for check in review['claim_checks'][1:]: check.update(assessment='unresolved',issue_types=['missing_scope'])
+    review['evidence_checks']=[dict(deepcopy(review['evidence_checks'][0]),evidence_id=e,
+        passage_ids=['W1-p0002' if e=='E3' else 'W1-p0001']) for e in ('E1','E2','E3','E4')]
+    bound=audit_validation.bind(payload,review)
+    final=corrections.finalize(payload,bound,[{'round':0,'kind':'audit','audit':bound}])
+    assert [c['id'] for c in final['claims']]==['C1']
+    # E2 is counter-evidence in K1, which still names active C1; E4 serves a gap naming no claim.
+    assert [e['id'] for e in final['evidence']]==['E1','E2','E4'] and [e['id'] for e in final['withheld_evidence']]==['E3']
+    assert [r['id'] for r in final['study_results']]==['S1'] and [r['id'] for r in final['withheld_study_results']]==['S2']
+    assert [[r['id'] for r in w['study_results']] for w in final['withheld_claims']]==[['S2'],[]]
+    assert final['contradictions'][0]['evidence_ids']==['E2'] and final['contradictions'][0]['withheld_claim_ids']==['C2']
+    for field in ('evidence','study_results'):
+        reintroduced=deepcopy(final);reintroduced[field]=deepcopy(final['verification']['audit_basis'][field])
+        with pytest.raises(ValueError,match='used only by withheld claims'):
+            corrections.verify_final(reintroduced)
+    engine.write(tmp_path/'payload.json',final);engine.write(tmp_path/'audit.json',bound)
+    run=engine.read(tmp_path/'run.json');run.update(status='complete',answered=True);engine.write(tmp_path/'run.json',run)
+    coverage_export.export_bundle(tmp_path);research_bundle.seal(tmp_path)
+    exported=bundle_connectors.resolvent(tmp_path)
+    schema=json.loads((Path(__file__).parent/'fixtures/resolvent-submission.schema.json').read_text())
+    jsonschema.validate(exported,schema,format_checker=jsonschema.FormatChecker())
+    metadata=exported['method_metadata']
+    assert [e['id'] for e in exported['evidence']]==['e1','e2','e3'] and metadata['id_map']['evidence']=={'E1':'e1','E2':'e2','E4':'e3'}
+    assert [s['excerpt'] for s in exported['sources']]==[text]  # W1-p0002 served only withheld E3.
+    assert [r['id'] for r in metadata['study_results']]==['S1'] and [r['id'] for r in metadata['withheld_study_results']]==['S2']
+    assert metadata['contradictions'][0]['evidence_ids']==['e2']
+    recommendation=metadata['claim_metadata']['c1']['uncertainty_review']
+    assert recommendation['status']=='assessed' and recommendation['recommended_class']=='high'
+    assert recommendation['evidence_ids']==['e1'] and recommendation['original_evidence_ids']==['E1','E3']
+    assert any('withheld from active output' in line for line in recommendation['limitations'])
+    graph=engine.read(tmp_path/'answer.json')
+    assert 'E3' not in {e['origin_evidence_id'] for e in graph['evidence']}
+    assert graph['source_checks'][0]['uncertainty_review']['recommended_class']=='high'
+    run_dashboard(tmp_path,graph,"""
+assert.match(withheldClaimsHtml(graph),/Withheld synthetic value/);
 """)
 
 
