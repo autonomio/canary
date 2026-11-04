@@ -801,8 +801,19 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
             usage = receipt.get("usage", {})
             profile_roles[role] = dict(receipt, active=False, tokens=usage.get("totals", {}),
                                        receipts=usage.get("receipts", []))
+    for path in sorted((bundle / "rounds").glob("[0-9][0-9][0-9]/*-receipt.json")):
+        role = path.name.removesuffix("-receipt.json")
+        if role not in ("audit", "correction"):
+            continue
+        receipt = _load(path, {})
+        if receipt.get("ended_at"):
+            usage = receipt.get("usage", {})
+            profile_roles[f"{role}_{path.parent.name}"] = dict(receipt, active=False,
+                tokens=usage.get("totals", {}), receipts=usage.get("receipts", []))
     if profile_roles:
         profile = dict(profile, roles=profile_roles)
+        if profile.get("active_role") in profile_roles and not profile_roles[profile["active_role"]].get("active"):
+            profile["active_role"] = None
         _save(bundle / "profile.json", profile)
     model_receipts = _profile_receipts(profile) or _normalize_receipts(run.get("receipts"))
     graph["profile_summary"] = {"roles": _profile_roles(profile)}
@@ -819,7 +830,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     by_origin = {e["id"]: e for e in payload.get("evidence", [])}
     for item in graph["evidence"]:
         item["premise_claim_ids"] = by_origin.get(item.get("origin_evidence_id", item["id"]), {}).get("premise_claim_ids", [])
-    graph["export_policy"] = {"connector_version": 3} if payload.get("verification", {}).get("version") else {}
+    graph["export_policy"] = {"connector_version": 4} if payload.get("verification", {}).get("version") else {}
     graph["history_manifest"] = payload.get("history_manifest", [])
     graph["verification_progress"] = payload.get("verification_progress")
     graph["claim_links"] = payload.get("claim_links", [])

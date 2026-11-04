@@ -827,6 +827,7 @@ def bind_payload(workspace, *, investigation=None):
     for question in raw.get("next_questions", []):
         require(question.get("gap_ids", []), {r["id"] for r in raw.get("gaps", [])}, "gap", question["id"])
         require(question.get("residue_ids", []), {r["id"] for r in raw.get("residue", [])}, "residue", question["id"])
+    claim_blocking_issues = list(issues)
     reviews = read(workspace / "reviewed-papers.json", [])
     selected = set(read(workspace / "selection.json", {}).get("selected_for_review_ids", []))
     admitted, additional_admitted, seen_publications, seen_bodies = [], [], set(), set()
@@ -869,10 +870,12 @@ def bind_payload(workspace, *, investigation=None):
         accounting['additional_documents_reviewed'] = len(additional_admitted)
     from .claim_checks import check as check_claims
     payload["claim_review_checks"] = check_claims(payload)
-    issues.extend(
-        ", ".join(record["claim_ids"]) + ": " + record["message"]
-        for record in payload["claim_review_checks"] if record["blocking"])
+    structural_issues = [", ".join(record["claim_ids"]) + ": " + record["message"]
+        for record in payload["claim_review_checks"] if record["blocking"]]
+    issues.extend(structural_issues)
+    claim_blocking_issues.extend(structural_issues)
     mechanical = {"at": now(), "pass": not issues, "issues": issues,
+                  "claim_blocking_issues": claim_blocking_issues,
                   "scope": "Identity/span/hash/graph/record checks; does not certify scientific interpretation, relevance or population coverage."}
     payload["raw_investigation_sha256"] = hashlib.sha256((workspace / "investigation.json").read_bytes()).hexdigest()
     payload["mechanical_audit"] = mechanical
@@ -1055,7 +1058,7 @@ def refresh_committed_progress(workspace, role, model, effort, thread_id, starte
 
 def scientific_session(workspace, role, model, effort, prompt, shape, *, executable, audit_timeout=None,
                        execution=None, run_key=None, execution_environment=None, round_index=None,
-                       resume_thread_id=None, expected_backend=None):
+                       resume_thread_id=None, expected_backend=None, resume_archived=True):
     if execution is None:
         # Detached orchestration workers use the API-owned native runtime. They
         # do not launch providers or create a second shared server.
@@ -1072,11 +1075,11 @@ def scientific_session(workspace, role, model, effort, prompt, shape, *, executa
         return read(directory / ('investigation.json' if role == 'research' else role + '.json')), body
     return _scientific_session(workspace, role, model, effort, prompt, shape,
         executable=executable, audit_timeout=audit_timeout, execution=execution, run_key=run_key, environment=execution_environment,
-        round_index=round_index, resume_thread_id=resume_thread_id, expected_backend=expected_backend)
+        round_index=round_index, resume_thread_id=resume_thread_id, expected_backend=expected_backend, resume_archived=resume_archived)
 
 
 def _scientific_session(workspace, role, model, effort, prompt, shape, *, executable,
-                        audit_timeout, execution, run_key, environment, round_index, resume_thread_id, expected_backend):
+                        audit_timeout, execution, run_key, environment, round_index, resume_thread_id, expected_backend, resume_archived):
     session = None
     directory = workspace if round_index is None else workspace / "rounds" / f"{round_index:03d}"
     directory.mkdir(parents=True, exist_ok=True)
@@ -1091,7 +1094,7 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
         executable = context['CANARY_CODEX_EXECUTABLE']
         command = command_line(executable, model, effort, workspace, schema_path, output_path,
                                store=context['CANARY_CODEX_CREDENTIALS_STORE'], resume_thread_id=resume_thread_id)
-        session = execution.open(run_key, role, workspace, model, effort, shape, output_path, None, command, environment, resume_thread_id=resume_thread_id, expected_backend=expected_backend)
+        session = execution.open(run_key, role, workspace, model, effort, shape, output_path, None, command, environment, resume_thread_id=resume_thread_id, expected_backend=expected_backend, resume_archived=resume_archived)
         write(schema_path, shape)
         (directory / (role + "-prompt.txt")).write_text(prompt)
         event(workspace, role + "_started", model=model, reasoning_effort=effort)

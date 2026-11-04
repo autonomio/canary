@@ -91,6 +91,9 @@ def retain(workspace):
     workspace = Path(workspace)
     if exists(workspace):
         return manifest(workspace)
+    run_path = workspace / 'run.json'
+    if run_path.is_file() and json.loads(run_path.read_text()).get('verification_failure'):
+        raise ValueError('Verification stopped; working sources must remain available')
     if not (workspace / '.run-reservation').is_file():
         raise ValueError('Only a newly reserved research workspace can be released')
     contribution = bundle_connectors.resolvent(workspace)

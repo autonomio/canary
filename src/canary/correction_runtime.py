@@ -21,6 +21,15 @@ def protected(workspace):
     return {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths if p.is_file()}
 
 
+def changed_inputs(workspace, before, role, number):
+    after = protected(workspace)
+    directory = workspace/'rounds'/f'{number:03d}'
+    allowed = {directory/(role+suffix) for suffix in ('.json', '-schema.json', '-response.json',
+        '-prompt.txt', '-events.jsonl', '-stderr.log', '-invocation.json', '-receipt.json',
+        '-active.json', '-incomplete-output.json')}
+    return any(after.get(path) != sha for path, sha in before.items()) or bool(after.keys() - before.keys() - allowed)
+
+
 def verify(workspace, payload, manifest, command, executable):
     from . import coverage_runtime as engine
     workspace = Path(workspace)
@@ -38,6 +47,8 @@ def verify(workspace, payload, manifest, command, executable):
             research_status='candidate_research_pending_audit'))
     manifest['research_finished_at'] = engine.now()
     failure = None
+    phase = ('audit', 0)
+    attempt, receipt = None, {}
     try:
         for round_index in range(manifest['max_correction_rounds'] + 1):
             engine.check_cancelled()
@@ -60,11 +71,14 @@ def verify(workspace, payload, manifest, command, executable):
             if manifest.get('additional_sources'):
                 from .source_adapters import GUIDANCE
                 prompt += GUIDANCE.format(sources=', '.join(manifest['additional_sources']))
+            phase = ('audit', round_index)
+            attempt, receipt = None, {}
             raw, receipt = engine.scientific_session(workspace, 'audit', protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT,
                 prompt, protocol.audit_schema(), executable=executable, round_index=round_index)
+            attempt = raw
             engine.check_cancelled()
             engine.wait_for_tools(os.environ.get('RUN_KEY'))
-            if any(not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest() != sha for p, sha in before.items()):
+            if changed_inputs(workspace, before, 'audit', round_index):
                 raise ValueError('Read-only audit changed protected scientific inputs')
             passages = [json.loads(line) for p in (workspace/'passages').glob('*.jsonl') for line in p.read_text().splitlines()]
             audit = audit_validation.bind(payload, raw, passages=passages)
@@ -89,12 +103,15 @@ def verify(workspace, payload, manifest, command, executable):
                 'claim_review_checks': payload.get('claim_review_checks', [])}
             engine.write(workspace/'rounds'/f'{next_round:03d}'/'correction-input.json', correction_input)
             before = protected(workspace)
+            phase = ('correction', next_round)
+            attempt, receipt = None, {}
             response, receipt = engine.scientific_session(workspace, 'correction', protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT,
                 protocol.correction_prompt(manifest['question'], command, next_round), corrections.schema(),
                 executable=executable, round_index=next_round)
+            attempt = response
             engine.check_cancelled()
             engine.wait_for_tools(os.environ.get('RUN_KEY'))
-            if any(not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest() != sha for p, sha in before.items()):
+            if changed_inputs(workspace, before, 'correction', next_round):
                 raise ValueError('Correction changed protected inputs instead of returning a typed revision')
             proposed, removed = corrections.apply(dict(payload, canonical_passage_ids=[p['id'] for p in passages]), audit, response)
             withdrawn.extend(removed)
@@ -106,6 +123,22 @@ def verify(workspace, payload, manifest, command, executable):
     except Exception as error:
         failure = type(error).__name__ + ': ' + str(error)
         manifest['verification_failure'] = failure
+        engine.write(workspace/'run.json', manifest)
+        kind, number = phase
+        if not any(r['kind'] == kind and r['round'] == number for r in history):
+            directory = workspace/'rounds'/f'{number:03d}'
+            response_path = directory/(kind+'-response.json')
+            if not response_path.is_file():
+                response_path = directory/(kind+'.json')
+            try:
+                response_text = response_path.read_text(encoding='utf-8')
+            except OSError:
+                response_text = None
+            history.append({'round': number, 'kind': kind, 'status': 'cancelled' if
+                isinstance(error, engine.RunCancelled) or engine.cancellation_requested() else 'failed',
+                'failure': failure, 'claim_ids': [c['id'] for c in payload.get('claims', [])],
+                'receipt': engine.read(directory/(kind+'-receipt.json'), receipt), 'response_text': response_text,
+                'raw_audit' if kind == 'audit' else 'response': attempt})
         # Leave no candidate silently accepted after a partial/failing correction.
         if (workspace/'investigation.json').read_bytes() != original:
             engine.immutable_bytes(workspace/'investigation-unexpected-change.json', (workspace/'investigation.json').read_bytes())

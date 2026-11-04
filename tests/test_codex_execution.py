@@ -579,3 +579,21 @@ def test_actual_api_worker_runs_research_correction_fresh_audit_and_retains_hist
             assert all(c['params']['model']=='gpt-6.1-sol' for c in recorded if c['method']=='thread/start')
     finally:
         server.shutdown();server.server_close();thread.join(5)
+
+
+
+def test_failed_research_archival_can_resume_the_still_open_thread(native):
+    pool,home,root=native
+    (home/'fail-archive').touch()
+    _,first=execute(pool,root,'archive-failed-resume')
+    assert first['cleanup']['archived'] is False
+    (home/'fail-archive').unlink()
+    workspace=root/'archive-failed-resume'
+    _,resumed=engine.scientific_session(workspace,'correction','gpt-6.1-sol','xhigh','Synthetic continuation',{},
+        executable=str(root/'codex'),execution=pool,run_key='archive-failed-resume',round_index=1,
+        resume_thread_id=first['thread_id'],expected_backend=first['backend'],resume_archived=False)
+    assert resumed['thread_id']==first['thread_id']
+    assert not any(c['method']=='thread/unarchive' for c in calls(home))
+    run_dashboard(root,{'run':{'selection_method':'coverage-guided'},'profile':{'roles':{'correction_001':resumed}}},"""
+assert.match(coverageTokenHtml(graph),/resumed research conversation/);
+""")

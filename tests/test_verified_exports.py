@@ -40,7 +40,7 @@ def finish(workspace, *, independent=True, low=True):
     return final,original
 
 
-def test_v3_preserves_audited_class_independence_low_uncertainty_and_typed_results(tmp_path):
+def test_v4_preserves_audited_class_independence_low_uncertainty_and_typed_results(tmp_path):
     final,_=finish(tmp_path)
     result=bundle_connectors.resolvent(tmp_path)
     schema=json.loads((Path(__file__).parent/'fixtures/resolvent-submission.schema.json').read_text())
@@ -49,7 +49,7 @@ def test_v3_preserves_audited_class_independence_low_uncertainty_and_typed_resul
     assert result['claims'][0]['uncertainty']=='low'
     assert result['evidence'][0]['independent'] is True
     metadata=result['method_metadata']
-    assert metadata['connector_version']==3
+    assert metadata['connector_version']==4
     assert metadata['study_results'][0]['claim_ids']==['c1']
     assert metadata['study_results'][0]['fields']['value']['verbatims'][0]['text'].startswith('Synthetic fixture')
     assert metadata['claim_metadata']['c1']['final_verdict']=='supported'
@@ -99,7 +99,7 @@ def test_dependency_and_premise_closure_withholds_supported_dependents(tmp_path)
     assert 'Depends on withheld' in final['withheld_claims'][1]['reason']
 
 
-def test_v3_connectors_are_only_typed_within_run_links(tmp_path):
+def test_v4_connectors_are_only_typed_within_run_links(tmp_path):
     final,_=finish(tmp_path)
     payload=deepcopy(final['verification']['audit_basis'])
     payload.update(executive_summary=[],caveats=[],next_questions=[])
@@ -216,4 +216,29 @@ def test_withdrawn_only_output_keeps_inspectable_passages_and_a_report(tmp_path)
     run_dashboard(tmp_path,graph,"""
 assert.match(withheldClaimsHtml(graph),/Inspect retained source passage/);
 assert.match(withheldClaimsHtml(graph),/data-qa-passage="W1-p0001"/);
+""")
+
+
+
+def test_failed_correction_receipt_closes_profile_and_remains_inspectable(tmp_path):
+    final,_=finish(tmp_path)
+    phase={'round':1,'kind':'correction','status':'failed','failure':'Synthetic connection failure',
+        'claim_ids':['C1'],'receipt':{'thread_id':'original-writer'},'response_text':'Saved draft only.'}
+    final['claim_revisions'].append(phase)
+    final['history_manifest']=revision_artifacts.inventory(final['claim_revisions'])
+    engine.write(tmp_path/'payload.json',final)
+    engine.write(tmp_path/'profile.json',{'roles':{'correction_001':{'active':True,'tokens':{}}},'active_role':'correction_001'})
+    receipt={'ended_at':'2026-11-04T12:00:00Z','exit_code':1,'thread_id':'original-writer','usage':{'available':False}}
+    engine.write(tmp_path/'rounds/001/correction-receipt.json',receipt)
+    coverage_export.export_bundle(tmp_path)
+    profile=engine.read(tmp_path/'profile.json')
+    assert profile['active_role'] is None
+    assert profile['roles']['correction_001']['active'] is False
+    assert profile['roles']['correction_001']['exit_code']==1
+    record=revision_artifacts.read(final,1,'correction')
+    assert json.loads(record['content'])['response_text']=='Saved draft only.'
+    graph=engine.read(tmp_path/'answer.json')
+    run_dashboard(tmp_path,graph,"""
+assert.match(claimHistoryHtml(graph,'C1'),/correction failed/);
+assert.match(claimHistoryHtml(graph,'C1'),/Synthetic connection failure/);
 """)

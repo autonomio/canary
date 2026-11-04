@@ -81,9 +81,12 @@ def bind(payload, raw, *, passages=()):
     known = set(claim_counts)
     errors = ['Audit check uses unknown claim ID: ' + str(c.get('claim_id')) for c in checks if c.get('claim_id') not in known]
     reviewed = set(r for r in rows(audit.get('source_reviewed_ids')) if isinstance(r, str)) & references.keys()
-    bound = []
+    bound, seen = [], set()
     for claim in claims:
         identifier = claim['id']
+        if identifier in seen:
+            continue  # One explicitly ambiguous check; never pick a duplicate claim occurrence.
+        seen.add(identifier)
         candidates = [c for c in checks if c.get('claim_id') == identifier]
         valid = counts[identifier] == 1 and claim_counts[identifier] == 1 and conforms(candidates[0], check_schema)
         check = deepcopy(candidates[0]) if valid else {

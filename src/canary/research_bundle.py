@@ -238,7 +238,8 @@ def run_compiled(staged, workspace):
                 coverage_export.export_bundle(workspace)
             finally:
                 seal(workspace)
-            if os.environ.get('CANARY_COMPACT_OUTPUT') == '1':
+            if (os.environ.get('CANARY_COMPACT_OUTPUT') == '1' and
+                    not coverage_runtime.read(workspace/'run.json', {}).get('verification_failure')):
                 from .compact_bundle import retain
                 retain(workspace)
 

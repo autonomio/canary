@@ -166,6 +166,9 @@ def test_interruption_or_protected_input_change_cannot_leave_a_claim_active(tmp_
         result = engine.read(tmp_path/'payload.json')
     else: result = correction_runtime.verify(tmp_path,payload,manifest,'tools','synthetic')
     assert result['verification']['failure']
+    failed=[r for r in result['claim_revisions'] if r.get('failure')]
+    assert len(failed)==1 and failed[0]['kind']=='correction' and failed[0]['round']==1
+    assert failed[0]['status']==('cancelled' if failure=='cancelled' else 'failed')
     assert not result['claims']
     assert (tmp_path/'investigation.json').read_bytes() == original
 
@@ -232,3 +235,95 @@ def test_final_projection_never_preserves_a_verdict_after_new_shared_edits(tmp_p
     elif edit=='source': final['references'][0]['title']+=' Changed.'
     else: final['evidence'][0]['interpretation']+=' Changed.'
     assert not audit_validation.current(corrections.audit_basis(final),final['claims'][0],bound['claim_checks'][0])
+
+
+@pytest.mark.parametrize('issue', ['duplicate_review', 'minimum_unmet'])
+def test_run_level_record_issues_do_not_discard_supported_claims(tmp_path, monkeypatch, issue):
+    payload, manifest = prepared(tmp_path)
+    if issue == 'duplicate_review':
+        reviews = engine.read(tmp_path/'reviewed-papers.json')
+        engine.write(tmp_path/'reviewed-papers.json', reviews * 2)
+    else:
+        manifest['minimum_papers'] = 2
+        engine.write(tmp_path/'run.json', manifest)
+    payload = engine.bind_payload(tmp_path)
+    assert payload['mechanical_audit']['pass'] is False
+    assert payload['mechanical_audit']['claim_blocking_issues'] == []
+    requests = []
+    def scientific(*args, **kwargs):
+        requests.append(args[1])
+        return audit_for(payload), {}
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    final = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert requests == ['audit']
+    assert len(final['claims']) == 1 and not final['withheld_claims']
+    assert final['verification']['run_issues'] == payload['mechanical_audit']['issues']
+    coverage_export.export_bundle(tmp_path)
+    graph = engine.read(tmp_path/'answer.json')
+    run_dashboard(tmp_path, graph, "assert.match(verificationHtml(graph),/Run-level record check/);")
+
+
+@pytest.mark.parametrize('kind', ['claims', 'evidence'])
+def test_duplicate_scientific_ids_finish_with_inspectable_withheld_records(tmp_path, monkeypatch, kind):
+    payload, manifest = prepared(tmp_path, rounds=0)
+    raw = engine.read(tmp_path/'investigation.json')
+    raw[kind].append(deepcopy(raw[kind][0]))
+    engine.write(tmp_path/'investigation.json', raw)
+    payload = engine.bind_payload(tmp_path)
+    monkeypatch.setattr(engine, 'scientific_session', lambda *a, **k: (audit_for(payload), {}))
+    final = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert not final['claims'] and final['withheld_claims']
+    assert len(final['withheld_claims']) == (2 if kind == 'claims' else 1)
+    if kind == 'evidence':
+        assert not final['evidence'] and len(final['withheld_evidence']) == 2
+    assert final['research_status'] != 'candidate_research_pending_audit'
+    coverage_export.export_bundle(tmp_path)
+    manifest.update(status='complete')
+    engine.write(tmp_path/'run.json', manifest)
+    research_bundle.seal(tmp_path)
+    (tmp_path/'.run-reservation').touch()
+    contribution = compact_bundle.retain(tmp_path)
+    assert contribution
+    assert len(compact_bundle.payload(compact_bundle.read(tmp_path))['withheld_claims']) == len(final['withheld_claims'])
+
+
+@pytest.mark.parametrize('role', ['audit', 'correction'])
+@pytest.mark.parametrize('name', ['scarcity.json', 'passages/injected.jsonl', 'download-receipts/injected.json'])
+def test_added_scientific_files_are_rejected_and_failed_attempts_are_retained(tmp_path, monkeypatch, role, name):
+    payload, manifest = prepared(tmp_path, rounds=1)
+    returned = response(payload) if role == 'correction' else audit_for(payload)
+    receipt = {'thread_id': 'synthetic-native', 'exit_code': 0}
+    def scientific(workspace, current_role, *args, **kwargs):
+        if current_role == role:
+            engine.write(workspace/name, {'unexpected': 'scientific input'})
+            return returned, receipt
+        return audit_for(payload, 'correction_needed'), {}
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    final = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert not final['claims']
+    assert 'protected' in final['verification']['failure']
+    number = 0 if role == 'audit' else 1
+    from canary import revision_artifacts
+    artifact = revision_artifacts.read(final, number, role)
+    saved = json.loads(artifact['content'])
+    assert saved['raw_audit' if role == 'audit' else 'response'] == returned
+    assert saved['receipt'] == receipt and saved['status'] == 'failed'
+    assert engine.read(tmp_path/'run.json')['verification_failure']
+    (tmp_path/'.run-reservation').touch()
+    with pytest.raises(ValueError, match='working sources'):
+        compact_bundle.retain(tmp_path)
+
+
+def test_rejected_correction_keeps_complete_response_receipt_and_original_payload(tmp_path, monkeypatch):
+    payload, manifest = prepared(tmp_path, rounds=1)
+    invalid = response(payload)
+    invalid['responses'] = []
+    def scientific(workspace, role, *args, **kwargs):
+        return (audit_for(payload, 'correction_needed'), {}) if role == 'audit' else (invalid, {'exit_code': 0})
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    final = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert not final['claims']
+    from canary import revision_artifacts
+    saved = json.loads(revision_artifacts.read(final, 1, 'correction')['content'])
+    assert saved['response'] == invalid and saved['receipt'] == {'exit_code': 0}
+    assert final['withheld_claims'][0]['claim'] == payload['claims'][0]

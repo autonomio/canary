@@ -163,7 +163,7 @@ VERIFIED_UNCERTAINTY_POLICY = ('Original low uncertainty is retained only with e
 
 
 def verified_export(result, payload):
-    """Mechanical v3 mapping of the producer's already verified, closed graph."""
+    """Mechanical v4 mapping of the producer's already verified, closed graph."""
     from . import audit_validation
     from .corrections import audit_basis
     metadata = result['method_metadata']
@@ -216,7 +216,7 @@ def verified_export(result, payload):
         return dict(record, canary_claim_ids=record.get('claim_ids', []), canary_evidence_ids=record.get('evidence_ids', []),
             claim_ids=[mapping['claims'][i] for i in record.get('claim_ids', [])],
             evidence_ids=[mapping['evidence'][i] for i in record.get('evidence_ids', [])])
-    metadata.update(connector_version=3, uncertainty_policy=VERIFIED_UNCERTAINTY_POLICY,
+    metadata.update(connector_version=4, uncertainty_policy=VERIFIED_UNCERTAINTY_POLICY,
         evidence_independence=independence,
         study_results=[dict(r, claim_ids=[mapping['claims'][c['id']] for c in payload['claims'] if r['id'] in c.get('study_result_ids', [])])
             for r in payload.get('study_results', [])],

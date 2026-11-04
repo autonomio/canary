@@ -90,7 +90,7 @@ class CodexExecution:
                     'active_shared_sessions': sum(s.backend == SHARED for s in self.sessions.values()),
                     'active_exec_sessions': sum(s.backend == LEGACY for s in self.sessions.values())}
 
-    def open(self, key, role, workspace, model, effort, shape, output, stderr, command, environment=None, *, resume_thread_id=None, expected_backend=None):
+    def open(self, key, role, workspace, model, effort, shape, output, stderr, command, environment=None, *, resume_thread_id=None, expected_backend=None, resume_archived=True):
         self.context()
         with self.auth.lock:
             generation = self.auth.proc
@@ -119,6 +119,7 @@ class CodexExecution:
             if expected_backend is not None and session.backend != expected_backend:
                 raise RuntimeError('Research continuation cannot change its native execution backend')
             session.resume_thread_id = resume_thread_id
+            session.resume_archived = resume_archived
             self.sessions[key] = session
         return session
 
@@ -168,6 +169,7 @@ class Session:
         self.cancel_at = None
         self.cleanup = {}
         self.resume_thread_id = None
+        self.resume_archived = True
 
     def invocation(self):
         return {'backend': self.backend, 'fallback_reason': None if self.backend == SHARED else FALLBACK,
@@ -210,7 +212,8 @@ class Session:
                 'approvalPolicy': 'on-request', 'approvalsReviewer': 'auto_review',
                 'sandbox': 'workspace-write', 'config': config}
             if self.resume_thread_id:
-                self._rpc('thread/unarchive', {'threadId': self.resume_thread_id})
+                if self.resume_archived:
+                    self._rpc('thread/unarchive', {'threadId': self.resume_thread_id})
                 params.update(threadId=self.resume_thread_id, excludeTurns=True)
             result = self._rpc('thread/resume' if self.resume_thread_id else 'thread/start', params)
             self.thread_id = result['thread']['id']

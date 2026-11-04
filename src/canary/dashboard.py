@@ -490,7 +490,8 @@ class Supervisor:
             executable=context['CANARY_CODEX_EXECUTABLE'], audit_timeout=None,
             execution=self.execution, run_key=key, round_index=round_index,
             resume_thread_id=resume.get('thread_id') if resume else None,
-            expected_backend=resume.get('backend') if resume else None, execution_environment={
+            expected_backend=resume.get('backend') if resume else None,
+            resume_archived=resume.get('cleanup', {}).get('archived', True) if resume else True, execution_environment={
                 'RUN_KEY': key, 'OUT': str(workspace), 'CANARY_DATA_DIR': str(self.root.resolve()),
                 'CANARY_RUNS_PORT': str(self.port), 'CANARY_API_URL': f'http://127.0.0.1:{self.port}',
                 'CANARY_RUNS_REGISTRY': str(self.registry.resolve())})

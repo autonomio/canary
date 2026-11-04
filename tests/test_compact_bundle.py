@@ -315,3 +315,16 @@ def test_frontend_explains_source_release_validation(tmp_path):
 S.selected='synthetic';
 assert.match(bundleHtml(""" + json.dumps(view) + """),/Working sources are released only after the saved bundle passes integrity and input checks/);
 """)
+
+
+
+def test_verification_failure_never_releases_full_working_sources(tmp_path):
+    prepared(tmp_path)
+    run=json.loads((tmp_path/'run.json').read_text())
+    run['verification_failure']='Synthetic provider connection failure'
+    research_bundle.write_json(tmp_path/'run.json',run)
+    research_bundle.seal(tmp_path)
+    with pytest.raises(ValueError,match='working sources must remain available'):
+        compact_bundle.retain(tmp_path)
+    assert (tmp_path/'papers/W1.txt').is_file()
+    assert not compact_bundle.exists(tmp_path)
