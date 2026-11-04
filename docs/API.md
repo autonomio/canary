@@ -127,3 +127,5 @@ not a submitted research declaration. Keep the deployment's access boundary priv
 compile → submit → findings → claim/evidence/passage → broader context → original
 material, without reading the research filesystem in the client. Its science is
 explicitly synthetic; the subsequent deployment proof records live research separately.
+
+Question submissions also accept optional `research_state` (a JSON object, at most 1 MiB) and `continue_research` (boolean, default false), under `spec` or alongside `kind: question`. A true continuation flag requires a nonempty state. The API preserves the exact starting state; the CLI YAML declaration and MCP contract expose the same fields. See [continuation inputs](RESEARCH_BUNDLE.md#continue-from-supplied-research-state) for paper-coverage and unchanged-workflow semantics.

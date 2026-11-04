@@ -65,6 +65,8 @@ def schemas():
         'audit':obj({'model':fixed(protocol.AUDIT_MODEL),'effort':fixed(protocol.AUDIT_EFFORT),
                      'budget_seconds':{'type':'null','default':None,'description':'Audits have no duration limit.'}}),
         'retrieval':retrieval,
+        'research_state':nullable(dict(O,description='Supplied current research state, at most 1 MiB. Preserved as untrusted background, including paper references and review records.')),
+        'continue_research':dict(B,default=False,description='Continue from supplied research_state; avoid reselecting previously reviewed publications. Existing paper target and scientific workflow are unchanged.'),
         'subagents':{'type':'boolean','const':False}}, ['question'])
     native = obj({'yaml':dict(S,minLength=1),'spec':ref('ResearchDeclaration'),'name':S,'brief':S})
     native['oneOf'] = [{'required':['yaml']},{'required':['spec']}]
@@ -122,7 +124,7 @@ def schemas():
         'ResearchDeclaration':declaration,'NativeSubmission':native,
         'CompileRequest':dict(native,properties={k:v for k,v in native['properties'].items() if k in ('yaml','spec')}),
         'RunSubmission':{'anyOf':[ref('NativeSubmission'),
-            obj({'kind':fixed('question'),'question':S,'name':S,'brief':S},['kind','question'],closed=False),
+            obj({'kind':fixed('question'),'question':S,'name':S,'brief':S,'research_state':declaration['properties']['research_state'],'continue_research':declaration['properties']['continue_research']},['kind','question'],closed=False),
             obj({'name':S,'brief':S,'argv':arr(S),'env':obj({name:S for name in ('CANARY_STAGE','CANARY_TIMEOUT_S','CANARY_WHEELS')})},['name','argv'],closed=False)]},
         'CompiledResearch':compiled,'RecordedCompiledResearch':recorded_compiled,
         'RecordedResearchDeclaration':recorded_declaration,'BundleManifest':manifest,'AuthStatus':typed(AuthStatus),'Login':typed(Login),

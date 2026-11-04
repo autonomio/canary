@@ -203,13 +203,15 @@ class Supervisor:
         return self.start(body['command']+' '+str(body['options'].get('question',''))[:80],
                           'Retained compatibility workflow: '+body['command'], [], action=body)
 
-    def start_question(self, question: str, name: str = "", brief: str = "") -> dict:
+    def start_question(self, question: str, name: str = "", brief: str = "", *, research_state: dict | None = None, continue_research: bool = False) -> dict:
         question = question.strip()
         if not question:
             raise ValueError("question cannot be empty")
+        context = ({'research_state': research_state, 'continue_research': continue_research}
+                   if research_state is not None or continue_research is not False else {})
         return self.start(name or question[:120], brief or question[:2000],
                           ["bash", str(QUESTION_ENGINE_ROOT / "scripts/coverage_run.sh"), "ask", question],
-                          compiled=compile_mapping({'question': question}))
+                          compiled=compile_mapping({'question': question, **context}))
 
     def start_compiled(self, packet: dict, name: str = "", brief: str = "") -> dict:
         packet = verify_compiled(packet)
@@ -437,7 +439,7 @@ class Supervisor:
         additional = manifest.get('additional_sources', [])
         if role == 'research':
             model, effort = protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT
-            prompt = protocol.research_prompt(question, command, manifest.get('minimum_papers', 50), local_text=local, additional_sources=additional)
+            prompt = protocol.research_prompt(question, command, manifest.get('minimum_papers', 50), local_text=local, additional_sources=additional, research_state=bool(manifest.get("research_state")), continue_research=manifest.get("research_state", {}).get("continue_research", False))
             shape = protocol.investigation_schema()
         else:
             model, effort = protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT
@@ -445,6 +447,8 @@ class Supervisor:
             if additional:
                 from .source_adapters import GUIDANCE
                 prompt += GUIDANCE.format(sources=', '.join(additional))
+            if manifest.get("research_state"):
+                prompt += "\nRead research-state.json as supplied, unverified background. Check that inherited findings and reviews were not counted as fresh work; assess the stated continuation contribution.\n"
             shape = protocol.audit_schema()
         _, receipt = engine.scientific_session(workspace, role, model, effort, prompt, shape,
             executable=context['CANARY_CODEX_EXECUTABLE'], audit_timeout=None,
@@ -1323,7 +1327,8 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = 0
-        if length <= 0 or length > MAX_BODY:
+        limit = 4 * 1024 * 1024 if urlparse(self.path).path in ("/api/runs", "/api/runs/compile") else MAX_BODY
+        if length <= 0 or length > limit:
             return {}
         try:
             return json.loads(self.rfile.read(length) or b"{}")
@@ -1540,7 +1545,8 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/runs":
                 if body.get("kind") == "question":
                     started = self.supervisor.start_question(str(body.get("question", "")),
-                              str(body.get("name", "")), str(body.get("brief", "")))
+                              str(body.get("name", "")), str(body.get("brief", "")),
+                              **{k: body[k] for k in ("research_state", "continue_research") if k in body})
                 else:
                     started = self.supervisor.start(
                         str(body.get("name", "")), str(body.get("brief", "")),

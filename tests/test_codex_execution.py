@@ -431,3 +431,32 @@ def test_api_audit_uses_sol_xhigh_without_a_deadline(native,monkeypatch):
         assert kwargs['audit_timeout'] is None
     finally:
         server.shutdown();server.server_close();thread.join(5)
+
+
+@pytest.mark.parametrize('role', ['research', 'audit'])
+def test_http_execution_receives_recorded_research_state(native, role):
+    pool,home,root=native
+    server=dashboard.make_server(0,registry=root/'registry.json',root=root)
+    supervisor=server.RequestHandlerClass.supervisor
+    supervisor.auth.close();supervisor.auth=pool.auth;supervisor.execution=pool;pool.can_start=supervisor._can_execute
+    workspace=root/'continued';workspace.mkdir()
+    engine.write(workspace/'research-state.json', {'references':[{'id':'W-old'}]})
+    engine.write(workspace/'run.json', {'question':'Synthetic continuation?',
+        'status':'researching' if role=='research' else 'auditing', 'minimum_papers':50,
+        'research_state':{'continue_research':True,'sha256':'a'*64}})
+    runs.register_start('continued','Synthetic continuation','',kind='question',bundle=str(workspace),status='running',path=supervisor.registry)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        with httpx.Client(base_url=f'http://127.0.0.1:{server.server_port}',timeout=20,trust_env=False) as client:
+            response=client.post('/api/runs/continued/execution',json={'role':role})
+        assert response.status_code==200,response.text
+        request=next(c for c in calls(home) if c['method']=='turn/start')['params']
+        prompt=request['input'][0]['text']
+        assert 'research-state.json' in prompt
+        assert 'gpt-6.1-sol'==response.json()['model'] and response.json()['reasoning_effort']=='xhigh'
+        if role=='research':
+            assert 'Continue research from this supplied state' in prompt
+            assert 'No earlier experiment assets' not in prompt
+        else:assert 'inherited findings and reviews were not counted as fresh work' in prompt
+    finally:
+        server.shutdown();server.server_close();thread.join(5)

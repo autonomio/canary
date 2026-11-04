@@ -172,7 +172,7 @@ New runs rescan the configured directory; repeating settings does not freeze ext
 """
 
 
-def research_prompt(question, command, minimum_papers=50, *, local_text=False, additional_sources=()):
+def research_prompt(question, command, minimum_papers=50, *, local_text=False, additional_sources=(), research_state=False, continue_research=False):
     search = (LOCAL_TEXT_SCOPE if local_text else
         "Queries must use OpenAlex full-text-inclusive search=; abstract/title-only filters are prohibited. "
         "Collapse genuinely shared root queries while preserving question relevance.\n"
@@ -180,6 +180,8 @@ def research_prompt(question, command, minimum_papers=50, *, local_text=False, a
     if additional_sources:
         from .source_adapters import GUIDANCE
         search += GUIDANCE.format(sources=', '.join(additional_sources))
+    from .research_state import prompt as state_prompt
+    previous = state_prompt(continue_research) if research_state else "No earlier experiment assets, paper lists, answers or audits. No outputs from other sessions."
     return f"""Read the repository AGENTS.md first, then this workspace AGENTS.md. This is real research.
 Question: {question}
 {SCIENTIFIC_RULES}
@@ -207,7 +209,8 @@ A timeout or inaccessible copy alone does not prove topic scarcity. The target i
 Claims -> evidence -> canonical passages -> references; executive prose links claims. Study-result fields each cite actual supporting passages or are null.
 Include typed contradictions, gaps, residue, justified next questions, caveats and honest reviewed scope.
 Residue preserves relevant material that is neither a claim nor a gap: what must not be lost. Bind its basis, claim/evidence links and scope; do not require a resolution, alternative explanation or follow-up test. Gaps describe what remains unanswered and what would resolve it.
-No earlier experiment assets, paper lists, answers or audits. No outputs from other sessions. Complete the actual work in this session.
+{previous}
+Complete the actual work in this session.
 """
 
 

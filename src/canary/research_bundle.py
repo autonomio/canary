@@ -68,13 +68,15 @@ def initialize(workspace, packet):
             raise ValueError('Research input already exists: ' + name)
     (workspace / 'research.yaml').write_text(packet['source_yaml'], encoding='utf-8')
     write_json(workspace / 'run-spec.json', packet['resolved'])
+    if packet['resolved'].get('research_state') is not None:
+        write_json(workspace / 'research-state.json', packet['resolved']['research_state'])
     report = {k: v for k, v in packet.items() if k not in ('source_yaml', 'resolved')}
     report['bundle_id'] = 'RB-' + uuid.uuid4().hex
     report['created_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     report['engine'] = {'python': sys.version.split()[0], 'sources': {
         name: file_hash(Path(__file__).parent / name) for name in
         ('coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'source_adapters.py', 'candidate_index.py', 'codex_execution.py', 'codex_auth.py', 'claim_freshness.py',
-         'research_spec.py', 'research_bundle.py', 'bundle_connectors.py', 'compact_bundle.py', 'bundle_encoding.py', 'local_text.py',
+         'research_spec.py', 'research_state.py', 'research_bundle.py', 'bundle_connectors.py', 'compact_bundle.py', 'bundle_encoding.py', 'local_text.py',
          'processes.py', 'pdf_capacity.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py', 'api_client.py', 'redact.py')}}
     lock = resource_root() / 'uv.lock'
     report['engine']['dependency_lock_sha256'] = file_hash(lock) if lock.is_file() else None
@@ -159,6 +161,10 @@ def read(workspace) -> ResearchBundle:
             target = Path(workspace) / name
             if name not in records or not target.is_file() or file_hash(target) != records[name]['sha256']:
                 raise ValueError('Compiled bundle input changed: ' + name)
+        if spec['resolved'].get('research_state') is not None:
+            state_path = Path(workspace) / 'research-state.json'
+            if not state_path.is_file() or json.loads(state_path.read_text()) != spec['resolved']['research_state']:
+                raise ValueError('Compiled bundle input changed: research-state.json')
         actual = json.loads((Path(workspace) / 'run-spec.json').read_text(encoding='utf-8'))
         if (digest(actual) != spec['spec_sha256'] or actual != spec['resolved'] or
                 (Path(workspace) / 'research.yaml').read_text(encoding='utf-8') != spec['source_yaml']):
@@ -214,7 +220,7 @@ def run_compiled(staged, workspace):
     try:
         return coverage_runtime.run(spec['question'], workspace,
             minimum_papers=spec['retrieval']['target_papers'],
-            on_reserved=begin, **({'additional_sources': spec['retrieval']['additional_sources']} if spec['retrieval'].get('additional_sources') else {}),
+            on_reserved=begin, **({k: spec[k] for k in ('research_state', 'continue_research') if k in spec}), **({'additional_sources': spec['retrieval']['additional_sources']} if spec['retrieval'].get('additional_sources') else {}),
             **({'local_text': spec['retrieval']['local_text']}
                                 if spec['retrieval']['corpus'] == 'local_text' else {}))
     finally:

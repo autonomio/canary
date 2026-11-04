@@ -1581,6 +1581,11 @@
               ><span id="question-count">0 characters</span>
             </div>
           </div>
+          <details class="advanced"><summary>Current research state (optional)</summary>
+            <div class="field"><label for="f-research-state">Research state JSON</label><textarea id="f-research-state" rows="6" placeholder='{"claims":[],"references":[],"reviewed_papers":[]}'></textarea></div>
+            <label><input id="f-continue-research" type="checkbox" /> Continue research from this state</label>
+            <p class="hint">Supply relevant existing findings, evidence, paper references and review records. Continuation seeks new ground and avoids previously reviewed papers. The paper target and independent audit stay the same.</p>
+          </details>
           <div class="field"><label for="f-corpus">Paper source</label><select id="f-corpus"><option value="fresh">Public literature search</option><option value="local_text">Local text library</option></select></div>
           <fieldset id="additional-source-controls" class="field">
             <legend>Additional sources (optional)</legend>
@@ -2415,13 +2420,18 @@
         const saved=Math.max(0,Math.round(100*(1-e.stored_bytes/e.expanded_bytes)));
         return `<p class="hint">Lossless bundle · ${(e.stored_bytes/1000000).toFixed(2)} MB from ${(e.expanded_bytes/1000000).toFixed(2)} MB · ${saved}% smaller · findings and exact excerpts unchanged</p>`;
       }
+      function researchStateHtml(spec) {
+        if(!spec.research_state) return '';
+        const state=spec.research_state;
+        return `<details class="coverage" data-detail="research-state"><summary>${spec.continue_research ? 'Continuing research' : 'Supplied research background'}</summary><p>Starting state supplied with this question. Earlier reviews are not counted as fresh research; new findings retain their own evidence and independent audit.</p><p>${esc((state.claims || []).length)} supplied claims · ${esc((state.references || []).length)} paper references · ${esc((state.reviewed_papers || []).length)} earlier review records</p><pre class="search-query">${esc(JSON.stringify(state,null,2))}</pre></details>`;
+      }
       function bundleHtml(d) {
         const b=d.compiled_bundle;
         if (!b) return '';
         if (!b.specification) return `<details class="coverage" data-detail="research-bundle"><summary>Research bundle · ${esc(b.state.replaceAll('_',' '))}</summary>${(b.limitations || []).map(x=>`<p>${esc(x)}</p>`).join('')}</details>`;
         const retained=b.retention?.mode==='bundle_only';
         const p=b.specification, spec=p.resolved, root=`/api/runs/${encodeURIComponent(S.selected)}/bundle`;
-        return `<details class="coverage" data-detail="research-bundle"><summary>Research bundle · ${esc(b.state)}${b.execution?.status ? ` / ${esc(b.execution.status)}` : ''} · ${esc(p.spec_sha256.slice(0,12))}</summary><p class="hint">${esc(b.id || 'Input staged')} · compiler ${esc(p.compiler_version)}${retained ? " · Bundle only; full papers released" : ""}</p>${bundleEncodingHtml(b)}${localCorpusHtml(d)}${additionalSourcesHtml(d)}<p>${esc(spec.research.model)} / ${esc(spec.research.effort)} research · ${esc(spec.audit.model)} / ${esc(spec.audit.effort)} audit · ${esc(spec.retrieval.target_papers)} target papers · ${spec.audit.budget_seconds === null ? 'No audit time limit' : Number.isFinite(spec.audit.budget_seconds) ? `${esc(spec.audit.budget_seconds)}s recorded audit limit` : 'Audit time limit not recorded'}</p><details><summary>Original YAML</summary><pre class="search-query">${esc(p.source_yaml)}</pre></details><details><summary>Resolved settings and recorded engine</summary><pre class="search-query">${esc(JSON.stringify({resolved:spec,engine:p.engine || null,checks:p.checks},null,2))}</pre></details><button class="btn small" data-action="repeat-bundle">Repeat these settings</button>${b.state==='finished' ? ` <a class="text-action" href="${retained ? `/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent` : `${root}/archive`}" download="${retained ? "research-bundle.json" : "research-bundle.zip"}">${retained ? "Download research bundle" : "Download bundle"}</a>${retained ? "" : ` · <a class="text-action" href="/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent" download="resolvent-submission.json">Resolvent handoff</a>`}<details><summary>Handoff semantics</summary><p class="hint">Candidate input for Resolvent admission. Original uncertainty and freshness are retained. Candidate uncertainty is at least medium until evidence independence is established; export does not approve or publish findings.</p><p class="hint">Canary resolves duplicate values in code. Native Resolvent claims, evidence and sources remain readable in the smaller export.</p><a class="text-action" href="/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent?representation=expanded" download="research-bundle-expanded.json">Expanded JSON for compatibility</a></details>` : ''}<details><summary>Saved artifacts (${b.artifacts.length})</summary><ul>${b.artifacts.map(a=>`<li><a href="${root}/artifacts/${a.path.split('/').map(encodeURIComponent).join('/')}" download>${esc(a.path)}</a> · ${esc(a.bytes)} bytes · <code>${esc(a.sha256)}</code></li>`).join('')}</ul></details>${(b.limitations || []).map(x=>`<p class="hint">${esc(x)}</p>`).join('')}</details>`;
+        return `<details class="coverage" data-detail="research-bundle"><summary>Research bundle · ${esc(b.state)}${b.execution?.status ? ` / ${esc(b.execution.status)}` : ''} · ${esc(p.spec_sha256.slice(0,12))}</summary><p class="hint">${esc(b.id || 'Input staged')} · compiler ${esc(p.compiler_version)}${retained ? " · Bundle only; full papers released" : ""}</p>${researchStateHtml(spec)}${bundleEncodingHtml(b)}${localCorpusHtml(d)}${additionalSourcesHtml(d)}<p>${esc(spec.research.model)} / ${esc(spec.research.effort)} research · ${esc(spec.audit.model)} / ${esc(spec.audit.effort)} audit · ${esc(spec.retrieval.target_papers)} target papers · ${spec.audit.budget_seconds === null ? 'No audit time limit' : Number.isFinite(spec.audit.budget_seconds) ? `${esc(spec.audit.budget_seconds)}s recorded audit limit` : 'Audit time limit not recorded'}</p><details><summary>Original YAML</summary><pre class="search-query">${esc(p.source_yaml)}</pre></details><details><summary>Resolved settings and recorded engine</summary><pre class="search-query">${esc(JSON.stringify({resolved:spec,engine:p.engine || null,checks:p.checks},null,2))}</pre></details><button class="btn small" data-action="repeat-bundle">Repeat these settings</button>${b.state==='finished' ? ` <a class="text-action" href="${retained ? `/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent` : `${root}/archive`}" download="${retained ? "research-bundle.json" : "research-bundle.zip"}">${retained ? "Download research bundle" : "Download bundle"}</a>${retained ? "" : ` · <a class="text-action" href="/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent" download="resolvent-submission.json">Resolvent handoff</a>`}<details><summary>Handoff semantics</summary><p class="hint">Candidate input for Resolvent admission. Original uncertainty and freshness are retained. Candidate uncertainty is at least medium until evidence independence is established; export does not approve or publish findings.</p><p class="hint">Canary resolves duplicate values in code. Native Resolvent claims, evidence and sources remain readable in the smaller export.</p><a class="text-action" href="/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent?representation=expanded" download="research-bundle-expanded.json">Expanded JSON for compatibility</a></details>` : ''}<details><summary>Saved artifacts (${b.artifacts.length})</summary><ul>${b.artifacts.map(a=>`<li><a href="${root}/artifacts/${a.path.split('/').map(encodeURIComponent).join('/')}" download>${esc(a.path)}</a> · ${esc(a.bytes)} bytes · <code>${esc(a.sha256)}</code></li>`).join('')}</ul></details>${(b.limitations || []).map(x=>`<p class="hint">${esc(x)}</p>`).join('')}</details>`;
       }
       function synthesisHtml(r, d) {
         const body = reportText(d.synthesis_md);
@@ -2858,6 +2868,7 @@
       }
       const fields = [
         "mode",
+        "research-state",
         "corpus",
         "directory",
         "metadata",
@@ -2879,6 +2890,7 @@
         const v = {};
         for (const f of fields) v[f] = document.getElementById("f-" + f).value;
         v.maintenance = document.getElementById("f-maint").checked;
+        v.continue_research = document.getElementById("f-continue-research").checked;
         v.additional_sources = v.corpus === "local_text" || v.mode === "cycle" || String(v.argv || "").trim() ? [] :
           Array.from(document.querySelectorAll("[data-add-source]")).filter(el=>el.checked).map(el=>el.value);
         v.depth =
@@ -2887,6 +2899,22 @@
         return v;
       }
       function buildLaunch(v) {
+        const raw=v["research-state"] ?? v.research_state, continuation=v.continue_research || false;
+        let state=null;
+        if(raw && (typeof raw !== "string" || raw.trim())) {
+          try {state=typeof raw === "string" ? JSON.parse(raw) : raw;}
+          catch {throw new Error("Research state must be valid JSON.");}
+          if(!state || typeof state!=="object" || Array.isArray(state) || !Object.keys(state).length)
+            throw new Error("Research state must be a nonempty JSON object.");
+        }
+        if(continuation && !state) throw new Error("Supply research state to continue research.");
+        if((state || continuation) && (v.mode==="cycle" || String(v.argv || "").trim()))
+          throw new Error("Research state supports the question research flow.");
+        const result=buildLaunchBase(v);
+        if(state) Object.assign(result.spec || result,{research_state:state,continue_research:continuation});
+        return result;
+      }
+      function buildLaunchBase(v) {
         const q = (v.q || "").trim(),
           override = (v.argv || "").trim();
         if (!q && !override)
@@ -3698,6 +3726,7 @@
             for (const f of fields)
               if (v[f] != null) document.getElementById("f-" + f).value = v[f];
             document.getElementById("f-maint").checked = !!v.maintenance;
+            document.getElementById("f-continue-research").checked = !!v.continue_research;
             document.querySelectorAll("[data-add-source]").forEach(el=>el.checked=(v.additional_sources || []).includes(el.value));
             document.querySelectorAll('input[name="depth"]').forEach((r) => {
               r.checked = r.value === v.depth;
