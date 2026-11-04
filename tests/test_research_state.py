@@ -105,3 +105,22 @@ def test_unicode_state_within_byte_limit_survives_generated_yaml():
     packet=research_spec.compile_mapping({'question':'Synthetic Unicode context?', 'research_state':state,
                                          'continue_research':True})
     assert research_spec.verify_compiled(packet)['resolved']['research_state']==state
+
+
+def test_yaml_alias_graph_is_rejected_before_serialization():
+    lines=['question: Synthetic alias bound?', 'research_state:', '  a: &a [x,x,x,x,x,x,x,x,x,x]']
+    for parent, child in zip('abcdefgh', 'bcdefghi'):
+        lines.append('  '+child+': &'+child+' ['+','.join(['*'+parent]*10)+']')
+    with pytest.raises(research_spec.CompileError, match='aliases'):
+        research_spec.compile_research('\n'.join(lines))
+
+
+def test_cyclic_or_excessively_deep_state_is_rejected():
+    state={};state['cycle']=state
+    with pytest.raises(research_spec.CompileError, match='cycles'):
+        research_spec.compile_mapping({'question':'Synthetic cycle?', 'research_state':state})
+    state={};head=state
+    for _ in range(80):
+        head['child']={};head=head['child']
+    with pytest.raises(research_spec.CompileError, match='nesting'):
+        research_spec.compile_mapping({'question':'Synthetic depth?', 'research_state':state})

@@ -18,10 +18,35 @@ def validate(state, continuation):
     if not isinstance(state, dict) or not state:
         raise ValueError('research_state must be a nonempty JSON object.')
     try:
-        text = json.dumps(state, ensure_ascii=False, allow_nan=False, sort_keys=True)
-        if len(text.encode()) > MAX_STATE_BYTES:
-            raise ValueError('research_state must be at most 1 MiB.')
-        return json.loads(text)
+        # A JSON tree cannot share containers. Reject YAML alias graphs before
+        # any encoder could expand a small declaration exponentially.
+        seen, stack, nodes = set(), [iter([state])], 0
+        while stack:
+            try:
+                value = next(stack[-1])
+            except StopIteration:
+                stack.pop()
+                continue
+            nodes += 1
+            if nodes > MAX_STATE_BYTES:
+                raise ValueError('research_state has too many JSON values.')
+            if isinstance(value, (dict, list)):
+                if id(value) in seen:
+                    raise ValueError('research_state cannot contain YAML aliases or cycles.')
+                seen.add(id(value))
+                if len(stack) > 64:
+                    raise ValueError('research_state nesting must not exceed 64 levels.')
+                if isinstance(value, dict) and any(not isinstance(k, str) for k in value):
+                    raise ValueError('research_state object keys must be strings.')
+                stack.append(iter(value.values() if isinstance(value, dict) else value))
+        chunks, size = [], 0
+        encoder = json.JSONEncoder(ensure_ascii=False, allow_nan=False, sort_keys=True)
+        for chunk in encoder.iterencode(state):
+            size += len(chunk.encode())
+            if size > MAX_STATE_BYTES:
+                raise ValueError('research_state must be at most 1 MiB.')
+            chunks.append(chunk)
+        return json.loads(''.join(chunks))
     except (TypeError, RecursionError, OverflowError) as error:
         raise ValueError('research_state must contain finite, nonrecursive JSON data.') from error
 
