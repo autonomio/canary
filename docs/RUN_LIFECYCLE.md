@@ -43,6 +43,23 @@ scientific sessions use the [API-owned shared Codex runtime](SHARED_CODEX.md); a
 shared turn ends if its owning service stops, with partial work preserved and no
 automatic scientific retry. API tools also require the service to be available.
 
+## Terminal outcomes
+
+`GET /api/runs/{key}` (CLI `canary runs show`, MCP `canary_run`) says why a question run
+stopped, not only that it stopped:
+
+- `needs_clarification`: the researcher stopped because the question cannot be researched
+  as asked. `clarification` holds `{question, reason}` for a person, `answered` is false and
+  nothing is bound or audited. Answer the question, then submit a revised question as a new
+  run. The dashboard shows the question on the answer page and in the question list.
+- `failed`: the run could not complete. `failure` holds the recorded reason verbatim;
+  `native_error` adds the native Codex terminal error when one was recorded. The dashboard's
+  Run issue view shows the recorded reason before any log inference.
+- `cancelled` and `interrupted` keep their meanings above.
+
+A stopped run without a recorded audit reports `audit_status: not_run`; `pending` means the
+run is still active.
+
 ## Scientific tools
 
 The native scientist/auditor receives a run-scoped HTTP tool command:

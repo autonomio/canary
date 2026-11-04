@@ -334,6 +334,9 @@ def parse_bundle(bundle: str | Path) -> dict:
                       source_usage_after=run.get("usage_after", {}))
         research = _load_json(bundle / "research-receipt.json", {})
         record["native_error"] = research.get("native_error") if isinstance(research, dict) else None
+        # The recorded reason a run stopped; failure for errors, clarification for a researcher's question.
+        record["failure"] = run.get("failure") if isinstance(run.get("failure"), str) else None
+        record["clarification"] = run.get("clarification") if isinstance(run.get("clarification"), dict) else None
     receipt = _load_json(Path(str(bundle) + ".receipt.json"), {})
     if isinstance(receipt, dict) and receipt:
         record["container"] = receipt.get("NAME")
@@ -458,6 +461,8 @@ def has_native_findings(answer) -> bool:
 
 
 def _has_answer(bundle: Path, run: dict, status: str) -> bool:
+    if status == "needs_clarification":
+        return False  # A clarifying question is not an answer.
     if run.get("execution_mode") == "coverage-guided full-paper research":
         answer = _load_json(bundle / "answer.json", {})
         # Answer availability is independent of coverage target or audit status.

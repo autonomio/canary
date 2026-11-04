@@ -776,8 +776,12 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     status = ("in_progress" if lifecycle in ("planning", "researching", "reading", "acquiring", "auditing")
               else "answered" if lifecycle in ("complete", "completed") and has_findings
               else "complete" if lifecycle == "answered" and not has_findings else lifecycle)
+    # A clarifying question in the summary is not an answer to the research question.
+    has_findings = has_findings and status != "needs_clarification"
+    # A stopped run without a recorded audit will not receive one.
+    unaudited = "pending" if status in ("in_progress", "indexing_local_text") else "not_run"
     requests = _load(source / "openalex-requests.json", _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None)))
-    graph["audit"] = {"status": "pending" if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids else "partial",
+    graph["audit"] = {"status": unaudited if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids else "partial",
                        "model": audit_model, "reasoning_effort": audit_effort,
                        "checked_claims": sum(check.get("assessment") != "not_checked" for check in graph["source_checks"]),
                        "total_claims": len(graph["claims"]), "scope_note": audit.get("scope_note", audit_case.get("scope_note", "")),

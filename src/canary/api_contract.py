@@ -108,7 +108,12 @@ def schemas():
         'started_at':nullable(S),'ended_at':nullable(S),'duration_seconds':nullable({'type':'number'}),
         'answered':nullable(B),'papers_covered':nullable(I),'input_tokens':nullable(I),
         'output_tokens':nullable(I),'cached_tokens':nullable(I),'usage':O,'research_summary':O,
-        'native_error':nullable(ref('NativeError')),'retention':typed(BundleRetention)},['key'],closed=False)
+        'native_error':nullable(ref('NativeError')),'failure':nullable(S),'clarification':nullable(ref('Clarification')),
+        'retention':typed(BundleRetention)},['key'],closed=False)
+    run['properties']['status']['description'] = ('Run status. needs_clarification is terminal: the researcher stopped because the question '
+        'cannot be researched as asked, and clarification holds its question for a person; nothing was audited. '
+        'failed means the run could not complete; failure holds the recorded reason.')
+    run['properties']['failure']['description'] = 'Recorded reason the run stopped before completing (an error or a cancellation), verbatim. Null when none was recorded.'
     run['properties']['input_tokens']['description'] = 'Total input, including cached input. Null means unavailable.'
     run['properties']['cached_tokens']['description'] = 'Subset of input tokens; do not add to total input. Null means unavailable.'
     run['properties']['output_tokens']['description'] = 'Total output, including reasoning where the native provider reports it. Null means unavailable.'
@@ -158,6 +163,8 @@ def schemas():
         'ExecutionRequest':typed(ExecutionRequest),'ExecutionReceipt':typed(ExecutionReceipt),
         'NativeError':{**typed(NativeError),
             'description':'Terminal native Codex error of a scientific role (task_complete.error in its native session); a run reports its research role. code is codex_error_info verbatim; message is bounded and redacted. transient_provider_capacity (server_overloaded) is not a scientific refusal or a research error; other codes stay unclassified. same_run_retryable is false: a scientific role runs once per run, and rerun starts a new run with the saved settings.'},
+        'Clarification':{**protocol.clarification_schema(),
+            'description':'The one question a person must answer before this question can be researched, and why. Answer it, then submit a revised question as a new run.'},
         'ExecutionFinish':typed(ExecutionFinish),'ExecutionFinished':typed(ExecutionFinished),
         'CandidateMetadata':typed(CandidateMetadata),
         'AdditionalSourceStatus':typed(SourceStatus),
