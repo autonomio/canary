@@ -82,6 +82,12 @@ cursor history and individual failures. Research waits for its already-running s
 tools before binding findings. Cancellation stops those processes before snapshotting.
 Finished sources remain readable without appending to sealed scientific artifacts.
 
+`catalog` returns typed `AgentReference` rows, and `acquire` receipts carry the same row, so
+tool output never carries the complete paper metadata snapshot; see
+[paper metadata](RESEARCH_BUNDLE.md#paper-metadata) for the fields. Fifty rows for 100-author
+papers print in under 40,000 bytes. Native tool output can be truncated, so the research
+prompt asks agents to read larger catalogs with code.
+
 Network access is enabled for the native workspace sandbox so these local HTTP calls
 can reach the service. This follows the [Codex network configuration](https://learn.chatgpt.com/docs/agent-approvals-security).
 The fixed Sol 6.1/xhigh research and audit profiles, disabled delegation, source rules and

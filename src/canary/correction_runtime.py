@@ -30,6 +30,11 @@ def changed_inputs(workspace, before, role, number):
     return any(after.get(path) != sha for path, sha in before.items()) or bool(after.keys() - before.keys() - allowed)
 
 
+def agent_payload(payload):
+    """Agent inputs carry source rows; payload.json and exports keep complete references."""
+    return dict(payload, references=[protocol.agent_reference(r) for r in payload.get('references', [])])
+
+
 def verify(workspace, payload, manifest, command, executable):
     from . import coverage_runtime as engine
     workspace = Path(workspace)
@@ -56,7 +61,7 @@ def verify(workspace, payload, manifest, command, executable):
             manifest.update(status='auditing', audit_round=round_index)
             engine.write(workspace / 'run.json', manifest)
             publish('audit', round_index)
-            engine.write(workspace / 'audit-input.json', payload)
+            engine.write(workspace / 'audit-input.json', agent_payload(payload))
             # The audit sees findings and source facts, never correction responses/reasoning.
             feedback = {'claim_checks': audit.get('claim_checks', []), 'findings': audit.get('findings', [])}
             engine.write(directory / 'audit-feedback.json', feedback if round_index else {})
@@ -100,7 +105,7 @@ def verify(workspace, payload, manifest, command, executable):
             manifest.update(status='correcting', correction_round=next_round)
             engine.write(workspace/'run.json', manifest)
             publish('correction', next_round)
-            correction_input = {'question': manifest['question'], 'claim_ids': flagged, 'payload': payload,
+            correction_input = {'question': manifest['question'], 'claim_ids': flagged, 'payload': agent_payload(payload),
                 'claim_checks': audit['claim_checks'], 'findings': audit.get('findings', []),
                 'claim_review_checks': payload.get('claim_review_checks', [])}
             engine.write(workspace/'rounds'/f'{next_round:03d}'/'correction-input.json', correction_input)
