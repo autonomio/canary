@@ -12,6 +12,7 @@ from .service_status import ServiceStatus
 from .connection import ConnectionStatus
 from .candidate_index import CandidateMetadata
 from .bundle_encoding import ReferenceEncoding
+from .paper_metadata import PaperMetadata
 from .source_adapters import NAMES as ADDITIONAL_SOURCES, SourceStatus
 from .codex_execution import ExecutionRequest, ExecutionReceipt, ExecutionFinish, ExecutionFinished, NativeError
 
@@ -151,8 +152,10 @@ def schemas():
         'RunControl':obj({'key':S,'status':nullable(S)},['key','status'],closed=False),
         'Research':research,'ResearchResponse':obj({'key':S,'live':B,'research':ref('Research')},['key','live','research']),
         'ReferenceEncoding':typed(ReferenceEncoding),
+        'PaperMetadata':typed(PaperMetadata),
         'ResolventExport':obj({'schema_version':S,'sources':arr(O),'evidence':arr(O),'claims':arr(O),
-            'result':O,'method_metadata':obj({'canary_encoding':ref('ReferenceEncoding')},closed=False)},
+            'result':O,'method_metadata':obj({'canary_encoding':ref('ReferenceEncoding'),
+                'paper_metadata':{'type':'object','additionalProperties':ref('PaperMetadata')}},closed=False)},
             ['schema_version','sources','evidence','claims','result','method_metadata'],closed=False),
         'BundleResponse':obj({'key':S,'live':B,'bundle':ref('BundleManifest'),'research':ref('Research')},['key','live','bundle','research']),
         'Findings':findings,'RecordedClaim':claim,'RecordedEvidence':evidence,'Passage':passage,

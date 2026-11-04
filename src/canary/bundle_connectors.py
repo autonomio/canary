@@ -43,6 +43,8 @@ def resolvent(workspace):
     refs = {r['id']: r for r in payload.get('references', [])}
     claims, evidence, sources, source_map, evidence_map = [], [], [], {}, {}
     source_metadata = {}
+    paper_metadata = {identifier: ref["paper_metadata"] for identifier, ref in refs.items()
+                      if ref.get("paper_metadata") is not None}
     originals = {a['path']: a['sha256'] for a in bundle['artifacts']}
     id_map = {'claims': {}, 'evidence': {}, 'passages': {}}
     @lru_cache(maxsize=8)
@@ -79,13 +81,17 @@ def resolvent(workspace):
                     'text_file': reference.get('text_file'), 'start': passage.get('start'), 'end': passage.get('end'),
                     'page': passage.get('page'), 'original_file': reference.get('file'),
                     'original_sha256': originals.get(reference.get('file')), 'text_sha256': originals.get(reference.get('text_file'))}
+                if reference['id'] in paper_metadata:
+                    locator['paper_metadata_id'] = reference['id']
                 if reference.get('source_kind'):
                     source_metadata[sid] = {k: reference[k] for k in ('adapter', 'source_kind', 'source_metadata', 'record_url')}
                     locator.update(source_metadata[sid])
                 sources.append({'id': sid, 'kind': 'web' if reference.get('adapter') in ('clinicaltrials', 'osf') else 'publication',
                     'title': reference.get('title') or reference['id'],
                     'uri': reference.get('record_url') or reference.get('url') or reference.get('doi'),
-                    'date': reference.get('source_metadata', {}).get('record_date') or (str(reference['year']) if reference.get('year') else None),
+                    'date': reference.get('source_metadata', {}).get('record_date')
+                            or paper_metadata.get(reference['id'], {}).get('attributes', {}).get('publication_date')
+                            or (str(reference['year']) if reference.get('year') else None),
                     'locator': json.dumps(locator, sort_keys=True), 'excerpt': text, 'access': 'inspected'})
             links.append(source_map[pid])
         if not links:
@@ -138,13 +144,14 @@ def resolvent(workspace):
             'no_claims_reason': None if claims else 'No finalized claims were present in the retained research payload.',
             'suggested_follow_up': list(dict.fromkeys(q['question'] for q in payload.get('next_questions', []) if q.get('question')))},
         'method_metadata': {'producer': 'canary', 'bundle_id': bundle['id'], 'bundle_version': bundle['version'],
-            'spec_sha256': bundle['specification']['spec_sha256'], 'connector': 'resolvent', 'connector_version': 2,
+            'spec_sha256': bundle['specification']['spec_sha256'], 'connector': 'resolvent', 'connector_version': 3,
             'uncertainty_policy': UNCERTAINTY_POLICY,
             'destination_contract_revision': RESOLVENT_REVISION, 'id_map': id_map,
             'claim_metadata': {id_map['claims'][c['id']]: {'original_kind': c.get('kind'),
                 'uncertainty': c.get('uncertainty'), 'freshness': c.get('freshness') or unknown_freshness()} for c in payload.get('claims', [])},
             'evidence_relations': {evidence_map[e['id']]: e.get('relation') for e in payload.get('evidence', [])},
             **({'source_metadata': source_metadata} if source_metadata else {}),
+            **({'paper_metadata': paper_metadata} if paper_metadata else {}),
             **({'additional_sources': payload['additional_sources']} if payload.get('additional_sources') else {}),
             'independent_audit': payload.get('independent_audit'), 'gaps': payload.get('gaps', []), 'residue': payload.get('residue', [])}}
     return verified_export(result, payload) if verified else result

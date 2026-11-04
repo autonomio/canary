@@ -743,6 +743,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                  "url": ref.get('record_url') or ((ref.get("openalex_id") or ref.get("url")) if ref.get("adapter") == "local_text" else "https://openalex.org/" + sid), "abstract": c.get("abstract", ""),
                  "extra": {**({"adapter": "local_text", "local_source": ref.get("local_source"), "full_text_status": ref.get("full_text_status")} if ref.get("adapter") == "local_text" else {}),
                            **({k: ref[k] for k in ('adapter', 'source_kind', 'source_metadata', 'record_url', 'full_text_status')} if ref.get('source_kind') else {}),
+                           **({"paper_metadata": ref["paper_metadata"]} if ref.get("paper_metadata") is not None else {}),
                            "local_file": local_file, "text_sha256": ref.get("text_sha256"), "body_sha256": ref.get("body_sha256")}}
         graph["references"].append({"id": sid, "kind": "fulltext", "paper": paper, "text_url": ref.get("url"),
                                     "text_chars": ref.get("text_chars"), "review": admitted.get(sid),
