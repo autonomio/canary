@@ -5,6 +5,7 @@ import json
 import jsonschema
 import pytest
 
+from canary.claim_uncertainty import unassessed
 from canary import api_contract, audit_validation as audit, coverage_protocol as protocol, coverage_export
 from test_research_bundle import seed, completed
 from test_coverage_evidence_ui import run_dashboard
@@ -12,7 +13,7 @@ from test_coverage_evidence_ui import run_dashboard
 
 def review():
     return {'claim_checks': [{'claim_id': 'C1', 'assessment': 'supported', 'reason': 'Synthetic inspected scope.',
-        'passage_ids': ['W1-p0001'], 'reference_ids': ['W1'], 'context_checked': ['Synthetic methods/results.'], 'issue_types': []}],
+        'passage_ids': ['W1-p0001'], 'reference_ids': ['W1'], 'context_checked': ['Synthetic methods/results.'], 'issue_types': [], 'uncertainty_review': unassessed()}],
         'evidence_checks': [{'evidence_id': 'E1', 'assessment': 'independent', 'reason': 'Synthetic family review.',
             'reference_ids': ['W1'], 'passage_ids': ['W1-p0001'], 'study_family_ids': ['fixture-family'],
             'family_basis': 'Synthetic study identity in the inspected record.'}],

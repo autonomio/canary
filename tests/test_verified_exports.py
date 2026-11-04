@@ -1,4 +1,4 @@
-"""Verified producer graph and v3 adapter behavior, with synthetic source bytes."""
+"""Verified producer graph and v4 adapter behavior, with synthetic source bytes."""
 from copy import deepcopy
 import hashlib
 import json
@@ -14,7 +14,7 @@ from test_research_bundle import api
 from test_coverage_evidence_ui import run_dashboard
 
 
-def finish(workspace, *, independent=True, low=True):
+def finish(workspace, *, independent=True, low=True, uncertainty_review=None):
     payload,_ = prepared(workspace)
     raw=engine.read(workspace/'investigation.json')
     raw['claims'][0].update(kind='reported_finding',study_result_ids=['S1'])
@@ -29,6 +29,8 @@ def finish(workspace, *, independent=True, low=True):
     payload=engine.bind_payload(workspace)
     review=audit_for(payload)
     review['evidence_checks'][0]['assessment']='independent' if independent else 'same_study_family'
+    if uncertainty_review is not None:
+        review['claim_checks'][0]['uncertainty_review'] = uncertainty_review
     bound=audit_validation.bind(payload,review)
     history=[{'round':0,'kind':'research','source_json':original,'investigation':raw,'payload':payload},
         {'round':0,'kind':'audit','raw_audit':review,'audit':bound}]
@@ -242,3 +244,18 @@ def test_failed_correction_receipt_closes_profile_and_remains_inspectable(tmp_pa
 assert.match(claimHistoryHtml(graph,'C1'),/correction failed/);
 assert.match(claimHistoryHtml(graph,'C1'),/Synthetic connection failure/);
 """)
+
+
+def test_verified_export_preserves_separate_auditor_uncertainty_recommendation(tmp_path):
+    review={'recommended_class':'high','reason':'Synthetic scope requires caution.', 'evidence_ids':['E1'],
+        'prior_claim_id':None,'prior_class':None,'prior_match_reason':'No prior supplied.'}
+    final,_=finish(tmp_path, uncertainty_review=review)
+    result=bundle_connectors.resolvent(tmp_path)
+    assert result['claims'][0]['uncertainty']=='low'  # The separate recommendation is not an applied change.
+    metadata=result['method_metadata']['claim_metadata']['c1']
+    assert metadata['uncertainty_review']['recommended_class']=='high'
+    assert metadata['uncertainty_review']['evidence_ids']==['e1']
+    assert metadata['final_check']['uncertainty_review']==review
+    assert audit_validation.current(corrections.audit_basis(final),final['claims'][0],metadata['final_check'])
+    graph=engine.read(tmp_path/'answer.json')
+    assert graph['source_checks'][0]['uncertainty_review']['recommended_class']=='high'
