@@ -224,3 +224,13 @@ idempotent retry passed. The canonical record retained the submitted statement,
 class and consumer uncertainty. This proves ingestion without inventing independent
 semantic approval or publishing data into the template repository. The producer's
 scientific audit was partial at its time budget and remains part of the handoff.
+
+## Paper metadata
+
+New OpenAlex discovery responses retain a version 1 `paper_metadata` snapshot on each acquired source reference. The snapshot has `provider`, `provider_id`, `retrieved_at` (the metadata response time), and `attributes` with the original OpenAlex names and values. It includes publication date/year, citation counts by year and normalized impact, identifiers, authorships/ORCID/affiliations, venue/locations, type/language, topics/keywords/study-design tags, retraction flag, access/licence/version metadata, funders/awards and referenced-work IDs. The existing discovery request selects these fields; no additional model or provider call is introduced.
+
+Unavailable fields are `null`; `0`, `false` and empty lists retain their provider meanings. Publication dates describe the provider's primary version. Author coverage is that of the discovery response and may be truncated by OpenAlex. A false retraction flag is not assurance that no correction or retraction exists; citation counts are index-specific observations, not reliability scores. Classifier tags are not verified full-paper study assessments.
+
+The researcher source inspector exposes the snapshot and its provenance through the existing API projection, at `answer.references[].paper.extra.paper_metadata`. Resolvent exports retain one map at `method_metadata.paper_metadata`, keyed by Canary reference ID. Every exported source locator includes `paper_metadata_id` when a snapshot exists; claims reach it through their evidence and source links. Source dates prefer the recorded publication date over publication year. Compact and expanded exports preserve the same metadata, including after working files are released. Connector version is 3; the destination's native schema is unchanged.
+
+Historical bundles remain readable, with metadata explicitly shown as not recorded. Export does not refresh, backfill or infer metadata. Full-text extraction and additional provider enrichment are outside this metadata contract.
