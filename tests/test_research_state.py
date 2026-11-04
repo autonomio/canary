@@ -98,3 +98,10 @@ def test_supplied_state_survives_working_file_release(tmp_path):
     resolved=research_bundle.read(tmp_path)['specification']['resolved']
     assert resolved['research_state']==STATE and resolved['continue_research'] is True
     assert not (tmp_path/'research-state.json').exists()
+
+
+def test_unicode_state_within_byte_limit_survives_generated_yaml():
+    state={'note':'😀' * 240_000}
+    packet=research_spec.compile_mapping({'question':'Synthetic Unicode context?', 'research_state':state,
+                                         'continue_research':True})
+    assert research_spec.verify_compiled(packet)['resolved']['research_state']==state

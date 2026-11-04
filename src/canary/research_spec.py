@@ -131,7 +131,7 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
         resolved['research_state'] = state
     if 'continue_research' in draft or state is not None:
         resolved['continue_research'] = draft.get('continue_research', False)
-    return {'source_yaml': source if source is not None else yaml.safe_dump(draft, sort_keys=False),
+    return {'source_yaml': source if source is not None else yaml.safe_dump(draft, sort_keys=False, allow_unicode=True),
             'resolved': resolved, 'spec_sha256': digest(resolved), 'compiler_version': 1,
             'checks': ['strict_declaration', 'supported_research_and_audit', 'source_policy',
                        'positive_limits', 'unlimited_audit', 'no_subagents', 'api_owned_fresh_workspace']}
