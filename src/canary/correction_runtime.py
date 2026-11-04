@@ -21,13 +21,28 @@ def protected(workspace):
     return {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths if p.is_file()}
 
 
-def changed_inputs(workspace, before, role, number):
-    after = protected(workspace)
-    directory = workspace/'rounds'/f'{number:03d}'
-    allowed = {directory/(role+suffix) for suffix in ('.json', '-schema.json', '-response.json',
+def session_outputs(directory, role):
+    return {directory/(role+suffix) for suffix in ('.json', '-schema.json', '-response.json',
         '-prompt.txt', '-events.jsonl', '-stderr.log', '-invocation.json', '-receipt.json',
         '-active.json', '-incomplete-output.json')}
-    return any(after.get(path) != sha for path, sha in before.items()) or bool(after.keys() - before.keys() - allowed)
+
+
+def set_aside_working_files(workspace, before, role, number):
+    """A session's own scripts and notes in its round are neither inputs nor results: keep them from the next session."""
+    directory = workspace/'rounds'/f'{number:03d}'
+    target = workspace/'session-work'/f'{number:03d}-{role}'
+    for path in protected(workspace).keys() - before.keys() - session_outputs(directory, role):
+        if directory in path.parents:
+            destination = target/path.relative_to(directory)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            path.replace(destination)
+
+
+def changed_inputs(workspace, before, role, number):
+    set_aside_working_files(workspace, before, role, number)
+    after = protected(workspace)
+    outputs = session_outputs(workspace/'rounds'/f'{number:03d}', role)
+    return any(after.get(path) != sha for path, sha in before.items()) or bool(after.keys() - before.keys() - outputs)
 
 
 def agent_payload(payload):
