@@ -105,6 +105,9 @@ def resolvent(workspace):
         check = checks[0] if len(checks) == 1 else {}
         reviewed = uncertainty_review(check, state=bundle['specification']['resolved'].get('research_state'),
                                       evidence_ids=evidence_map)
+        if len(checks) > 1:
+            reviewed['reason'] = 'Multiple recorded audit checks share this claim ID; no single uncertainty recommendation can be assigned.'
+            reviewed['limitations'].append('Duplicate audit checks; inspect all rows in independent_audit before destination review.')
         return dict(reviewed, evidence_ids=[evidence_map[e] for e in reviewed.get('evidence_ids', []) if e in evidence_map],
                     original_evidence_ids=reviewed.get('evidence_ids', []), disposition='requires_destination_review')
     uncertainty = {'low': 'medium', 'moderate': 'medium', 'high': 'high'}

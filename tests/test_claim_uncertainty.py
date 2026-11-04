@@ -178,3 +178,49 @@ def test_legacy_audit_shapes_do_not_block_export(tmp_path, audit):
     result = bundle_connectors.resolvent(tmp_path)
     assert result['method_metadata']['independent_audit'] == audit
     assert result['method_metadata']['claim_metadata']['c1']['uncertainty_review']['status'] == 'not_assessed'
+
+
+def test_conflicting_audit_rows_are_explicit_partial_and_retained(tmp_path):
+    payload = prepare(tmp_path)
+    checks = [copy.deepcopy(CHECK), dict(copy.deepcopy(CHECK), assessment='correction_needed',
+                                       reason='The source requires a material correction.')]
+    audit = dict(payload['independent_audit'], claim_checks=checks, audit_complete=True)
+    payload['independent_audit'] = audit
+    research_bundle.write_json(tmp_path / 'payload.json', payload)
+    research_bundle.write_json(tmp_path / 'audit.json', audit)
+    graph = coverage_export.export_bundle(tmp_path)['answer']
+    assert graph['audit']['status'] == 'partial' and graph['audit']['checked_claims'] == 0
+    check = graph['source_checks'][0]
+    assert check['assessment'] == 'not_checked' and 'Multiple recorded audit checks' in check['reason']
+    assert check['recorded_checks'] == checks
+    assert check['uncertainty_review']['status'] == 'not_assessed'
+    assert check['paragraph_ids'] == ['W1-p0001']
+    assert any(i['kind'] == 'duplicate_audit_check' and i['record_count'] == 2 for i in graph['binding_issues'])
+    assert 'correction_needed; The source requires a material correction.' in (tmp_path / 'answer.md').read_text()
+    assert json.loads((tmp_path / 'audit.json').read_text()) == audit
+    run_dashboard(tmp_path, graph, r'''
+assert.equal(graph.audit.status,'partial');
+assert.match(findingHtml(graph,graph.claims[0]),/Provenance failure/);
+const html=claimInspector(graph,'C1');
+assert.match(html,/Multiple recorded audit checks/);
+assert.match(html,/Recorded check 1 · Supported/);
+assert.match(html,/Recorded check 2 · Correction needed/);
+assert.match(html,/The source requires a material correction/);
+assert.match(html,/data-qa-passage="W1-p0001"/);
+''')
+    research_bundle.seal(tmp_path)
+    exported = bundle_connectors.resolvent(tmp_path)
+    assert exported['method_metadata']['independent_audit'] == audit
+    assert 'Multiple recorded audit checks' in exported['method_metadata']['claim_metadata']['c1']['uncertainty_review']['reason']
+    (tmp_path / '.run-reservation').touch()
+    compact_bundle.retain(tmp_path)
+    retained = compact_bundle.projection(tmp_path)['answer']
+    assert retained['audit']['status'] == 'partial'
+    assert retained['source_checks'][0]['recorded_checks'] == checks
+
+
+def test_new_uncertainty_logic_is_in_engine_fingerprints(tmp_path):
+    from pathlib import Path
+    prepare(tmp_path); research_bundle.seal(tmp_path)
+    engine = research_bundle.read(tmp_path)['specification']['engine']
+    assert engine['sources']['claim_uncertainty.py'] == research_bundle.file_hash(Path(uncertainty.__file__))
