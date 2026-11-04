@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, ExitStack
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import fcntl
 import hashlib
@@ -970,6 +970,12 @@ def usage_delta(usage, previous):
     return dict(usage, response_count=len(receipts), receipts=receipts, totals=totals,
         count_scope="Unique native responses added by this continuation turn; prior researcher turns are excluded.")
 
+# Transient model capacity pauses a scientific role, then resumes its native thread on
+# the same model and account. Pauses double from the first and total at most the bound.
+CAPACITY_PAUSE_SECONDS = 30
+CAPACITY_PAUSE_BOUND_SECONDS = 600
+
+
 def native_error(thread_id, codex_home):
     """Terminal task error from the native session; `codex exec --json` prints only its message.
 
@@ -999,10 +1005,11 @@ def native_error(thread_id, codex_home):
     message = redact_text(message)[:500] if isinstance(message, str) else None
     if code is None and message is None:
         return None
-    # Only the observed capacity code is classified; a scientific role starts once per run.
+    # Only the observed capacity code is classified. It is the only one resumed within the run.
+    capacity = code == "server_overloaded"
     return {"code": code, "message": message,
-            "category": "transient_provider_capacity" if code == "server_overloaded" else "unclassified",
-            "same_run_retryable": False}
+            "category": "transient_provider_capacity" if capacity else "unclassified",
+            "same_run_retryable": capacity}
 
 
 def command_line(executable, model, effort, workspace, shape, output, *, store=None, resume_thread_id=None):
@@ -1112,6 +1119,7 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
         event(workspace, role + "_started", model=model, reasoning_effort=effort)
         previous_usage = native_usage(resume_thread_id, session.home) if resume_thread_id else None
         thread_id, turn_usage, timed_out, last_refresh, exit_code = None, [], False, 0.0, None
+        pauses, exhausted = [], False
         with (directory / (role + "-events.jsonl")).open("w") as events, (directory / (role + "-stderr.log")).open("w") as stderr:
             session.stderr = stderr
             invocation = session.invocation()
@@ -1126,32 +1134,73 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
             if timer:
                 timer.start()
             try:
-                session.start(prompt)
-                for line in session:
-                    events.write(line); events.flush()
-                    try:
-                        record = json.loads(line)
-                    except ValueError:
-                        continue
-                    if record.get("type") == "thread.started":
-                        thread_id = record.get("thread_id")
-                        write(directory / (role + "-active.json"), {"thread_id": thread_id, "model": model, "effort": effort, "started_at": started})
-                    if record.get("type") == "turn.completed":
-                        turn_usage.append(record.get("usage", {}))
-                    item = record.get("item", {})
-                    if record.get("type") == "item.completed" and item.get("type") == "agent_message":
-                        event(workspace, role + "_message", text=item.get("text", "")[:1600])
-                    if record.get("type") in ("turn.failed", "error"):
-                        event(workspace, role + "_error", detail=record)
-                    # Completed tools/messages expose only committed artifacts;
-                    # reasoning items are never published to the researcher UI.
-                    if record.get("type") in ("thread.started", "item.completed", "turn.completed"):
-                        elapsed = time.monotonic() - before
-                        if record.get("type") == "thread.started" or elapsed - last_refresh >= 10:
-                            refresh_committed_progress(workspace, profile_role, model, effort, thread_id, started, elapsed,
-                                codex_home=session.home, execution=invocation, progress_state=progress_state, previous_usage=previous_usage)
-                            last_refresh = elapsed
-                exit_code = session.wait()
+                while True:
+                    session.start(prompt)
+                    failed_turn = False
+                    for line in session:
+                        events.write(line); events.flush()
+                        try:
+                            record = json.loads(line)
+                        except ValueError:
+                            continue
+                        if record.get("type") == "thread.started":
+                            thread_id = record.get("thread_id")
+                            write(directory / (role + "-active.json"), {"thread_id": thread_id, "model": model, "effort": effort, "started_at": started})
+                        if record.get("type") == "turn.completed":
+                            turn_usage.append(record.get("usage", {}))
+                        failed_turn = failed_turn or record.get("type") == "turn.failed"
+                        item = record.get("item", {})
+                        if record.get("type") == "item.completed" and item.get("type") == "agent_message":
+                            event(workspace, role + "_message", text=item.get("text", "")[:1600])
+                        if record.get("type") in ("turn.failed", "error"):
+                            event(workspace, role + "_error", detail=record)
+                        # Completed tools/messages expose only committed artifacts;
+                        # reasoning items are never published to the researcher UI.
+                        if record.get("type") in ("thread.started", "item.completed", "turn.completed"):
+                            elapsed = time.monotonic() - before
+                            if record.get("type") == "thread.started" or elapsed - last_refresh >= 10:
+                                refresh_committed_progress(workspace, profile_role, model, effort, thread_id, started, elapsed,
+                                    codex_home=session.home, execution=invocation, progress_state=progress_state, previous_usage=previous_usage)
+                                last_refresh = elapsed
+                    exit_code = session.wait()
+                    thread_id = thread_id or session.thread_id
+                    # Only a turn that failed by itself is classified; a lost connection or a stop never resumes.
+                    if not exit_code or not thread_id or not failed_turn or session.cancelled.is_set():
+                        break
+                    cleanup = session.archive()  # flushes the native session before its terminal error is read
+                    failure = native_error(thread_id, session.home)
+                    if not (failure and failure["same_run_retryable"]):
+                        break
+                    paused = sum(pause["seconds"] for pause in pauses)
+                    seconds = min(CAPACITY_PAUSE_SECONDS * 2 ** len(pauses), CAPACITY_PAUSE_BOUND_SECONDS - paused)
+                    if seconds <= 0:
+                        exhausted = True
+                        break
+                    begun = datetime.now(timezone.utc)
+                    pause = {"role": profile_role, "started_at": begun.isoformat(),
+                             "resume_at": (begun + timedelta(seconds=seconds)).isoformat(), "ended_at": None, "resumed": None,
+                             "seconds": seconds, "paused_seconds": paused + seconds,
+                             "bound_seconds": CAPACITY_PAUSE_BOUND_SECONDS, "native_error": failure}
+                    pauses.append(pause)
+                    event(workspace, role + "_capacity_pause", role=profile_role, text=(
+                        f"Model capacity unavailable ({failure['code']}). Pausing {seconds:g} s, then resuming the same native "
+                        f"session on {model}; {paused + seconds:g} of {CAPACITY_PAUSE_BOUND_SECONDS:g} s pause bound used."))
+                    # The paused session stays registered, so cancel, finish and shutdown interrupt this wait.
+                    session.capacity_pause = dict(pause)
+                    stopped = session.cancelled.wait(seconds)
+                    session.capacity_pause = None
+                    pause.update(ended_at=now(), resumed=False)
+                    if stopped:
+                        break
+                    command = command_line(executable, model, effort, workspace, schema_path, output_path,
+                                           store=context['CANARY_CODEX_CREDENTIALS_STORE'], resume_thread_id=thread_id)
+                    paused_session, session = session, execution.open(run_key, role, workspace, model, effort, shape,
+                        output_path, stderr, command, environment, resume_thread_id=thread_id, expected_backend=session.backend,
+                        resume_archived=cleanup.get("archived", True), replacing=session)
+                    paused_session.close()
+                    pause["resumed"], resume_thread_id, prompt = True, thread_id, protocol.CAPACITY_RESUME_PROMPT
+                    event(workspace, role + "_capacity_resumed", role=profile_role,
+                          text="Resumed the same native session after a model capacity pause.")
             finally:
                 if timer:
                     timer.cancel()
@@ -1166,13 +1215,16 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
                     "timed_out": timed_out, "turn_usage": turn_usage,
                     "usage": usage_delta(usage, previous_usage), "thread_usage": usage,
                     "native_error": native_error(thread_id, session.home) if exit_code and thread_id else None,
-                    **invocation, 'cleanup': cleanup}
+                    "capacity_pauses": pauses, **invocation, 'cleanup': cleanup}
                 write(directory / (role + "-receipt.json"), receipt)
                 if resume_thread_id and thread_id != resume_thread_id:
                     raise RuntimeError("Research continuation did not preserve its native thread")
         event(workspace, role + "_finished", seconds=receipt["seconds"], exit_code=exit_code, timed_out=timed_out)
         failure = receipt["native_error"]
         detail = "; native Codex error " + ": ".join(filter(None, (failure["code"], failure["message"]))) if failure else ""
+        if exhausted:  # first, so the API's bounded error text keeps it
+            detail = (f"; model capacity pause bound of {CAPACITY_PAUSE_BOUND_SECONDS:g} s exhausted after "
+                      f"{len(pauses)} resumption{'' if len(pauses) == 1 else 's'}") + detail
         candidate = output_path if output_path.exists() else result_path
         if role == "audit" and candidate.exists():
             try:

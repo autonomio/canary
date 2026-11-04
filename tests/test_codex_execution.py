@@ -12,7 +12,7 @@ import httpx
 import jsonschema
 import pytest
 
-from canary import api_contract, codex_auth, codex_execution, coverage_export, coverage_runtime as engine, dashboard, runs
+from canary import api_contract, cli, codex_auth, codex_execution, coverage_export, coverage_runtime as engine, dashboard, runs
 from test_coverage_evidence_ui import run_dashboard
 
 
@@ -36,16 +36,32 @@ def persist(tid):
  for n in range(1,t.get('turns',1)+1):
   turn_id='turn-'+tid+'-'+str(n)
   rows.extend([{'type':'turn_context','payload':{'turn_id':turn_id,'model':t['model'],'effort':t['effort']}}, {'type':'token_usage_record','payload':{'thread_id':tid,'turn_id':turn_id,'response_id':'response-'+tid+'-'+str(n),'usage':{'input_tokens':100,'cached_input_tokens':80,'cache_write_input_tokens':0,'output_tokens':20,'reasoning_output_tokens':10,'total_tokens':120}}}])
+ if t.get('error'):rows.append({'type':'event_msg','payload':{'type':'task_complete','last_agent_message':None,'error':t['error']}})
  rollout.write_text(''.join(json.dumps(r)+'\n' for r in rows))
  with sqlite3.connect(home/'state_1.sqlite') as db:
   db.execute('CREATE TABLE IF NOT EXISTS threads(id TEXT PRIMARY KEY,rollout_path TEXT,model TEXT,reasoning_effort TEXT)')
   db.execute('CREATE TABLE IF NOT EXISTS thread_spawn_edges(parent_thread_id TEXT,child_thread_id TEXT)')
   db.execute('INSERT OR REPLACE INTO threads VALUES(?,?,?,?)',(tid,str(rollout),t['model'],t['effort']))
 
+CAPACITY='Selected model is at capacity. Please try a different model.'
+def overloaded(tid):
+ # Consumes one scripted capacity failure. codex-cli prints only the message; the code stays in the session's task_complete.
+ with lock:
+  counter=home/'capacity'
+  if not counter.exists() or not int(counter.read_text() or 0):return False
+  counter.write_text(str(int(counter.read_text())-1))
+ threads[tid]['error']={'message':CAPACITY,'codex_error_info':'server_overloaded'}
+ (pathlib.Path(threads[tid]['cwd'])/'committed-before-capacity.txt').write_text('Synthetic review committed before capacity.')
+ return True
+
 def turn(tid):
  t=threads[tid];cwd=pathlib.Path(t['cwd']);(cwd/'synthetic-committed.txt').write_text('Synthetic fixture only.')
  while (cwd/'hold').exists() and not t['cancelled']: time.sleep(.01)
+ if not t['cancelled'] and overloaded(tid):
+  send({'method':'item/completed','params':{'threadId':tid,'item':{'type':'commandExecution','command':'canary catalog','status':'completed'}}})
+  send({'method':'turn/completed','params':{'threadId':tid,'turn':{'id':'turn-'+tid,'status':'failed'}}});return
  if not t['cancelled']:
+  t['error']=None
   for name,value in t.get('scripted',{}).get('files',{}).items():
    path=cwd/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(value)
   send({'method':'item/completed','params':{'threadId':tid,'item':{'type':'agentMessage','text':json.dumps(t.get('scripted',{}).get('response',{'marker':cwd.name,'value':17}))}}})
@@ -55,17 +71,13 @@ if sys.argv[1]=='exec':
  assert '--ignore-user-config' in sys.argv
  cwd=pathlib.Path.cwd();tid=sys.argv[-2] if 'resume' in sys.argv else ('exec-audit-'+str(os.getpid()) if pathlib.Path(sys.argv[sys.argv.index('-o')+1]).name=='audit-response.json' else 'exec-'+cwd.name);threads[tid]={'cwd':str(cwd),'model':sys.argv[sys.argv.index('-m')+1],'effort':'xhigh','cancelled':False}
  previous=home/(tid+'.jsonl');threads[tid]['turns']=sum(json.loads(line).get('type')=='token_usage_record' for line in previous.read_text().splitlines())+1 if previous.exists() else 1
- log('exec',{'argv':sys.argv,'cwd':str(cwd),'api_url':os.environ.get('CANARY_API_URL')})
+ log('exec',{'argv':sys.argv,'cwd':str(cwd),'api_url':os.environ.get('CANARY_API_URL'),'prompt':sys.stdin.read()})
  print(json.dumps({'type':'thread.started','thread_id':tid}),flush=True)
- if (home/'capacity').exists():
-  # codex-cli prints only the message; the code stays in the session's terminal task_complete.
-  capacity='Selected model is at capacity. Please try a different model.';sys.stdin.read()
-  (cwd/'synthetic-committed.txt').write_text('Synthetic fixture only.')
+ if overloaded(tid):
   print(json.dumps({'type':'item.completed','item':{'id':'item_0','type':'command_execution','command':'canary catalog','exit_code':0,'status':'completed'}}),flush=True)
   persist(tid)
-  with (home/(tid+'.jsonl')).open('a') as f:f.write(json.dumps({'type':'event_msg','payload':{'type':'task_complete','last_agent_message':None,'error':{'message':capacity,'codex_error_info':'server_overloaded'}}})+'\n')
-  print(json.dumps({'type':'error','message':capacity}),flush=True)
-  print(json.dumps({'type':'turn.failed','error':{'message':capacity}}),flush=True);raise SystemExit(1)
+  print(json.dumps({'type':'error','message':CAPACITY}),flush=True)
+  print(json.dumps({'type':'turn.failed','error':{'message':CAPACITY}}),flush=True);raise SystemExit(1)
  pathlib.Path(sys.argv[sys.argv.index('-o')+1]).write_text(json.dumps({'marker':cwd.name,'value':17}));persist(tid)
  print(json.dumps({'type':'turn.completed','usage':{}}),flush=True);raise SystemExit()
 for line in sys.stdin:
@@ -270,12 +282,14 @@ assert.match(html,/thread-1/);
         server.shutdown();server.server_close();thread.join(5)
 
 
-def test_native_capacity_failure_reaches_run_research_and_frontend(native):
-    # Issue #148: terminal server_overloaded after research activity, codex exec exit 1.
+def test_native_capacity_failure_reaches_run_research_and_frontend(native,monkeypatch):
+    # Issues #148 and #158: terminal server_overloaded after research activity, codex exec exit 1,
+    # on every resumption until the pause bound (0.125 s, then 0.25 s) is exhausted.
     pool,home,root=native
-    (home/'personal').write_text('PERSONAL-SENTINEL');(home/'capacity').touch()
+    (home/'personal').write_text('PERSONAL-SENTINEL');(home/'capacity').write_text('99')
+    monkeypatch.setattr(engine,'CAPACITY_PAUSE_SECONDS',.125);monkeypatch.setattr(engine,'CAPACITY_PAUSE_BOUND_SECONDS',.375)
     capacity='Selected model is at capacity. Please try a different model.'
-    expected={'code':'server_overloaded','message':capacity,'category':'transient_provider_capacity','same_run_retryable':False}
+    expected={'code':'server_overloaded','message':capacity,'category':'transient_provider_capacity','same_run_retryable':True}
     server=dashboard.make_server(0,registry=root/'registry.json',root=root)
     supervisor=server.RequestHandlerClass.supervisor
     supervisor.auth.close();supervisor.auth=pool.auth;supervisor.execution=pool;pool.can_start=supervisor._can_execute
@@ -286,10 +300,13 @@ def test_native_capacity_failure_reaches_run_research_and_frontend(native):
     try:
         with httpx.Client(base_url=f'http://127.0.0.1:{server.server_port}',timeout=20,trust_env=False) as client:
             failed=client.post('/api/runs/capacity/execution',json={'role':'research'})
-            assert failed.status_code==400 and 'native Codex error server_overloaded: '+capacity in failed.json()['error']
+            assert failed.status_code==400 and ('model capacity pause bound of 0.375 s exhausted after 2 resumptions; '
+                'native Codex error server_overloaded: '+capacity) in failed.json()['error']
             receipt=json.loads((workspace/'research-receipt.json').read_text())
             assert receipt['backend']==codex_execution.LEGACY and receipt['exit_code']==1 and receipt['timed_out'] is False
-            assert receipt['native_error']==expected and (workspace/'synthetic-committed.txt').exists()
+            assert receipt['native_error']==expected and (workspace/'committed-before-capacity.txt').exists()
+            assert [(p['seconds'],p['paused_seconds'],p['resumed']) for p in receipt['capacity_pauses']]==[(.125,.125,True),(.25,.375,True)]
+            assert all(p['native_error']==expected and p['bound_seconds']==.375 and p['role']=='research' for p in receipt['capacity_pauses'])
             jsonschema.validate(receipt,api_contract.schemas()['ExecutionReceipt'])
             # The worker records its failure and finalizes as run_compiled does.
             engine.write(workspace/'run.json',dict(engine.read(workspace/'run.json'),status='failed',failure='RuntimeError: '+failed.json()['error']))
@@ -300,26 +317,122 @@ def test_native_capacity_failure_reaches_run_research_and_frontend(native):
             contract=client.get('/openapi.json').json()
     finally:
         server.shutdown();server.server_close();thread.join(5)
-    assert row['status']=='failed' and row['native_error']==expected
+    assert row['status']=='failed' and row['native_error']==expected and row['capacity_pause'] is None
     role=research['research']['profile']['roles']['research']
     assert role['exit_code']==1 and role['timed_out'] is False and role['native_error']==expected
+    assert role['capacity_pauses']==receipt['capacity_pauses']
     assert 'server_overloaded: '+capacity in research['research']['run']['failure']
     for path,value in (('/api/runs/{key}',row),('/api/runs/{key}/research',research)):
         schema=contract['paths'][path]['get']['responses']['200']['content']['application/json']['schema']
         jsonschema.Draft202012Validator(dict(schema,components=contract['components'])).validate(value)
-    # One bounded attempt with the selected model; no silent retry or model switch.
-    launches=[c['params']['argv'] for c in calls(home) if c['method']=='exec']
-    assert len(launches)==1 and launches[0][launches[0].index('-m')+1]=='gpt-6.1-sol'
+    # Each resumption continues the same native thread with the selected model; no model switch.
+    launches=[c['params'] for c in calls(home) if c['method']=='exec']
+    assert len(launches)==3 and all(l['argv'][l['argv'].index('-m')+1]=='gpt-6.1-sol' for l in launches)
+    assert 'resume' not in launches[0]['argv'] and 'Synthetic capacity fixture?' in launches[0]['prompt']
+    assert all('resume' in l['argv'] and l['argv'][-2]==receipt['thread_id'] and
+               l['prompt']==engine.protocol.CAPACITY_RESUME_PROMPT for l in launches[1:])
     run_dashboard(root,{'row':row,'research':research['research']},r'''
 const html=answerHtml(graph.row,graph.research), issue=diagnoseRun(graph.row,{});
 assert.match(html,/Model capacity unavailable · research · <code>server_overloaded<\/code>/);
 assert.match(html,/Selected model is at capacity\. Please try a different model\./);
 assert.match(html,/not a scientific refusal or a research error/);
-assert.match(html,/does not retry a scientific role within this run/);
+assert.match(html,/Recorded pauses: 2 \(0\.375 s\)/);
+assert.match(html,/Model capacity pauses · research · 2 · 0\.375 s/);
+assert.doesNotMatch(html,/does not retry a scientific role within this run/);
 assert.equal(issue.title,'Model capacity was unavailable');
 assert.equal(issue.text,'server_overloaded: Selected model is at capacity. Please try a different model.');
+assert.match(issue.next,/paused and resumed the same native session within this run/);
 assert.match(issue.next,/new run with the same saved model and settings/);
 ''')
+
+
+@pytest.mark.parametrize('backend',['exec','shared'])
+def test_capacity_pause_resumes_the_same_session_and_keeps_earlier_work(native,monkeypatch,capsys,backend):
+    # Issue #158: the terminal capacity event arrives after research activity; the run waits, then resumes.
+    pool,home,root=native
+    if backend=='exec':(home/'personal').write_text('PERSONAL-SENTINEL')
+    (home/'capacity').write_text('1');monkeypatch.setattr(engine,'CAPACITY_PAUSE_SECONDS',2)
+    expected={'code':'server_overloaded','message':'Selected model is at capacity. Please try a different model.',
+              'category':'transient_provider_capacity','same_run_retryable':True}
+    server=dashboard.make_server(0,registry=root/'registry.json',root=root)
+    supervisor=server.RequestHandlerClass.supervisor
+    supervisor.auth.close();supervisor.auth=pool.auth;supervisor.execution=pool;pool.can_start=supervisor._can_execute
+    workspace=root/'paused';workspace.mkdir()
+    engine.write(workspace/'run.json',{'kind':'question','question':'Synthetic capacity pause?','status':'researching','minimum_papers':50})
+    runs.register_start('paused','Fixture','',kind='question',bundle=str(workspace),status='running',path=supervisor.registry)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    base=f'http://127.0.0.1:{server.server_port}'
+    def execute_research():
+        with httpx.Client(base_url=base,timeout=30,trust_env=False) as client:
+            return client.post('/api/runs/paused/execution',json={'role':'research'})
+    try:
+        with httpx.Client(base_url=base,timeout=20,trust_env=False) as client, ThreadPoolExecutor(max_workers=1) as workers:
+            pending=workers.submit(execute_research)
+            waiting=eventually(lambda:(row:=client.get('/api/runs/paused').json())['capacity_pause'] and row)
+            assert cli.main(['runs','list','--port',str(server.server_port)])==0
+            listed=capsys.readouterr().out
+            contract=client.get('/openapi.json').json()
+            response=pending.result(timeout=30)
+            finished=client.get('/api/runs/paused').json()
+    finally:
+        server.shutdown();server.server_close();thread.join(5)
+    pause=waiting['capacity_pause']
+    assert pause['role']=='research' and pause['native_error']==expected and pause['ended_at'] is None and pause['resumed'] is None
+    assert (pause['seconds'],pause['paused_seconds'],pause['bound_seconds'])==(2,2,600)
+    assert 'waiting for model capacity; research resumes '+pause['resume_at'] in listed
+    schema=contract['paths']['/api/runs/{key}']['get']['responses']['200']['content']['application/json']['schema']
+    jsonschema.Draft202012Validator(dict(schema,components=contract['components'])).validate(waiting)
+    assert response.status_code==200,response.text
+    receipt=response.json();jsonschema.validate(receipt,api_contract.schemas()['ExecutionReceipt'])
+    assert receipt['exit_code']==0 and receipt['native_error'] is None and finished['capacity_pause'] is None
+    [record]=receipt['capacity_pauses']
+    assert record['resumed'] is True and record['ended_at'] and dict(record,ended_at=None,resumed=None)==pause
+    # Earlier work stays committed, both attempts' native responses are counted, and the resumed turn completed the role.
+    assert (workspace/'committed-before-capacity.txt').read_text()=='Synthetic review committed before capacity.'
+    assert receipt['usage']['response_count']==2 and receipt['model']=='gpt-6.1-sol'
+    assert json.loads((workspace/'investigation.json').read_text())=={'marker':'paused','value':17}
+    events=[json.loads(line)['event'] for line in (workspace/'runtime-progress.jsonl').read_text().splitlines()]
+    assert events.index('research_capacity_pause')<events.index('research_capacity_resumed')<events.index('research_finished')
+    recorded=calls(home)
+    if backend=='exec':
+        launches=[c['params'] for c in recorded if c['method']=='exec']
+        assert len(launches)==2 and 'resume' in launches[1]['argv'] and launches[1]['argv'][-2]==receipt['thread_id']
+        assert launches[1]['prompt']==engine.protocol.CAPACITY_RESUME_PROMPT
+    else:
+        assert [c['method'] for c in recorded].count('thread/start')==1
+        assert [c['params']['threadId'] for c in recorded if c['method']=='thread/resume']==[receipt['thread_id']]
+        turns=[c['params'] for c in recorded if c['method']=='turn/start']
+        assert len(turns)==2 and turns[1]['input'][0]['text']==engine.protocol.CAPACITY_RESUME_PROMPT
+        assert turns[1]['threadId']==receipt['thread_id'] and turns[1]['outputSchema']==turns[0]['outputSchema']
+    run_dashboard(root,{'row':waiting,'receipt':receipt},r'''
+const [kind,label,text]=statusInfo(graph.row);
+assert.equal(label,'Waiting for model capacity');
+assert.match(text,/same research session resumes at \d\d:\d\d:\d\d UTC on the same model and account; committed work is kept/);
+const live=capacityPauseHtml(graph.row,{});
+assert.match(live,/Waiting for model capacity · research · resumes \d\d:\d\d:\d\d UTC/);
+assert.match(live,/Selected model is at capacity\. Please try a different model\./);
+assert.match(live,/This pause 2 s · 2 of 600 s pause bound used/);
+const done=capacityPauseHtml({...graph.row,capacity_pause:null},{profile:{roles:{research:graph.receipt}}});
+assert.match(done,/Model capacity pauses · research · 1 · 2 s/);
+assert.match(done,/2 s · resumed the same session · <code>server_overloaded<\/code>/);
+assert.doesNotMatch(done,/Waiting for model capacity/);
+''')
+
+
+def test_cancel_during_capacity_pause_stops_promptly_without_resuming(native,monkeypatch):
+    pool,home,root=native
+    (home/'capacity').write_text('1');monkeypatch.setattr(engine,'CAPACITY_PAUSE_SECONDS',60)
+    with ThreadPoolExecutor(max_workers=1) as workers:
+        pending=workers.submit(execute,pool,root,'stopped-pause')
+        assert eventually(lambda:pool.capacity_pause('stopped-pause'))['seconds']==60
+        cancelled=time.monotonic();pool.cancel('stopped-pause')
+        with pytest.raises(RuntimeError,match='failed to produce'):pending.result(timeout=10)
+    assert time.monotonic()-cancelled<5
+    receipt=json.loads((root/'stopped-pause/research-receipt.json').read_text())
+    [stopped]=receipt['capacity_pauses']
+    assert stopped['resumed'] is False and stopped['ended_at'] and receipt['exit_code']==1
+    assert pool.capacity_pause('stopped-pause') is None and pool.status()['active_shared_sessions']==0
+    assert [c['method'] for c in calls(home)].count('turn/start')==1
 
 
 def test_duplicate_role_does_not_interrupt_the_original_and_shutdown_seals_receipts(native):

@@ -48,6 +48,18 @@ class NativeError(TypedDict):
     same_run_retryable: bool
 
 
+class CapacityPause(TypedDict):
+    role: str
+    started_at: str
+    resume_at: str
+    ended_at: str | None
+    resumed: bool | None
+    seconds: float
+    paused_seconds: float
+    bound_seconds: float
+    native_error: NativeError
+
+
 class ExecutionReceipt(TypedDict, total=False):
     backend: Literal['shared_codex_app_server', 'codex_exec']
     fallback_reason: str | None
@@ -61,6 +73,7 @@ class ExecutionReceipt(TypedDict, total=False):
     exit_code: int
     timed_out: bool
     native_error: NativeError | None
+    capacity_pauses: list[CapacityPause]
     turn_usage: list[dict]
     usage: dict
     thread_usage: dict
@@ -90,7 +103,7 @@ class CodexExecution:
                     'active_shared_sessions': sum(s.backend == SHARED for s in self.sessions.values()),
                     'active_exec_sessions': sum(s.backend == LEGACY for s in self.sessions.values())}
 
-    def open(self, key, role, workspace, model, effort, shape, output, stderr, command, environment=None, *, resume_thread_id=None, expected_backend=None, resume_archived=True):
+    def open(self, key, role, workspace, model, effort, shape, output, stderr, command, environment=None, *, resume_thread_id=None, expected_backend=None, resume_archived=True, replacing=None):
         self.context()
         with self.auth.lock:
             generation = self.auth.proc
@@ -107,9 +120,12 @@ class CodexExecution:
         with self.lock:
             if self.closing:
                 raise RuntimeError('The API-owned execution runtime is stopping')
-            if key in self.cancelled_runs or self.can_start is not None and not self.can_start(key):
-                raise RunCancelled('Research was stopped before scientific execution started')
-            if key in self.sessions:
+            if (key in self.cancelled_runs or replacing is not None and replacing.cancelled.is_set() or
+                    self.can_start is not None and not self.can_start(key)):
+                raise RunCancelled('Research was stopped before scientific execution ' + ('resumed' if replacing else 'started'))
+            # A paused role's session stays registered until its resumed session replaces it,
+            # so cancellation and finish always find the run's current writer.
+            if key in self.sessions and self.sessions[key] is not replacing:
                 raise ValueError('A scientific session is already active for this run')
             if self.version is None:
                 self.version = subprocess.run([executable, '--version'], capture_output=True,
@@ -122,6 +138,12 @@ class CodexExecution:
             session.resume_archived = resume_archived
             self.sessions[key] = session
         return session
+
+    def capacity_pause(self, key):
+        """The run's live pause for transient model capacity, or None."""
+        with self.lock:
+            session = self.sessions.get(key)
+        return session.capacity_pause if session else None
 
     def cancel(self, key, *, remember=True):
         with self.lock:
@@ -170,6 +192,7 @@ class Session:
         self.cleanup = {}
         self.resume_thread_id = None
         self.resume_archived = True
+        self.capacity_pause = None
 
     def invocation(self):
         return {'backend': self.backend, 'fallback_reason': None if self.backend == SHARED else FALLBACK,
@@ -291,7 +314,8 @@ class Session:
         return self.exit_code if self.exit_code is not None else 130 if self.cancelled.is_set() else 1
 
     def archive(self):
-        if self.backend == SHARED and self.thread_id:
+        # Once per session: a role paused for capacity archives before its receipt does.
+        if self.backend == SHARED and self.thread_id and not self.cleanup:
             try:
                 self._rpc('thread/archive', {'threadId': self.thread_id})
                 self.cleanup = {'archived': True}
