@@ -115,6 +115,8 @@ def argument_parser():
     connect.add_argument('--device', action='store_true', help='use a device code (headless service)')
     bundle = sub.add_parser("bundle", help="read a research bundle or connector handoff through the API")
     bundle.add_argument("key")
+    bundle.add_argument("--round", type=int, help="read one recorded scientific round")
+    bundle.add_argument("--phase", choices=["research","audit","correction"], help="record kind for --round")
     bundle.add_argument("--connector", choices=['resolvent'])
     bundle.add_argument("--representation", choices=['compact','expanded'], default='compact',
                         help='connector JSON: lossless references (default) or fully expanded')

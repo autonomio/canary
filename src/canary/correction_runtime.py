@@ -30,7 +30,12 @@ def verify(workspace, payload, manifest, command, executable):
     directory = workspace / 'rounds' / '000'
     engine.immutable_bytes(directory / 'investigation.json', original)
     engine.immutable_bytes(directory / 'subject.json', (json.dumps(payload, ensure_ascii=False, indent=2)+'\n').encode())
-    history.append({'round': 0, 'kind': 'research', 'investigation': json.loads(original), 'payload': payload})
+    history.append({'round': 0, 'kind': 'research', 'investigation': json.loads(original), 'source_json': original.decode('utf-8'), 'payload': payload})
+    def publish(phase, round_index):
+        from .revision_artifacts import inventory
+        engine.write(workspace/'payload.json', dict(payload, claim_revisions=history,
+            history_manifest=inventory(history), verification_progress={'phase': phase, 'round': round_index},
+            research_status='candidate_research_pending_audit'))
     manifest['research_finished_at'] = engine.now()
     failure = None
     try:
@@ -39,6 +44,7 @@ def verify(workspace, payload, manifest, command, executable):
             directory = workspace / 'rounds' / f'{round_index:03d}'
             manifest.update(status='auditing', audit_round=round_index)
             engine.write(workspace / 'run.json', manifest)
+            publish('audit', round_index)
             engine.write(workspace / 'audit-input.json', payload)
             # The audit sees findings and source facts, never correction responses/reasoning.
             feedback = {'claim_checks': audit.get('claim_checks', []), 'findings': audit.get('findings', [])}
@@ -65,8 +71,10 @@ def verify(workspace, payload, manifest, command, executable):
             engine.write(workspace/'audit.json', audit)
             engine.write(workspace/'audit-receipt.json', receipt)  # Current projection; immutable original lives in its round.
             used = {p for c in audit.get('claim_checks', []) for p in c.get('passage_ids', [])}
+            used.update(p for e in audit.get('evidence_checks', []) for p in e.get('passage_ids', []))
+            used.update(p for f in audit.get('findings', []) for p in f.get('passage_ids', []))
             used.update(p for r in payload.get('study_results', []) for f in r.get('fields', {}).values() if f for p in f.get('passage_ids', []))
-            history.append({'round': round_index, 'kind': 'audit', 'audit': audit,
+            history.append({'round': round_index, 'kind': 'audit', 'raw_audit': raw, 'audit': audit,
                 'context_passages': [p for p in passages if p['id'] in used], 'receipt': receipt})
             engine.immutable_bytes(directory/'audit-bound.json', (json.dumps(audit, ensure_ascii=False, indent=2)+'\n').encode())
             flagged = corrections.targets(payload, audit)
@@ -75,6 +83,7 @@ def verify(workspace, payload, manifest, command, executable):
             next_round = round_index + 1
             manifest.update(status='correcting', correction_round=next_round)
             engine.write(workspace/'run.json', manifest)
+            publish('correction', next_round)
             correction_input = {'question': manifest['question'], 'claim_ids': flagged, 'payload': payload,
                 'claim_checks': audit['claim_checks'], 'findings': audit.get('findings', []),
                 'claim_review_checks': payload.get('claim_review_checks', [])}

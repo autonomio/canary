@@ -397,7 +397,7 @@ def scenario_export(out: Path, bundle_src: Path) -> dict:
 
 def scenario_native_verified(out):
     """Run the HTTP worker, native stdio transport and correction-state fixtures."""
-    proc = subprocess.run([sys.executable, '-m', 'pytest', '-q', 'tests/test_corrections.py',
+    proc = subprocess.run([sys.executable, '-m', 'pytest', '-q', 'tests/test_corrections.py', 'tests/test_verified_exports.py',
         'tests/test_codex_execution.py::test_actual_api_worker_runs_research_correction_fresh_audit_and_retains_history',
         'tests/test_codex_execution.py::test_continuation_preserves_research_thread_and_counts_only_new_responses'],
         cwd=ROOT, capture_output=True, text=True, timeout=120)

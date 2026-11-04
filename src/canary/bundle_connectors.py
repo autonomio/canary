@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from . import research_bundle
 from .claim_freshness import unknown as unknown_freshness
@@ -35,6 +36,10 @@ def resolvent(workspace):
     if (run.get('verification_version') and not payload.get('verification', {}).get('version')
             and (payload.get('claims') or payload.get('executive_summary'))):
         raise ValueError('This run has not produced a verified final claim projection; working sources remain available')
+    verified = payload.get('verification', {}).get('version') == 1
+    if verified:
+        from .corrections import verify_final
+        verify_final(payload)
     refs = {r['id']: r for r in payload.get('references', [])}
     claims, evidence, sources, source_map, evidence_map = [], [], [], {}, {}
     source_metadata = {}
@@ -115,7 +120,7 @@ def resolvent(workspace):
         'Freshness, gaps, residue, evidence relations and audit scope are retained in the full research artifact and metadata.',
         'Preserve the accompanying neutral bundle archive for original materials; public source URLs alone do not preserve its bytes.']))
     limitations.append(UNCERTAINTY_POLICY)
-    return {'schema_version': '1.0', 'id': 'RUN-' + bundle['id'].removeprefix('RB-'),
+    result = {'schema_version': '1.0', 'id': 'RUN-' + bundle['id'].removeprefix('RB-'),
         'input_method': 'source_material', 'created_at': bundle['created_at'], 'researcher': 'Canary',
         'title': scope[:200], 'scope': scope, 'origin': {'mode': 'retrospective', 'coverage': 'partial',
             'limitations': ['A selected research corpus is not exhaustive world knowledge; the independent audit defines checked scope.']},
@@ -142,6 +147,82 @@ def resolvent(workspace):
             **({'source_metadata': source_metadata} if source_metadata else {}),
             **({'additional_sources': payload['additional_sources']} if payload.get('additional_sources') else {}),
             'independent_audit': payload.get('independent_audit'), 'gaps': payload.get('gaps', []), 'residue': payload.get('residue', [])}}
+    return verified_export(result, payload) if verified else result
+
+
+VERIFIED_UNCERTAINTY_POLICY = ('Original low uncertainty is retained only with explicitly audited independent, inspected, '
+    'addressable supporting evidence; otherwise candidate uncertainty is at least medium. '
+    'Source independence is not scientific certainty. Original judgments remain in claim_metadata.')
+
+
+def verified_export(result, payload):
+    """Mechanical v3 mapping of the producer's already verified, closed graph."""
+    from . import audit_validation
+    from .corrections import audit_basis
+    metadata = result['method_metadata']
+    mapping = metadata['id_map']
+    audit = payload['independent_audit']
+    current = audit_validation.snapshot(audit_basis(payload)) == audit.get('snapshot_sha256')
+    checks = {c['claim_id']: c for c in audit.get('claim_checks', [])}
+    for source in result['sources']:
+        if isinstance(source.get('uri'), str) and source['uri'].startswith('10.'):
+            source['uri'] = 'https://doi.org/' + source['uri']
+    source_by_id = {s['id']: s for s in result['sources']}
+    native_evidence = {e['id']: e for e in result['evidence']}
+    canonical_evidence = {e['id']: e for e in payload.get('evidence', [])}
+    independence = {}
+    for item in payload.get('evidence', []):
+        candidates = [c for c in audit.get('evidence_checks', []) if c.get('evidence_id') == item['id']]
+        check = candidates[0] if len(candidates) == 1 else {}
+        native = native_evidence[mapping['evidence'][item['id']]]
+        def inspected_addressable(source_id):
+            source = source_by_id[source_id]
+            address = urlparse(source.get('uri') or '')
+            return source.get('access') == 'inspected' and address.scheme in ('http', 'https') and bool(address.netloc)
+        independent = bool(current and check.get('assessment') == 'independent' and not check.get('validation_issue')
+            and check.get('reason', '').strip() and check.get('family_basis', '').strip() and check.get('study_family_ids')
+            and not item.get('premise_claim_ids') and all(inspected_addressable(s) for s in native['source_ids']))
+        native.update(independent=independent,
+            premise_claim_ids=[mapping['claims'][i] for i in item.get('premise_claim_ids', [])],
+            limitations=['Recorded evidence relation: ' + item.get('relation', 'unknown'),
+                'Audited study-family assessment: ' + check.get('assessment', 'unknown') + '. ' + check.get('reason', '')])
+        independence[native['id']] = dict(check, canary_evidence_id=item['id'])
+    def uncertainty(value, evidence_ids):
+        level = value.get('class')
+        if level == 'low' and any(native_evidence[mapping['evidence'][e]]['independent'] and
+                canonical_evidence[e].get('relation') == 'supports' for e in evidence_ids):
+            return 'low'
+        return {'low': 'medium', 'moderate': 'medium', 'high': 'high'}[level]
+    for canonical, native in zip(payload.get('claims', []), result['claims']):
+        native['class'] = 'observed_fact' if canonical.get('kind') == 'reported_finding' else 'derived_inference'
+        native['uncertainty'] = uncertainty(canonical['uncertainty'], canonical['evidence_ids'])
+        check = checks[canonical['id']]
+        metadata['claim_metadata'][native['id']].update(final_verdict=check['assessment'], final_check=check,
+            statement_sha256=check['statement_sha256'], claim_snapshot_sha256=check['claim_snapshot_sha256'])
+    connectors = []
+    for index, item in enumerate(payload.get('claim_links', []), 1):
+        connectors.append({'id': 'x'+str(index), 'from': mapping['claims'][item['from_claim_id']],
+            'to': mapping['claims'][item['to_claim_id']], 'type': item['kind'], 'spec': item['spec'],
+            'reason': item['reason'], 'uncertainty': uncertainty(item['uncertainty'], item['evidence_ids']),
+            'evidence_ids': [mapping['evidence'][i] for i in item['evidence_ids']]})
+    def linked(record):
+        return dict(record, canary_claim_ids=record.get('claim_ids', []), canary_evidence_ids=record.get('evidence_ids', []),
+            claim_ids=[mapping['claims'][i] for i in record.get('claim_ids', [])],
+            evidence_ids=[mapping['evidence'][i] for i in record.get('evidence_ids', [])])
+    metadata.update(connector_version=3, uncertainty_policy=VERIFIED_UNCERTAINTY_POLICY,
+        evidence_independence=independence,
+        study_results=[dict(r, claim_ids=[mapping['claims'][c['id']] for c in payload['claims'] if r['id'] in c.get('study_result_ids', [])])
+            for r in payload.get('study_results', [])],
+        contradictions=[linked(r) for r in payload.get('contradictions', [])],
+        withheld_claims=payload.get('withheld_claims', []), withheld_evidence=payload.get('withheld_evidence', []),
+        claim_revisions=payload.get('claim_revisions', []), history_manifest=payload.get('history_manifest', []),
+        verification={k: v for k, v in payload['verification'].items() if k != 'audit_basis'})
+    result['connectors'] = connectors
+    result['result']['limitations'] = [line for line in result['result']['limitations'] if line != UNCERTAINTY_POLICY
+        and not line.startswith('Candidate claim classes require Resolvent admission;')]
+    result['result']['limitations'].extend([VERIFIED_UNCERTAINTY_POLICY,
+        'Observed facts are source-attributed reported findings, bounded by the stated study and audit scope; they are not universal truths. Resolvent still owns admission.'])
+    return result
 
 
 EXPORTERS = {'resolvent': resolvent}

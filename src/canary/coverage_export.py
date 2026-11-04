@@ -348,7 +348,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     accounting = accounting if isinstance(accounting, dict) else {}
     investigation = _load(research / "investigation.json", payload.get("research", payload))
     investigation = investigation if isinstance(investigation, dict) else {}
-    if payload.get("verification", {}).get("version"):
+    if payload.get("verification", {}).get("version") or payload.get("research_status") == "candidate_research_pending_audit":
         investigation = payload  # Final supported claims; original investigation is immutable history.
     selection = _load(research / "selection.json", payload.get("selection", {}))
     selection = selection if isinstance(selection, dict) else {}
@@ -665,6 +665,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
             audit_case["evidence_checks"] = [dict(check, assessment="unknown",
                 validation_issue="Scientific inputs changed since the independence assessment")
                 for check in audit_case.get("evidence_checks", [])]
+    used_passages.update(p for c in audit_case.get("evidence_checks", []) for p in c.get("passage_ids", []))
+    used_passages.update(p for f in audit_case.get("findings", []) for p in f.get("passage_ids", []))
     checks = {c.get("claim_id"): c for c in _rows(audit_case.get("claim_checks"))}
     for claim in graph["claims"]:
         ambiguous = claim["id"] in duplicate_claim_ids
@@ -804,6 +806,13 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
               else "answered" if lifecycle in ("complete", "completed") and has_findings
               else "complete" if lifecycle == "answered" and not has_findings else lifecycle)
     requests = _load(source / "openalex-requests.json", _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None)))
+    by_origin = {e["id"]: e for e in payload.get("evidence", [])}
+    for item in graph["evidence"]:
+        item["premise_claim_ids"] = by_origin.get(item.get("origin_evidence_id", item["id"]), {}).get("premise_claim_ids", [])
+    graph["export_policy"] = {"connector_version": 3} if payload.get("verification", {}).get("version") else {}
+    graph["history_manifest"] = payload.get("history_manifest", [])
+    graph["verification_progress"] = payload.get("verification_progress")
+    graph["claim_links"] = payload.get("claim_links", [])
     graph["verification"] = {k: v for k, v in payload.get("verification", {}).items() if k != "audit_basis"}
     graph["withheld_claims"] = payload.get("withheld_claims", [])
     graph["claim_revisions"] = payload.get("claim_revisions", [])

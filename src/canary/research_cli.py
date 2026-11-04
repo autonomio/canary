@@ -32,6 +32,11 @@ def run(args, port):
 def fetch_bundle(args, port):
     from urllib.parse import quote
     suffix = '/exports/' + args.connector if args.connector else '/bundle'
+    if args.round is not None or args.phase is not None:
+        if args.round is None or args.round < 0 or args.phase is None or args.connector:
+            print('Revision reads require --round N --phase research|audit|correction and no connector', file=sys.stderr)
+            return 1
+        suffix = f'/revisions/{args.round}/{args.phase}'
     if not args.connector and args.representation != 'compact':
         print('--representation requires --connector', file=sys.stderr)
         return 1

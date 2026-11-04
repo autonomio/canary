@@ -788,20 +788,34 @@ def bind_payload(workspace, *, investigation=None):
         if not summary.get("claim_ids"):
             issues.append("Executive assertion lacks claim binding")
     for item in payload.get("evidence", []):
+        require(item.get("premise_claim_ids", []), claims, "premise claim", item["id"])
         require(item.get("passage_ids", []), passages, "passage", item["id"])
         item["verbatims"] = [passages[p] for p in item.get("passage_ids", []) if p in passages]
         item["reference_ids"] = list(dict.fromkeys(p["reference_id"] for p in item["verbatims"]))
         if not item.get("passage_ids"):
             issues.append("Evidence lacks verbatim: " + item["id"])
-    for result in raw.get("study_results", []):
+    for result in payload.get("study_results", []):
         require(result.get("reference_ids", []), references, "reference", result["id"])
         for name, field in result.get("fields", {}).items():
             if field is not None:
+                field["verbatims"] = [passages[p] for p in field.get("passage_ids", []) if p in passages]
                 require(field.get("passage_ids", []), passages, "passage", result["id"] + "." + name)
                 if not field.get("passage_ids"):
                     issues.append("Result field lacks passage: " + result["id"] + "." + name)
                 if any(passages.get(p, {}).get("reference_id") not in result.get("reference_ids", []) for p in field.get("passage_ids", [])):
                     issues.append("Result field uses undeclared reference: " + result["id"] + "." + name)
+    link_ids = set()
+    for link in raw.get("claim_links", []):
+        if link["id"] in link_ids:
+            issues.append("Duplicate claim link ID: " + link["id"])
+        link_ids.add(link["id"])
+        require([link.get("from_claim_id"), link.get("to_claim_id")], claims, "claim", link["id"])
+        require(link.get("evidence_ids", []), evidence, "evidence", link["id"])
+        uncertainty = link.get("uncertainty", {})
+        if {"low": 1, "moderate": 2, "high": 3}.get(uncertainty.get("class")) != uncertainty.get("score"):
+            issues.append("Claim link uncertainty class/score mismatch: " + link["id"])
+        if not link.get("evidence_ids") or not link.get("reason", "").strip():
+            issues.append("Claim link lacks evidence or reason: " + link["id"])
     for kind in ("contradictions", "gaps", "residue"):
         for record in raw.get(kind, []):
             require(record.get("claim_ids", []), claims, "claim", record["id"])

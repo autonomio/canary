@@ -46,6 +46,14 @@ def matches_investigation(payload, investigation):
             keys = shape[field]['items']['properties']
             left = [{k: e[k] for k in keys if k in e} for e in (left or [])]
             right = [{k: e[k] for k in keys if k in e} for e in (right or [])]
+        if field == 'study_results':
+            def unbound(records):
+                result = deepcopy(records or [])
+                for record in result:
+                    for value in record.get('fields', {}).values():
+                        if isinstance(value, dict): value.pop('verbatims', None)
+                return result
+            left, right = unbound(left), unbound(right)
         if left != right:
             return False
     return True
@@ -65,7 +73,8 @@ def bind(payload, raw, *, passages=()):
     claims = payload.get('claims', [])
     evidence = payload.get('evidence', [])
     references = {r['id']: r for r in payload.get('references', [])}
-    passages = {p['id']: p for p in [*passages, *(p for e in evidence for p in e.get('verbatims', []))]}
+    passages = {p['id']: p for p in [*passages, *(p for e in evidence for p in e.get('verbatims', [])),
+        *(p for r in payload.get('study_results', []) for f in r.get('fields', {}).values() if f for p in f.get('verbatims', []))]}
     checks = [c for c in rows(audit.get('claim_checks')) if isinstance(c, dict) and isinstance(c.get('claim_id'), str)]
     counts = Counter(c.get('claim_id') for c in checks)
     claim_counts = Counter(c['id'] for c in claims)

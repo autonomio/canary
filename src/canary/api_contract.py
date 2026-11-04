@@ -94,9 +94,12 @@ def schemas():
     passage = obj({'id':S,'source_id':S,'reference_id':S,'kind':S,'text':S,'start':I,'end':I,
                    'page':nullable(I),'selected':B},['id'],closed=False)
     findings = obj({'question':S,'executive_summary':arr({}),'claims':arr(ref('RecordedClaim')),
+        'export_policy':obj({'connector_version':I}),
         'evidence':arr(ref('RecordedEvidence')),'passages':arr(ref('Passage')),'references':arr(O),
         'gaps':arr(O),'residue':arr(O),'contradictions':arr(O),'study_results':arr(O),
         'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O),
+        'history_manifest':arr(ref('RevisionDigest')),'claim_links':arr(ref('ClaimLink')),
+        'verification_progress':nullable(obj({'phase':S,'round':I})),
         'verification':ref('VerificationSummary'),'withheld_claims':arr(ref('WithheldClaim')),'claim_revisions':arr(ref('ClaimRevision')),
         'claim_review_checks':arr(ref('ClaimReviewCheck')),
         'source_checks':arr(ref('RecordedClaimCheck')), 'evidence_independence':arr(ref('EvidenceIndependence'))},closed=False)
@@ -155,6 +158,9 @@ def schemas():
         'Findings':findings,'RecordedClaim':claim,'RecordedEvidence':evidence,'Passage':passage,
         'SourceContext':context,'GeneratedInvestigation':generated,'QuestionPlan':_query_schema(),
         'ScientificAudit':protocol.audit_schema(),
+        'ClaimLink':generated['properties']['claim_links']['items'],
+        'RevisionDigest':obj({'round':I,'kind':{'enum':['research','audit','correction']},'sha256':S}, ['round','kind','sha256']),
+        'RevisionArtifact':obj({'round':I,'kind':{'enum':['research','audit','correction']},'sha256':S,'content':S}, ['round','kind','sha256','content']),
         'CorrectionResponse':corrections.schema(),
         'VerificationSummary':obj({'version':I,'candidate_claims':I,'supported_claims':I,'withheld_claims':I,
             'withheld_share':{'type':'number','minimum':0,'maximum':1},'correction_rounds':I,
@@ -245,6 +251,8 @@ def document():
     for verb in ('pause','unpause'):
         op(verb,'post','/api/runs/{key}/'+verb,'Retained container control; native workers use cancel','RunControl',params=[key],body='Object')
     op('research','get','/api/runs/{key}/research','Read findings, binding issues, coverage and separate audit','ResearchResponse',params=[key],mcp=True)
+    op('revision','get','/api/runs/{key}/revisions/{round}/{kind}','Read a hash-checked original research, audit or correction record after source cleanup','RevisionArtifact',
+        params=[key,('round','path',dict(I,minimum=0),True),('kind','path',{'enum':['research','audit','correction']},True)],mcp=True)
     op('bundle','get','/api/runs/{key}/bundle','Read bundle settings, artifact hashes and findings','BundleResponse',params=[key],mcp=True)
     op('archive','get','/api/runs/{key}/bundle/archive','Download a finished bundle with exact saved materials',params=[key],media='application/zip')
     op('artifact','get','/api/runs/{key}/bundle/artifacts/{artifact_path}','Download one hash-checked inventoried artifact',params=[key,('artifact_path','path',S,True)],media='application/octet-stream')

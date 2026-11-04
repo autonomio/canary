@@ -18,6 +18,8 @@ def prepared(path, rounds=3):
     payload = seed(path)
     raw = json.loads((path/'investigation.json').read_text())
     raw['claims'][0]['kind'] = 'source_record'
+    raw['claim_links'] = []
+    for evidence in raw['evidence']: evidence['premise_claim_ids'] = []
     engine.write(path/'investigation.json', raw)
     (path/'download-receipts').mkdir()
     engine.write(path/'download-receipts/W1.json', {'reference': payload['references'][0]})
@@ -33,7 +35,10 @@ def prepared(path, rounds=3):
 
 def response(payload, action='revise', split=False):
     raw = {k: deepcopy(payload[k]) for k in engine.protocol.investigation_schema()['properties']}
-    raw['evidence'] = [{k:e[k] for k in ('id','passage_ids','interpretation','relation')} for e in raw['evidence']]
+    for result in raw['study_results']:
+        for field in result.get('fields', {}).values():
+            if isinstance(field, dict): field.pop('verbatims', None)
+    raw['evidence'] = [{k:e[k] for k in ('id','passage_ids','interpretation','relation','premise_claim_ids')} for e in raw['evidence']]
     record = {'claim_id': 'C1', 'action': action, 'reason': 'Synthetic source-based response.',
         'passage_ids': ['W1-p0001'], 'replacement_claim_ids': []}
     if action == 'revise':

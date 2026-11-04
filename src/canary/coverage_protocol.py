@@ -109,12 +109,18 @@ def investigation_schema():
             "kind": enum("reported_finding", "author_interpretation", "derived_comparison", "secondary_report", "recommendation", "source_record"),
             "uncertainty": uncertainty, "freshness": freshness_schema(), "evidence_ids": SS, "study_result_ids": SS})),
         "evidence": arr(obj({"id": S, "passage_ids": SS, "interpretation": S,
-                             "relation": enum("supports", "qualifies", "contradicts")})),
+                             "relation": enum("supports", "qualifies", "contradicts"), "premise_claim_ids": SS})),
         "study_results": arr(obj({"id": S, "reference_ids": SS,
             "result_type": enum("measured", "fitted", "simulated", "association", "qualitative", "secondary_report"),
             "fields": obj({name: {"anyOf": [field, {"type": "null"}]} for name in (
                 "system", "intervention", "comparator", "conditions", "endpoint", "value", "units",
                 "sample_size", "reported_uncertainty")}), "version_or_cohort_note": S})),
+        "claim_links": arr(obj({"id": S, "from_claim_id": S, "to_claim_id": S,
+            "kind": enum("dependency", "coupling"),
+            "spec": enum(*(f"{domain}:{strength}:{direction}" for domain in
+                ("structural", "economic", "regulatory", "narrative", "temporal")
+                for strength in ("strong", "moderate", "weak") for direction in ("inward", "outward", "balanced"))),
+            "reason": S, "uncertainty": uncertainty, "evidence_ids": SS})),
         "contradictions": arr(obj({"id": S,
             "kind": enum("within_source", "between_sources", "between_measurement_and_model"),
             "description": S, "claim_ids": SS, "evidence_ids": SS, "comparability": S,
@@ -158,6 +164,9 @@ A conclusion about the literature states its own question and actual inspection 
 Write empirical reported_finding statements from their linked typed study_results; every reported_finding needs at least one study result.
 Use source_record for attributed registry plans, patent disclosures or other documentary facts that are not empirical results; do not manufacture study results.
 Keep recommendations distinct with kind recommendation and identify their evidential basis and limits.
+Record only source-justified relationships within this run in claim_links: dependency means from_claim_id is a prerequisite of to_claim_id; coupling means interdependence.
+Every link needs its own source-bound reason, evidence, uncertainty and explicit spec (domain:strength:direction). Never manufacture links from co-occurrence or map generic support/contradiction to a dependency.
+Evidence that relies on other claims names their IDs in premise_claim_ids; use [] for direct source evidence. These are within-run IDs, never a consumer world model.
 Work backwards from fixed source passages to attributed claims. Verify methods/results and surrounding source context.
 Keep experiments, cohorts, versions, denominators, comparators and units distinct. Use code for arithmetic and navigation.
 Distinguish measured, fitted, simulated, associated and qualitative results. Nonsignificance is not equivalence.
@@ -249,6 +258,7 @@ Record the study-family identifiers and source-based family_basis. Use unknown w
 Independent requires inspected, addressable original-source evidence and a reason explaining independence from the other evidence supporting the claim. Do not equate independent with true or high quality.
 Read claim_review_checks in audit-input.json. Missing linked study results are structural failures to correct.
 Context wording and possible duplicate checks are review cues, not semantic verdicts. Resolve them against the sources; do not mechanically reject or merge claims.
+Audit claim_links and evidence premise_claim_ids for source support, direction, scope and dependencies; attach material defects to the affected claim IDs.
 Audit the actual claim/result scope, exact source meaning, arithmetic, experiment attribution, selection/coverage and paper-role/family counts.
 Do not reward paper quantity or confidence; identify irrelevant padding, preview inclusion, important adverse alternatives and unsupported claims.
 {timing}

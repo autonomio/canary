@@ -1450,6 +1450,12 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             self._send(200, content, kind,
                                        {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
+            elif re.fullmatch(r"/api/runs/[^/]+/revisions/[0-9]+/(research|audit|correction)", parsed.path):
+                parts = parsed.path.split('/')
+                row = runs.get(unquote(parts[3]), self.supervisor.registry)
+                if row is None:
+                    raise KeyError(parts[3])
+                self._send(200, bundle_store.revision(row['bundle'], int(parts[5]), parts[6]))
             elif re.fullmatch(r"/api/runs/[^/]+/exports/[^/]+", parsed.path):
                 parts = parsed.path.split('/')
                 row = runs.get(unquote(parts[3]), self.supervisor.registry)
