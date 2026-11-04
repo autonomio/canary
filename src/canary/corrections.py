@@ -35,8 +35,9 @@ def claim_issues(payload):
 
 
 def run_findings(payload, audit):
-    """Material findings naming no current claim: disclosed for the run, never a claim verdict."""
-    known = {c['id'] for c in payload.get('claims', [])}
+    """Material findings naming no current or audited claim: disclosed for the run, never a claim verdict."""
+    # A stopped later audit leaves an earlier audit final; claims it checked were since corrected, not unknown.
+    known = {c['id'] for c in payload.get('claims', [])} | {c.get('claim_id') for c in audit.get('claim_checks', [])}
     return [deepcopy(f) for f in audit.get('findings', [])
             if f.get('severity') == 'material' and not set(f.get('claim_ids') or []) & known]
 
@@ -49,13 +50,16 @@ def withheld_only(payload, active, withdrawn=()):
     retired = [c for c in claims if c['id'] not in active] + [r['claim'] for r in withdrawn]
     def kept(link):
         return {link.get('from_claim_id'), link.get('to_claim_id')} <= active
+    # Contradiction, gap and residue records keep their evidence while they name an active claim or no claim.
+    records = [r for name in ('contradictions', 'gaps', 'residue') for r in payload.get(name) or []]
+    def live(record):
+        return not record.get('claim_ids') or bool(set(record['claim_ids']) & active)
     used = {e for c in claims if c['id'] in active for e in c.get('evidence_ids', [])}
     used.update(e for r in links if kept(r) for e in r.get('evidence_ids', []))
-    # Contradiction, gap and residue records remain active unless they name only withheld claims.
-    used.update(e for name in ('contradictions', 'gaps', 'residue') for r in payload.get(name) or []
-                if not r.get('claim_ids') or set(r['claim_ids']) & active for e in r.get('evidence_ids', []))
+    used.update(e for r in records if live(r) for e in r.get('evidence_ids', []))
     hidden = {e for c in retired for e in c.get('evidence_ids', [])}
     hidden.update(e for r in links if not kept(r) for e in r.get('evidence_ids', []))
+    hidden.update(e for r in records if not live(r) for e in r.get('evidence_ids', []))
     results = {s for c in claims if c['id'] in active for s in c.get('study_result_ids', [])}
     return hidden - used, {s for c in retired for s in c.get('study_result_ids', [])} - results
 

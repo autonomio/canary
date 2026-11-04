@@ -480,6 +480,31 @@ assert.equal(/names no current claim \(GONE\)/.test(html), graph.verification.ru
 """)
 
 
+@pytest.mark.parametrize('stop', ['dead_audit', 'cancelled'])
+def test_audit_stopped_after_a_correction_reports_no_corrected_claim_finding_as_run_level(tmp_path, monkeypatch, stop):
+    payload, manifest = prepared(tmp_path, rounds=1)
+    finding = dict(run_level(['C1']), description='Synthetic defect in C1.')
+    def scientific(workspace, role, *args, **kwargs):
+        if role == 'correction':
+            return response(engine.read(workspace/'rounds/001/correction-input.json')['payload'], 'withdraw'), {'exit_code': 0}
+        if kwargs['round_index'] == 0:
+            return dict(audit_for(payload, 'correction_needed'), findings=[finding]), {}
+        if stop == 'cancelled':
+            raise engine.RunCancelled('Synthetic cancellation')
+        raise RuntimeError('Audit session exited with code 1; its intermediate audit is preserved and no verdict was accepted')
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    if stop == 'cancelled':
+        with pytest.raises(engine.RunCancelled):
+            correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+        final = engine.read(tmp_path/'payload.json')
+    else:
+        final = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert final['verification']['failure'] and not final['claims']
+    assert [r['status'] for r in final['withheld_claims']] == ['withdrawn']
+    # The last bound audit predates the withdrawal; its finding on C1 is not a run-level finding.
+    assert final['independent_audit']['findings'] == [finding] and final['verification']['run_findings'] == []
+
+
 def test_finding_naming_an_unknown_claim_flags_only_the_current_claims_it_names(tmp_path):
     payload, _ = prepared(tmp_path)
     payload['claims'].append(dict(deepcopy(payload['claims'][0]), id='C2'))

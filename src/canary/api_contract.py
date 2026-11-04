@@ -102,6 +102,7 @@ def schemas():
         'history_manifest':arr(ref('RevisionDigest')),'claim_links':arr(ref('ClaimLink')),
         'verification_progress':nullable(obj({'phase':S,'round':I})),
         'verification':ref('VerificationSummary'),'withheld_claims':arr(ref('WithheldClaim')),'claim_revisions':arr(ref('ClaimRevision')),
+        'withheld_evidence':dict(arr(O),description='Evidence records used only by withheld or withdrawn claims; excluded from active evidence.'),
         'claim_review_checks':arr(ref('ClaimReviewCheck')),
         'source_checks':arr(ref('RecordedSourceCheck')), 'evidence_independence':arr(ref('EvidenceIndependence'))},closed=False)
     research = obj({'kind':S,'answer':ref('Findings'),'run':O,'peer_review':O,'query_net':O,

@@ -261,11 +261,14 @@ def test_withheld_only_evidence_and_results_leave_active_output_while_active_lin
     raw['claims']+=[dict(deepcopy(first),id='C2',text='Second synthetic finding.',evidence_ids=['E2'],study_result_ids=['S2']),
         dict(deepcopy(first),id='C3',text='Third synthetic record.',kind='source_record',evidence_ids=['E3'],study_result_ids=[])]
     raw['evidence']+=[dict(deepcopy(raw['evidence'][0]),id='E2',relation='contradicts'),
-        dict(deepcopy(raw['evidence'][0]),id='E3',passage_ids=['W1-p0002']),dict(deepcopy(raw['evidence'][0]),id='E4')]
+        dict(deepcopy(raw['evidence'][0]),id='E3',passage_ids=['W1-p0002']),dict(deepcopy(raw['evidence'][0]),id='E4'),
+        dict(deepcopy(raw['evidence'][0]),id='E5')]
     raw['contradictions']=[{'id':'K1','kind':'between_sources','description':'Synthetic contrast.','claim_ids':['C1','C2'],
         'evidence_ids':['E2'],'comparability':'Synthetic.','resolution':'unresolved','why_it_matters':'Synthetic.'}]
-    raw['gaps'].append({'id':'G2','kind':'missing_data','description':'Synthetic standalone gap.','basis':'Fixture.',
-        'claim_ids':[],'evidence_ids':['E4'],'needed_to_resolve':'More data.'})
+    raw['gaps']+=[{'id':'G2','kind':'missing_data','description':'Synthetic standalone gap.','basis':'Fixture.',
+        'claim_ids':[],'evidence_ids':['E4'],'needed_to_resolve':'More data.'},
+        {'id':'G3','kind':'missing_data','description':'Synthetic gap about a withheld record.','basis':'Fixture.',
+        'claim_ids':['C3'],'evidence_ids':['E5'],'needed_to_resolve':'More data.'}]
     engine.write(tmp_path/'investigation.json',raw)
     payload=engine.bind_payload(tmp_path)
     assert payload['mechanical_audit']['pass'],payload['mechanical_audit']['issues']
@@ -274,22 +277,31 @@ def test_withheld_only_evidence_and_results_leave_active_output_while_active_lin
         'evidence_ids':['E1','E3'],'prior_claim_id':None,'prior_class':None,'prior_match_reason':'No prior supplied.'}
     for check in review['claim_checks'][1:]: check.update(assessment='unresolved',issue_types=['missing_scope'])
     review['evidence_checks']=[dict(deepcopy(review['evidence_checks'][0]),evidence_id=e,
-        passage_ids=['W1-p0002' if e=='E3' else 'W1-p0001']) for e in ('E1','E2','E3','E4')]
+        passage_ids=['W1-p0002' if e=='E3' else 'W1-p0001']) for e in ('E1','E2','E3','E4','E5')]
     bound=audit_validation.bind(payload,review)
     final=corrections.finalize(payload,bound,[{'round':0,'kind':'audit','audit':bound}])
     assert [c['id'] for c in final['claims']]==['C1']
     # E2 is counter-evidence in K1, which still names active C1; E4 serves a gap naming no claim.
-    assert [e['id'] for e in final['evidence']]==['E1','E2','E4'] and [e['id'] for e in final['withheld_evidence']]==['E3']
+    # E5 serves only G3, which names only withheld C3.
+    assert [e['id'] for e in final['evidence']]==['E1','E2','E4'] and [e['id'] for e in final['withheld_evidence']]==['E3','E5']
+    assert [(g['id'],g['evidence_ids'],g.get('withheld_evidence_ids')) for g in final['gaps'][1:]]==[('G2',['E4'],None),('G3',[],['E5'])]
     assert [r['id'] for r in final['study_results']]==['S1'] and [r['id'] for r in final['withheld_study_results']]==['S2']
     assert [[r['id'] for r in w['study_results']] for w in final['withheld_claims']]==[['S2'],[]]
     assert final['contradictions'][0]['evidence_ids']==['E2'] and final['contradictions'][0]['withheld_claim_ids']==['C2']
-    for field in ('evidence','study_results'):
-        reintroduced=deepcopy(final);reintroduced[field]=deepcopy(final['verification']['audit_basis'][field])
+    def rule_one(payload,fields):
+        """The projection finalize produced before withheld-only records left the active graph."""
+        result=deepcopy(payload);basis=result['verification']['audit_basis']
+        for field in fields: result[field]=deepcopy(basis[field])
+        if 'evidence' in fields:
+            for name in ('contradictions','gaps','residue'):
+                for record,original in zip(result[name],basis[name]):
+                    record['evidence_ids']=list(original['evidence_ids']);record.pop('withheld_evidence_ids',None)
+        return result
+    for fields in (['evidence'],['study_results']):
         with pytest.raises(ValueError,match='used only by withheld claims'):
-            corrections.verify_final(reintroduced)
+            corrections.verify_final(rule_one(final,fields))
     # A payload finalized before the active-graph rule records no projection_version and keeps rule 1.
-    legacy=deepcopy(final);del legacy['verification']['projection_version']
-    for field in ('evidence','study_results'): legacy[field]=deepcopy(final['verification']['audit_basis'][field])
+    legacy=rule_one(final,['evidence','study_results']);del legacy['verification']['projection_version']
     corrections.verify_final(legacy)
     assert audit_validation.current(corrections.audit_basis(legacy),legacy['claims'][0],bound['claim_checks'][0])
     engine.write(tmp_path/'payload.json',final);engine.write(tmp_path/'audit.json',bound)
@@ -309,9 +321,18 @@ def test_withheld_only_evidence_and_results_leave_active_output_while_active_lin
     assert any('withheld from active output' in line for line in recommendation['limitations'])
     graph=engine.read(tmp_path/'answer.json')
     assert 'E3' not in {e['origin_evidence_id'] for e in graph['evidence']}
-    assert graph['source_checks'][0]['uncertainty_review']['recommended_class']=='high'
+    assert [e['id'] for e in graph['withheld_evidence']]==['E3','E5']
+    recommendation=graph['source_checks'][0]['uncertainty_review']
+    assert recommendation['recommended_class']=='high' and recommendation['withheld_evidence_ids']==['E3']
+    assert any('withheld from active output: E3' in line for line in recommendation['limitations'])
     run_dashboard(tmp_path,graph,"""
 assert.match(withheldClaimsHtml(graph),/Withheld synthetic value/);
+const html=uncertaintyReviewHtml(graph,graph.claims[0]);
+assert.match(html,/high uncertainty/);
+assert.match(html,/data-qa-evidence="E1"/);
+assert.doesNotMatch(html,/data-qa-evidence="E3"/);
+assert.match(html,/data-qa-passage="W1-p0002"/);
+assert.match(html,/withheld from active output: E3/);
 """)
 
 

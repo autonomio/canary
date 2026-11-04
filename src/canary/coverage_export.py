@@ -690,6 +690,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                 validation_issue="Scientific inputs changed since the independence assessment")
                 for check in audit_case.get("evidence_checks", [])]
     used_passages.update(p["id"] for r in payload.get("withheld_claims", []) for e in r.get("evidence", []) for p in e.get("verbatims", []))
+    used_passages.update(p["id"] for e in _rows(payload.get("withheld_evidence")) for p in e.get("verbatims", []))
     used_passages.update(p for c in audit_case.get("evidence_checks", []) for p in c.get("passage_ids", []))
     used_passages.update(p for f in audit_case.get("findings", []) for p in f.get("passage_ids", []))
     check_rows = _rows(audit_case.get("claim_checks"))
@@ -701,8 +702,9 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         graph["binding_issues"].append({"kind": "duplicate_audit_check", "claim_id": identifier,
                                        "record_count": check_counts[identifier], "reason": duplicate_reason})
     prior_state = _load(bundle / "research-state.json", _load(source / "research-state.json", None))
-    # Evidence withheld with other claims stays a valid basis for an active claim's recommendation.
-    evidence_ids = [e.get("id") for e in [*_rows(investigation.get("evidence")), *_rows(payload.get("withheld_evidence"))]]
+    # Evidence withheld with other claims stays a valid, disclosed basis for an active claim's recommendation.
+    withheld_evidence_ids = {e.get("id") for e in _rows(payload.get("withheld_evidence"))}
+    evidence_ids = [e.get("id") for e in _rows(investigation.get("evidence"))] + sorted(withheld_evidence_ids, key=str)
     recorded_status = run.get("status", "in_progress")
     lifecycle = run.get("runtime_status", recorded_status) if recorded_status in ("in_progress", "answered") else recorded_status
     # A stopped run without a recorded audit will not receive one.
@@ -721,13 +723,19 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         normalized = {"correction_needed": "correction_needed", "partly_supported": "unresolved"}.get(assessment, assessment)
         ids = _unique(check.get("passage_ids", check.get("paragraph_ids", [])))
         used_passages.update(ids)
+        recommendation = uncertainty_review(check, state=prior_state, evidence_ids=evidence_ids)
+        withheld = [e for e in recommendation["evidence_ids"] if e in withheld_evidence_ids]
+        if withheld:
+            recommendation["withheld_evidence_ids"] = withheld
+            recommendation["limitations"].append("Recommendation also cites evidence withheld from active output: "
+                                                 + ", ".join(withheld) + ". It is retained in withheld_evidence.")
         bound_check = dict(check, claim_id=claim["id"], assessment=normalized,
                            raw_assessment=assessment, paragraph_ids=ids,
                            reason=("Duplicate claim ID; the ID-only audit record cannot be assigned to this occurrence."
                                    if ambiguous else check.get("reason", unaudited_reason if not audit else "Not checked in the recorded audit scope.")),
                            correction_applied=any(r.get("action") == "revise" and claim["id"] in r.get("replacement_claim_ids", [])
                                for h in payload.get("claim_revisions", []) for r in h.get("responses", [])),
-                           uncertainty_review=uncertainty_review(check, state=prior_state, evidence_ids=evidence_ids))
+                           uncertainty_review=recommendation)
         if recorded_checks:
             bound_check["recorded_checks"] = recorded_checks
         if ambiguous:
@@ -875,6 +883,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     graph["claim_links"] = payload.get("claim_links", [])
     graph["verification"] = {k: v for k, v in payload.get("verification", {}).items() if k != "audit_basis"}
     graph["withheld_claims"] = payload.get("withheld_claims", [])
+    graph["withheld_evidence"] = payload.get("withheld_evidence", [])
     graph["claim_revisions"] = payload.get("claim_revisions", [])
     graph["claim_review_checks"] = payload.get("claim_review_checks", [])
     graph["evidence_independence"] = audit_case.get("evidence_checks", [])
