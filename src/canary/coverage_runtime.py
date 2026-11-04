@@ -848,7 +848,10 @@ def bind_payload(workspace):
         "count_scope": "Recorded substantive source reading with criteria, fixed spans and notes; scientific roles and complete-paper status remain audited judgments."}
     if not accounting["minimum_met"] and not scarcity:
         issues.append("Minimum-paper target unmet without a recorded scarcity statement")
-    payload.update(question=read(workspace / "question-plan.json")["question"], question_plan=read(workspace / "question-plan.json"),
+    plan = read(workspace / "question-plan.json")
+    if not isinstance(plan, dict):
+        raise ValueError("Research ended before discovery committed a question plan; no search ran, so there are no sources to bind")
+    payload.update(question=plan["question"], question_plan=plan,
                    references=list(references.values()), selection=read(workspace / "selection.json"),
                    reviewed_papers=reviews, coverage_map=read(workspace / "coverage-map.json"), accounting=accounting)
     if read(workspace / 'run.json', {}).get('additional_sources'):
@@ -1191,6 +1194,11 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
             protocol.research_prompt(question, command, minimum_papers, local_text=bool(local_text), additional_sources=additional_sources, research_state=research_state is not None, continue_research=continue_research), protocol.investigation_schema(), executable=executable)
         check_cancelled()
         wait_for_tools(run_key)
+        clarification = protocol.clarification_request(read(workspace / "investigation.json"))
+        if clarification:
+            # A recorded researcher stop, not a failure: nothing is bound or audited.
+            manifest.update(status="needs_clarification", clarification=clarification, research_finished_at=now())
+            return {"clarification": clarification}
         payload = bind_payload(workspace)
         manifest.update(status="auditing", research_finished_at=now(), accounting=payload["accounting"])
         write(workspace / "run.json", manifest)
