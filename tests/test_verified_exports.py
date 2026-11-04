@@ -287,6 +287,11 @@ def test_withheld_only_evidence_and_results_leave_active_output_while_active_lin
         reintroduced=deepcopy(final);reintroduced[field]=deepcopy(final['verification']['audit_basis'][field])
         with pytest.raises(ValueError,match='used only by withheld claims'):
             corrections.verify_final(reintroduced)
+    # A payload finalized before the active-graph rule records no projection_version and keeps rule 1.
+    legacy=deepcopy(final);del legacy['verification']['projection_version']
+    for field in ('evidence','study_results'): legacy[field]=deepcopy(final['verification']['audit_basis'][field])
+    corrections.verify_final(legacy)
+    assert audit_validation.current(corrections.audit_basis(legacy),legacy['claims'][0],bound['claim_checks'][0])
     engine.write(tmp_path/'payload.json',final);engine.write(tmp_path/'audit.json',bound)
     run=engine.read(tmp_path/'run.json');run.update(status='complete',answered=True);engine.write(tmp_path/'run.json',run)
     coverage_export.export_bundle(tmp_path);research_bundle.seal(tmp_path)

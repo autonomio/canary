@@ -9,6 +9,9 @@ import jsonschema
 from . import audit_validation, coverage_protocol as protocol
 
 VERSION = 1
+# Active-graph projection rule. Rule 2 also moves evidence and study results that only withheld or
+# withdrawn claims use to withheld records; payloads finalized earlier keep their recorded rule 1.
+PROJECTION = 2
 
 
 def schema():
@@ -57,10 +60,14 @@ def withheld_only(payload, active, withdrawn=()):
     return hidden - used, {s for c in retired for s in c.get('study_result_ids', [])} - results
 
 
-def projected_evidence(payload, active, withdrawn=()):
+def projection(payload):
+    return payload.get('verification', {}).get('projection_version', 1)
+
+
+def projected_evidence(payload, active, withdrawn=(), rule=PROJECTION):
     rows = payload.get("evidence") or []
     counts = Counter(e["id"] for e in rows)
-    hidden, _ = withheld_only(payload, active, withdrawn)
+    hidden = withheld_only(payload, active, withdrawn)[0] if rule >= 2 else set()
     return [e for e in rows if counts[e["id"]] == 1 and set(e.get("premise_claim_ids", [])) <= active
             and e["id"] not in hidden]
 
@@ -185,7 +192,7 @@ def finalize(payload, audit, history, withdrawn=(), *, failure=None):
     # Entire shared snapshots were audited. Keep the basis for verifiable hashes after filtering.
     final = deepcopy(payload)
     final.update(claims=accepted, withheld_claims=withheld, claim_revisions=deepcopy(history),
-        independent_audit=deepcopy(audit), verification={'version': VERSION,
+        independent_audit=deepcopy(audit), verification={'version': VERSION, 'projection_version': PROJECTION,
             'audit_basis': {k: original.get(k) for k in audit_validation.SNAPSHOT_FIELDS},
             'candidate_claims': len(payload.get('claims', [])) + len(withdrawn),
             'supported_claims': len(accepted), 'withheld_claims': len(withheld),
@@ -233,6 +240,7 @@ def audit_basis(payload):
     known = {c['id'] for c in basis.get('claims', [])}
     withheld = {r['claim']['id'] for r in payload.get('withheld_claims', [])}
     withdrawn = [r for r in payload.get('withheld_claims', []) if r.get('status') == 'withdrawn']
+    rule = projection(payload)
     current['claims'] = [active.get(c['id'], c) for c in basis.get('claims', [])]
     current['claims'].extend(c for identifier, c in active.items() if identifier not in known)
     if known - active.keys() - withheld:
@@ -242,8 +250,8 @@ def audit_basis(payload):
             continue
         expected = deepcopy(basis.get(field))
         if field == 'evidence':
-            expected = projected_evidence(basis, active.keys(), withdrawn)
-        elif field == 'study_results':
+            expected = projected_evidence(basis, active.keys(), withdrawn, rule)
+        elif field == 'study_results' and rule >= 2:
             expected = projected_results(basis, active.keys(), withdrawn)
         elif field in ('contradictions', 'gaps', 'residue') and isinstance(expected, list):
             for record in expected:
@@ -293,7 +301,7 @@ def verify_final(payload):
         raise ValueError('Active evidence refers to a withheld premise')
     hidden_evidence, hidden_results = withheld_only(basis, active,
         [r for r in payload.get('withheld_claims', []) if r.get('status') == 'withdrawn'])
-    if hidden_evidence & evidence.keys() or hidden_results & results:
+    if projection(payload) >= 2 and (hidden_evidence & evidence.keys() or hidden_results & results):
         raise ValueError('Active output keeps evidence or study results used only by withheld claims')
     for link in payload.get('claim_links', []):
         if not jsonschema.Draft202012Validator(protocol.investigation_schema()['properties']['claim_links']['items']).is_valid(link):

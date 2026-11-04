@@ -170,7 +170,10 @@ def schemas():
         'RevisionDigest':obj({'round':I,'kind':{'enum':['research','audit','correction']},'sha256':S}, ['round','kind','sha256']),
         'RevisionArtifact':obj({'round':I,'kind':{'enum':['research','audit','correction']},'sha256':S,'content':S}, ['round','kind','sha256','content']),
         'CorrectionResponse':corrections.schema(),
-        'VerificationSummary':obj({'version':I,'candidate_claims':I,'supported_claims':I,'withheld_claims':I,
+        'VerificationSummary':obj({'version':I,'projection_version':dict(I,description='Active-graph rule the payload was '
+                'finalized with. 2 also moves evidence and study results used only by withheld or withdrawn claims to '
+                'withheld records; absent means rule 1, which payloads finalized earlier keep.'),
+            'candidate_claims':I,'supported_claims':I,'withheld_claims':I,
             'withheld_share':{'type':'number','minimum':0,'maximum':1},'correction_rounds':I,
             'audit_complete':B,'failure':nullable(S),'run_issues':arr(S),
             'run_findings':dict(arr(obj({'id':S,'severity':S,'description':S,'claim_ids':arr(S),
