@@ -1198,12 +1198,9 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
             audit_timeout=None)
         check_cancelled()
         wait_for_tools(run_key)
-        checked = {r["claim_id"] for r in audit.get("claim_checks", [])}
-        for claim in payload["claims"]:
-            if claim["id"] not in checked:
-                audit.setdefault("claim_checks", []).append({"claim_id": claim["id"], "assessment": "not_checked",
-                    "reason": "No persisted independent check", "passage_ids": [], "reference_ids": [], "context_checked": []})
-                audit["audit_complete"] = False
+        from .audit_validation import bind as bind_audit
+        audit = bind_audit(payload, audit, passages=[json.loads(line)
+            for path in (workspace / "passages").glob("*.jsonl") for line in path.read_text().splitlines()])
         write(workspace / "audit.json", audit)
         payload["independent_audit"] = audit
         payload["profile"] = {role: read(workspace / (role + "-receipt.json")) for role in ("research", "audit")}

@@ -106,7 +106,7 @@ def investigation_schema():
     return obj({
         "executive_summary": arr(obj({"text": S, "claim_ids": SS})),
         "claims": arr(obj({"id": S, "text": S,
-            "kind": enum("reported_finding", "author_interpretation", "derived_comparison", "secondary_report"),
+            "kind": enum("reported_finding", "author_interpretation", "derived_comparison", "secondary_report", "recommendation", "source_record"),
             "uncertainty": uncertainty, "freshness": freshness_schema(), "evidence_ids": SS, "study_result_ids": SS})),
         "evidence": arr(obj({"id": S, "passage_ids": SS, "interpretation": S,
                              "relation": enum("supports", "qualifies", "contradicts")})),
@@ -130,10 +130,17 @@ def investigation_schema():
     })
 
 
+AUDIT_ISSUE_TYPES = ("missing_scope", "unresolved_reference", "compound", "overstatement", "causal_wording",
+                     "wrong_endpoint", "wrong_denominator", "misattribution", "source_version_mismatch", "other")
+
+
 def audit_schema():
     return obj({
         "claim_checks": arr(obj({"claim_id": S, "assessment": enum("supported", "correction_needed", "unresolved", "not_checked"),
-            "reason": S, "passage_ids": SS, "reference_ids": SS, "context_checked": SS})),
+            "reason": S, "passage_ids": SS, "reference_ids": SS, "context_checked": SS,
+            "issue_types": arr(enum(*AUDIT_ISSUE_TYPES))})),
+        "evidence_checks": arr(obj({"evidence_id": S, "assessment": enum("independent", "same_study_family", "unknown"),
+            "reason": S, "reference_ids": SS, "passage_ids": SS, "study_family_ids": SS, "family_basis": S})),
         "findings": arr(obj({"id": S, "severity": enum("material", "minor", "uncertain"),
             "description": S, "claim_ids": SS, "reference_ids": SS, "passage_ids": SS})),
         "scores": obj({area: obj({"score": {"type": "integer", "minimum": 0, "maximum": 5}, "reason": S})
@@ -144,6 +151,13 @@ def audit_schema():
 
 
 SCIENTIFIC_RULES = """Use one stateful session; no subagents, other models, nested CLI sessions or delegation.
+Every claim must stand alone for a reader who has not seen this report or any other claim. State one proposition per claim; split compound claims.
+Name what was studied, what was done, the comparator, the endpoint with timing and scale, and the conditions bounding the result.
+Identify the study by author/year or design/setting in the sentence. Never use unresolved references such as "that study", "the same cohort", "the reviewed evidence" or "this corpus".
+A conclusion about the literature states its own question and actual inspection scope. Never invent a source condition: unreported remains unknown.
+Write empirical reported_finding statements from their linked typed study_results; every reported_finding needs at least one study result.
+Use source_record for attributed registry plans, patent disclosures or other documentary facts that are not empirical results; do not manufacture study results.
+Keep recommendations distinct with kind recommendation and identify their evidential basis and limits.
 Work backwards from fixed source passages to attributed claims. Verify methods/results and surrounding source context.
 Keep experiments, cohorts, versions, denominators, comparators and units distinct. Use code for arithmetic and navigation.
 Distinguish measured, fitted, simulated, associated and qualitative results. Nonsignificance is not equivalence.
@@ -227,6 +241,12 @@ def audit_prompt(question, command, budget_seconds=None):
 Inspect audit-input.json, question-plan.json, selection.json, reviewed-papers.json and the current fresh source corpus.
 Never inspect researcher reasoning transcripts, CLI events/stderr/prompts, previous research workspaces or previous audits.
 Use {command} source WORK_ID --match REGEX --context 3 --limit 10 for source rereading; originals are available for table/figure checks.
+Return exactly one claim_checks entry for every claim ID in audit-input.json; do not put evidence or study-result IDs in claim_checks.
+Supported requires source fidelity AND the standalone claim standard. Even factually accurate claims that omit scope or rely on other claims need correction_needed.
+Use issue_types to identify each defect; use [] only when no defect was found. Check source methods/results and context; cite inspected passages and references.
+Return one evidence_checks entry per evidence ID. Judge evidence independence from inspected study-family/ancestry facts, never from URL differences, source counts or this audit's separate session.
+Record the study-family identifiers and source-based family_basis. Use unknown when independence cannot be established; same_study_family when evidence reuses the same underlying study.
+Independent requires inspected, addressable original-source evidence and a reason explaining independence from the other evidence supporting the claim. Do not equate independent with true or high quality.
 Audit the actual claim/result scope, exact source meaning, arithmetic, experiment attribution, selection/coverage and paper-role/family counts.
 Do not reward paper quantity or confidence; identify irrelevant padding, preview inclusion, important adverse alternatives and unsupported claims.
 {timing}

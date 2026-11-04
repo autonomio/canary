@@ -94,7 +94,8 @@ def schemas():
     findings = obj({'question':S,'executive_summary':arr({}),'claims':arr(ref('RecordedClaim')),
         'evidence':arr(ref('RecordedEvidence')),'passages':arr(ref('Passage')),'references':arr(O),
         'gaps':arr(O),'residue':arr(O),'contradictions':arr(O),'study_results':arr(O),
-        'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O)},closed=False)
+        'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O),
+        'source_checks':arr(ref('RecordedClaimCheck')), 'evidence_independence':arr(ref('EvidenceIndependence'))},closed=False)
     research = obj({'kind':S,'answer':ref('Findings'),'run':O,'peer_review':O,'query_net':O,
         'access':O,'profile':obj({'progress':obj({'updated_at':S,'findings_updated_at':nullable(S),
             'findings_refreshed':B,'final_refresh':B},closed=False)},closed=False),
@@ -149,7 +150,11 @@ def schemas():
         'BundleResponse':obj({'key':S,'live':B,'bundle':ref('BundleManifest'),'research':ref('Research')},['key','live','bundle','research']),
         'Findings':findings,'RecordedClaim':claim,'RecordedEvidence':evidence,'Passage':passage,
         'SourceContext':context,'GeneratedInvestigation':generated,'QuestionPlan':_query_schema(),
-        'ScientificAudit':protocol.audit_schema(),'Freshness':freshness_schema(),
+        'ScientificAudit':protocol.audit_schema(),
+        'RecordedClaimCheck':obj({'claim_id':S,'assessment':S,'reason':S,'issue_types':arr(S),
+            'statement_sha256':S,'claim_snapshot_sha256':S,'validation_issues':arr(S)}, ['claim_id'], closed=False),
+        'EvidenceIndependence':dict(protocol.audit_schema()['properties']['evidence_checks']['items'], additionalProperties=True),
+        'Freshness':freshness_schema(),
         'ImportRequest':obj({'server_path':S,'name':S,'brief':S},['server_path']),
         'ActionRequest':obj({'command':{'enum':['review','analyze','cycle','inspect','resume','assess','revise','publish']},'options':O},['command','options']),
         'InputReceipt':obj({'id':S,'bytes':I},['id','bytes']),
