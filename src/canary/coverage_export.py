@@ -348,6 +348,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     accounting = accounting if isinstance(accounting, dict) else {}
     investigation = _load(research / "investigation.json", payload.get("research", payload))
     investigation = investigation if isinstance(investigation, dict) else {}
+    if payload.get("verification", {}).get("version"):
+        investigation = payload  # Final supported claims; original investigation is immutable history.
     selection = _load(research / "selection.json", payload.get("selection", {}))
     selection = selection if isinstance(selection, dict) else {}
     reviewed = _rows(_load(research / "reviewed-papers.json", payload.get("reviewed_papers", [])))
@@ -643,20 +645,22 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     audit_case = _audit_record(audit)
     if audit_case.get("standard_version"):
         from .audit_validation import current, snapshot, matches_investigation
+        from .corrections import audit_basis
+        checked_payload = audit_basis(payload)
         current_claims = {c["id"]: c for c in investigation.get("claims", [])}
         inputs_changed = not matches_investigation(payload, investigation)
         stale = inputs_changed
         verified_checks = []
         for check in _rows(audit_case.get("claim_checks")):
             claim = current_claims.get(check.get("claim_id"))
-            if inputs_changed or claim is not None and not current(payload, claim, check):
+            if inputs_changed or claim is not None and not current(checked_payload, claim, check):
                 check = dict(check, assessment="not_checked",
                     reason="Scientific inputs changed since this verdict; a fresh audit is required.")
                 stale = True
             verified_checks.append(check)
         audit_case = dict(audit_case, claim_checks=verified_checks,
             audit_complete=audit_case.get("audit_complete", False) and not stale)
-        if inputs_changed or snapshot(payload) != audit_case.get("snapshot_sha256"):
+        if inputs_changed or snapshot(checked_payload) != audit_case.get("snapshot_sha256"):
             audit_case["evidence_checks"] = [dict(check, assessment="unknown",
                 validation_issue="Scientific inputs changed since the independence assessment")
                 for check in audit_case.get("evidence_checks", [])]
@@ -673,7 +677,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                            raw_assessment=assessment, paragraph_ids=ids,
                            reason=("Duplicate claim ID; the ID-only audit record cannot be assigned to this occurrence."
                                    if ambiguous else check.get("reason", "Audit pending." if not audit else "Not checked in the recorded audit scope.")),
-                           correction_applied=False)
+                           correction_applied=any(r.get("action") == "revise" and claim["id"] in r.get("replacement_claim_ids", [])
+                               for h in payload.get("claim_revisions", []) for r in h.get("responses", [])))
         if ambiguous:
             bound_check["claim_occurrence"] = claim["claim_occurrence"]
         graph["source_checks"].append(bound_check)
@@ -778,6 +783,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     for role in ("research", "audit"):
         receipt = _load(bundle / (role + "-receipt.json"), _load(research / (role + "-receipt.json"), None))
         if isinstance(receipt, dict) and receipt.get("ended_at"):
+            if role == "audit" and any(k.startswith("audit_") for k in profile_roles):
+                continue
             usage = receipt.get("usage", {})
             profile_roles[role] = dict(receipt, active=False, tokens=usage.get("totals", {}),
                                        receipts=usage.get("receipts", []))
@@ -792,10 +799,13 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     recorded_status = run.get("status", "in_progress")
     lifecycle = run.get("runtime_status", recorded_status) if recorded_status in ("in_progress", "answered") else recorded_status
     has_findings = has_native_findings(graph)
-    status = ("in_progress" if lifecycle in ("planning", "researching", "reading", "acquiring", "auditing")
+    status = ("in_progress" if lifecycle in ("planning", "researching", "reading", "acquiring", "auditing", "correcting")
               else "answered" if lifecycle in ("complete", "completed") and has_findings
               else "complete" if lifecycle == "answered" and not has_findings else lifecycle)
     requests = _load(source / "openalex-requests.json", _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None)))
+    graph["verification"] = {k: v for k, v in payload.get("verification", {}).items() if k != "audit_basis"}
+    graph["withheld_claims"] = payload.get("withheld_claims", [])
+    graph["claim_revisions"] = payload.get("claim_revisions", [])
     graph["claim_review_checks"] = payload.get("claim_review_checks", [])
     graph["evidence_independence"] = audit_case.get("evidence_checks", [])
     graph["audit"] = {"status": "pending" if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids else "partial",

@@ -81,7 +81,7 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
     except ValueError as error:
         raise CompileError('research_state', str(error)) from None
     research = block(draft.get('research', {}), {'model', 'effort'}, 'research')
-    audit = block(draft.get('audit', {}), {'model', 'effort', 'budget_seconds'}, 'audit')
+    audit = block(draft.get('audit', {}), {'model', 'effort', 'budget_seconds', 'max_correction_rounds'}, 'audit')
     retrieval = block(draft.get('retrieval', {}), {'selection', 'target_papers', 'corpus', 'access', 'local_text', 'additional_sources'}, 'retrieval')
     from .source_adapters import validate_names
     try:
@@ -120,9 +120,12 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
         raise CompileError('retrieval.target_papers', 'Expected a positive integer.')
     if audit.get('budget_seconds') is not None:
         raise CompileError('audit.budget_seconds', 'Audits have no time limit; omit this field or use null.')
+    rounds = audit.get('max_correction_rounds', 3)
+    if type(rounds) is not int or rounds < 0:
+        raise CompileError('audit.max_correction_rounds', 'Expected a nonnegative integer.')
     resolved = {'version': 1, 'question': question.strip(),
                 'research': {'model': protocol.RESEARCH_MODEL, 'effort': protocol.RESEARCH_EFFORT},
-                'audit': {'model': protocol.AUDIT_MODEL, 'effort': protocol.AUDIT_EFFORT, 'budget_seconds': None},
+                'audit': {'model': protocol.AUDIT_MODEL, 'effort': protocol.AUDIT_EFFORT, 'budget_seconds': None, 'max_correction_rounds': rounds},
                 'retrieval': {'selection': 'coverage', 'target_papers': target, 'corpus': corpus, 'access': 'open_full_text',
                               **({'local_text': dict(local)} if local is not None else {}),
                               **({'additional_sources': additional} if additional else {})},
@@ -143,7 +146,7 @@ def verify_compiled(packet: dict) -> CompiledResearch:
         raise CompileError('compiler_version', 'Unsupported compiled specification.')
     original = compile_research(packet.get('source_yaml'))
     resolved = compile_mapping(packet.get('resolved'))
-    if original['resolved'] != resolved['resolved'] or resolved['spec_sha256'] != packet.get('spec_sha256'):
+    if original['resolved'] != resolved['resolved'] or digest(packet.get('resolved')) != packet.get('spec_sha256'):
         raise CompileError('spec_sha256', 'Declaration, resolved settings and digest disagree.')
     return original
 

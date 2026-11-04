@@ -75,7 +75,7 @@ def initialize(workspace, packet):
     report['created_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     report['engine'] = {'python': sys.version.split()[0], 'sources': {
         name: file_hash(Path(__file__).parent / name) for name in
-        ('claim_checks.py', 'audit_validation.py', 'coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'source_adapters.py', 'candidate_index.py', 'codex_execution.py', 'codex_auth.py', 'claim_freshness.py',
+        ('correction_runtime.py', 'corrections.py', 'audit_validation.py', 'claim_checks.py', 'coverage_protocol.py', 'coverage_runtime.py', 'coverage_export.py', 'source_adapters.py', 'candidate_index.py', 'codex_execution.py', 'codex_auth.py', 'claim_freshness.py',
          'research_spec.py', 'research_state.py', 'research_bundle.py', 'bundle_connectors.py', 'compact_bundle.py', 'bundle_encoding.py', 'local_text.py',
          'processes.py', 'pdf_capacity.py', 'research_tools.py', 'tools_cli.py', 'runtime_paths.py', 'api_client.py', 'redact.py')}}
     lock = resource_root() / 'uv.lock'
@@ -219,7 +219,7 @@ def run_compiled(staged, workspace):
         reserved = True
     try:
         return coverage_runtime.run(spec['question'], workspace,
-            minimum_papers=spec['retrieval']['target_papers'],
+            minimum_papers=spec['retrieval']['target_papers'], max_correction_rounds=spec['audit']['max_correction_rounds'],
             on_reserved=begin, **({k: spec[k] for k in ('research_state', 'continue_research') if k in spec}), **({'additional_sources': spec['retrieval']['additional_sources']} if spec['retrieval'].get('additional_sources') else {}),
             **({'local_text': spec['retrieval']['local_text']}
                                 if spec['retrieval']['corpus'] == 'local_text' else {}))
