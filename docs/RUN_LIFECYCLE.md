@@ -59,7 +59,7 @@ stopped, not only that it stopped:
 - `cancelled` and `interrupted` keep their meanings above.
 
 A stopped run without a recorded audit reports `audit_status: not_run`; `pending` means the
-run is still active.
+run is still active; `failed` means the audit session died and its saved output was not accepted.
 
 ## Scientific tools
 

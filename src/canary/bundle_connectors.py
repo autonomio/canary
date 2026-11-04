@@ -246,8 +246,9 @@ def verified_export(result, payload):
     result['connectors'] = connectors
     result['result']['limitations'] = [line for line in result['result']['limitations'] if line != UNCERTAINTY_POLICY
         and not line.startswith('Candidate claim classes require Resolvent admission;')]
-    result['result']['limitations'].extend([VERIFIED_UNCERTAINTY_POLICY,
+    result['result']['limitations'].extend([*payload['verification'].get('run_issues', []), VERIFIED_UNCERTAINTY_POLICY,
         'Observed facts are source-attributed reported findings, bounded by the stated study and audit scope; they are not universal truths. Resolvent still owns admission.'])
+    result['result']['limitations'] = list(dict.fromkeys(result['result']['limitations']))
     return result
 
 

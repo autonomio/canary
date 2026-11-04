@@ -209,6 +209,8 @@ def render_markdown(graph: dict):
     if verification.get("version"):
         lines.extend([f"Verification: {verification['supported_claims']} supported claims; {verification['withheld_claims']} withheld "
             f"({verification['withheld_share']:.0%}); {verification['correction_rounds']} correction rounds.", ""])
+        for issue in verification.get("run_issues", []):
+            lines.extend(["Run-level issue: " + str(issue), ""])
     for summary_index, summary in enumerate(graph.get("executive_summary", []), 1):
         if isinstance(summary, str):
             lines.extend([summary, ""])
@@ -703,6 +705,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     # A stopped run without a recorded audit will not receive one.
     active = lifecycle in ("planning", "researching", "reading", "acquiring", "auditing", "correcting", "in_progress", "indexing_local_text")
     unaudited, unaudited_reason = ("pending", "Audit pending.") if active else ("not_run", "No independent audit was run.")
+    if any(h.get("kind") == "audit" and h.get("status") == "failed" for h in payload.get("claim_revisions", [])):
+        unaudited, unaudited_reason = "failed", "The independent audit failed; its saved output was not accepted."
     for claim in graph["claims"]:
         ambiguous = claim["id"] in duplicate_claim_ids
         check = {} if ambiguous else checks.get(claim["id"], {})

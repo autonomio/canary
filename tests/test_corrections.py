@@ -1,12 +1,13 @@
 """Native correction component acceptance on synthetic, locally saved source bytes."""
 from copy import deepcopy
 import json
+from pathlib import Path
 
 import jsonschema
 import pytest
 
-from canary import (api_contract, audit_validation, compact_bundle, correction_runtime, corrections,
-    coverage_export, coverage_runtime as engine, research_bundle, research_spec)
+from canary import (api_contract, audit_validation, bundle_connectors, compact_bundle, correction_runtime, corrections,
+    coverage_export, coverage_runtime as engine, research_bundle, research_spec, revision_artifacts)
 from test_research_bundle import seed, api
 from test_audit_validation import review
 from test_coverage_evidence_ui import run_dashboard
@@ -261,6 +262,113 @@ def test_run_level_record_issues_do_not_discard_supported_claims(tmp_path, monke
     coverage_export.export_bundle(tmp_path)
     graph = engine.read(tmp_path/'answer.json')
     run_dashboard(tmp_path, graph, "assert.match(verificationHtml(graph),/Run-level record check/);")
+
+
+def with_second_claim(path, rounds=1):
+    _, manifest = prepared(path, rounds=rounds)
+    raw = engine.read(path/'investigation.json')
+    raw['claims'].append(dict(deepcopy(raw['claims'][0]), id='C2', text='A second synthetic attributed source record.'))
+    engine.write(path/'investigation.json', raw)
+    return engine.bind_payload(path), manifest
+
+
+def material(description, claim_ids):
+    return {'id': description, 'severity': 'material', 'description': description, 'claim_ids': claim_ids,
+        'reference_ids': [], 'passage_ids': []}
+
+
+@pytest.mark.parametrize('claim_ids', [[], ['GONE']])
+def test_unattributed_material_finding_is_disclosed_and_withholds_nothing(tmp_path, monkeypatch, claim_ids):
+    payload, manifest = with_second_claim(tmp_path)
+    raw = dict(audit_for(payload), findings=[material('Selection omitted a synthetic cohort.', claim_ids)] * 2)
+    requests = []
+    def scientific(workspace, role, *args, **kwargs):
+        requests.append(role)
+        return raw, {}
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    final = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert requests == ['audit']
+    assert [c['id'] for c in final['claims']] == ['C1', 'C2'] and not final['withheld_claims']
+    issue = 'Material audit finding not tied to a current claim: Selection omitted a synthetic cohort.'
+    assert final['verification']['run_issues'] == [issue] * 2 and not final['verification']['failure']
+    manifest.update(status='complete')
+    engine.write(tmp_path/'run.json', manifest)
+    coverage_export.export_bundle(tmp_path)
+    research_bundle.seal(tmp_path)
+    exported = bundle_connectors.resolvent(tmp_path)
+    assert exported['result']['limitations'].count(issue) == 1
+    jsonschema.validate(exported, json.loads((Path(__file__).parent/'fixtures/resolvent-submission.schema.json').read_text()),
+        format_checker=jsonschema.FormatChecker())
+    graph = engine.read(tmp_path/'answer.json')
+    assert 'Run-level issue: ' + issue in coverage_export.render_markdown(graph)
+    run_dashboard(tmp_path, graph, "assert.match(verificationHtml(graph),/Selection omitted a synthetic cohort/);")
+
+
+def test_material_finding_flags_only_the_current_claims_it_names(tmp_path):
+    payload, _ = with_second_claim(tmp_path)
+    raw = dict(audit_for(payload), findings=[material('Synthetic scoped defect.', ['C1', 'GONE']), material('Synthetic run finding.', [])])
+    bound = audit_validation.bind(payload, raw)
+    assert corrections.targets(payload, bound) == ['C1']
+    final = corrections.finalize(payload, bound, [])
+    assert [c['id'] for c in final['claims']] == ['C2']
+    assert final['withheld_claims'][0]['reason'] == 'Material finding remains: Synthetic scoped defect.'
+
+
+def ended_audit(exit_code, partial, response):
+    class Session:
+        backend, home, thread_id, stderr = 'stub', None, None, None
+        def __init__(self, output): self.output, self.exit_code = output, exit_code
+        def invocation(self): return {}
+        def start(self, prompt):
+            if partial: engine.write(self.output.with_name('audit.json'), partial)
+            if response: engine.write(self.output, response)
+        def __iter__(self): return iter(())
+        def wait(self): return exit_code
+        def interrupt(self): pass
+        def archive(self): return {}
+        def close(self): pass
+    class Execution:
+        def context(self): return {'CANARY_CODEX_EXECUTABLE': 'codex', 'CANARY_CODEX_CREDENTIALS_STORE': 'file'}
+        def open(self, key, role, workspace, model, effort, shape, output, *args, **kwargs): return Session(output)
+    return Execution()
+
+
+def session_ending(monkeypatch, exit_code, partial, response):
+    real = engine.scientific_session
+    monkeypatch.setattr(engine, 'scientific_session',
+        lambda *args, **kwargs: real(*args, **kwargs, execution=ended_audit(exit_code, partial, response)))
+
+
+@pytest.mark.parametrize('exit_code,partial,responded', [(1, True, False), (1, True, True), (0, True, False), (1, False, False)])
+def test_dead_audit_session_is_a_verification_failure_that_keeps_sources(tmp_path, monkeypatch, exit_code, partial, responded):
+    payload, manifest = prepared(tmp_path)
+    verdicts = audit_for(payload)
+    session_ending(monkeypatch, exit_code, verdicts if partial else None, verdicts if responded else None)
+    final = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert not final['claims'] and not final['evidence']
+    assert 'did not finish cleanly' in final['verification']['failure']
+    saved = json.loads(revision_artifacts.read(final, 0, 'audit')['content'])
+    assert saved['status'] == 'failed' and saved['receipt']['exit_code'] == exit_code
+    assert bool(saved['response_text']) and (not partial or 'claim_checks' in saved['response_text'])
+    assert engine.read(tmp_path/'run.json')['verification_failure']
+    (tmp_path/'.run-reservation').touch()
+    with pytest.raises(ValueError, match='working sources'):
+        compact_bundle.retain(tmp_path)
+    assert (tmp_path/'papers/W1.txt').is_file()
+    manifest.update(status='partial')
+    engine.write(tmp_path/'run.json', manifest)
+    coverage_export.export_bundle(tmp_path)
+    graph = engine.read(tmp_path/'answer.json')
+    assert graph['audit']['status'] == 'failed'
+    run_dashboard(tmp_path, graph, "assert.match(verificationHtml(graph),/Verification stopped: .*did not finish cleanly/);")
+
+
+def test_clean_audit_session_with_a_final_response_still_completes(tmp_path, monkeypatch):
+    payload, manifest = prepared(tmp_path)
+    verdicts = audit_for(payload)
+    session_ending(monkeypatch, 0, verdicts, verdicts)
+    final = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert [c['id'] for c in final['claims']] == ['C1'] and not final['verification']['failure']
 
 
 @pytest.mark.parametrize('kind', ['claims', 'evidence'])

@@ -227,8 +227,10 @@ def test_audit_timeout_preserves_intermediate_audit_and_releases_only_its_thread
     pool,home,root=native
     workspace=root/'audit';workspace.mkdir();(workspace/'hold').touch()
     engine.write(workspace/'audit.json',{'claim_checks':[],'limitations':['intermediate fixture']})
-    result,receipt=engine.scientific_session(workspace,'audit','gpt-6-astra','ultra','Fixture',{},
-        executable=str(root/'codex'),execution=pool,run_key='audit',audit_timeout=.15)
+    with pytest.raises(RuntimeError,match='did not finish cleanly'):
+        engine.scientific_session(workspace,'audit','gpt-6-astra','ultra','Fixture',{},
+            executable=str(root/'codex'),execution=pool,run_key='audit',audit_timeout=.15)
+    receipt=engine.read(workspace/'audit-receipt.json');result=engine.read(workspace/'audit.json')
     assert receipt['timed_out'] and receipt['exit_code']==130 and receipt['cleanup']['archived']
     assert result['audit_complete'] is False and 'intermediate fixture' in result['limitations']
     assert pool.auth.proc.poll() is None

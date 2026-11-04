@@ -24,10 +24,20 @@ def blocking_issues(payload):
         if mechanical.get("pass") is not True else [])
 
 
-def projected_evidence(payload, active):
+def projected_evidence(payload, audit, active, withheld):
+    """Drop evidence with a withheld premise or used only by withheld/withdrawn claims."""
     rows = payload.get("evidence", [])
     counts = Counter(e["id"] for e in rows)
-    return [e for e in rows if counts[e["id"]] == 1 and set(e.get("premise_claim_ids", [])) <= active]
+    removed = {i for r in withheld for i in r["claim"].get("evidence_ids", [])}
+    kept = {i for c in payload.get("claims", []) if c["id"] in active for i in c.get("evidence_ids", [])}
+    kept.update(i for c in audit.get("claim_checks", []) if c.get("claim_id") in active
+        for i in (c.get("uncertainty_review") or {}).get("evidence_ids", []))
+    kept.update(i for r in payload.get("claim_links", []) if {r.get("from_claim_id"), r.get("to_claim_id")} <= active
+        for i in r.get("evidence_ids", []))
+    kept.update(i for name in ("contradictions", "gaps", "residue") for r in payload.get(name, [])
+        if not r.get("claim_ids") or set(r["claim_ids"]) & active for i in r.get("evidence_ids", []))
+    return [e for e in rows if counts[e["id"]] == 1 and set(e.get("premise_claim_ids", [])) <= active
+        and (e["id"] not in removed or e["id"] in kept)]
 
 
 def targets(payload, audit):
@@ -36,8 +46,7 @@ def targets(payload, audit):
     selected.update(known - {c['claim_id'] for c in audit.get('claim_checks', [])})
     for finding in audit.get('findings', []):
         if finding.get('severity') == 'material':
-            identifiers = set(finding.get('claim_ids', []))
-            selected.update(identifiers if identifiers and identifiers <= known else known)
+            selected.update(set(finding.get('claim_ids', [])) & known)
     invalid_evidence = {e['evidence_id'] for e in audit.get('evidence_checks', []) if e.get('validation_issue')}
     selected.update(c['id'] for c in payload.get('claims', []) if invalid_evidence & set(c.get('evidence_ids', [])))
     if blocking_issues(payload):
@@ -126,7 +135,7 @@ def finalize(payload, audit, history, withdrawn=(), *, failure=None):
             accepted.append(deepcopy(claim))
         else:
             material = [f.get('description', '') for f in audit.get('findings', []) if f.get('severity') == 'material'
-                and (not f.get('claim_ids') or claim['id'] in f['claim_ids'] or not set(f['claim_ids']) <= {c['id'] for c in payload.get('claims', [])})]
+                and claim['id'] in f.get('claim_ids', [])]
             reason = (failure or ('Source binding checks failed: ' + '; '.join(mechanical_issues) if mechanical_issues else None)
                 or ('Material finding remains: ' + '; '.join(material) if material else None)
                 or ('Depends on withheld or unknown premise claims: ' + ', '.join(sorted(dependencies[claim['id']] - eligible_ids)) if dependencies[claim['id']] - eligible_ids else None)
@@ -146,8 +155,10 @@ def finalize(payload, audit, history, withdrawn=(), *, failure=None):
             'withheld_share': len(withheld)/(len(accepted)+len(withheld)) if accepted or withheld else 0,
             'correction_rounds': sum(h.get('kind') == 'correction' for h in history),
             'audit_complete': audit.get('audit_complete', False), 'failure': failure,
-            'run_issues': [issue for issue in (payload.get('mechanical_audit') or {}).get('issues', []) if issue not in mechanical_issues]})
-    final['evidence'] = projected_evidence(payload, active)
+            'run_issues': [issue for issue in (payload.get('mechanical_audit') or {}).get('issues', []) if issue not in mechanical_issues]
+                + ['Material audit finding not tied to a current claim: ' + f.get('description', '') for f in audit.get('findings', [])
+                    if f.get('severity') == 'material' and not set(f.get('claim_ids', [])) & {c['id'] for c in payload.get('claims', [])}]})
+    final['evidence'] = projected_evidence(payload, audit, active, withheld)
     final['withheld_evidence'] = [e for e in payload.get('evidence', []) if e not in final['evidence']]
     active_evidence = {e['id'] for e in final['evidence']}
     final['executive_summary'] = [s for s in final.get('executive_summary', [])
@@ -190,7 +201,9 @@ def audit_basis(payload):
             continue
         expected = deepcopy(basis.get(field))
         if field == 'evidence':
-            expected = projected_evidence(basis, active.keys())
+            if payload.get(field) == projected_evidence(basis, {}, active.keys(), ()):
+                continue  # Finalized before withheld-only evidence was pruned; historical bundles keep their semantics.
+            expected = projected_evidence(basis, payload.get('independent_audit', {}), active.keys(), payload.get('withheld_claims', []))
         elif field in ('contradictions', 'gaps', 'residue') and isinstance(expected, list):
             for record in expected:
                 removed = [i for i in record.get('claim_ids', []) if i not in active]

@@ -1191,6 +1191,8 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
             raise RuntimeError("Research session failed to produce structured final research; partial files and receipts are preserved" + detail)
         if exit_code and role in ("research", "correction"):
             raise RuntimeError("Research session failed; existing partial investigation remains available" + detail)
+        if role == "audit" and (exit_code or not output_path.exists()):
+            raise RuntimeError("Audit session did not finish cleanly; its saved output is preserved but not accepted" + detail)
         refresh_committed_progress(workspace, profile_role, model, effort, thread_id, started, receipt["seconds"], finished=True,
             codex_home=session.home, execution=invocation, progress_state=progress_state, previous_usage=previous_usage)
         return result, receipt

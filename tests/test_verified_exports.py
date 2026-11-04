@@ -97,8 +97,59 @@ def test_dependency_and_premise_closure_withholds_supported_dependents(tmp_path)
     assert not final['claims'] and len(final['withheld_claims'])==3
     assert not final['claim_links']
     assert not any(e.get('premise_claim_ids') for e in final['evidence'])
-    assert len(final['withheld_evidence'])==1
+    assert len(final['withheld_evidence'])==2
     assert 'Depends on withheld' in final['withheld_claims'][1]['reason']
+
+
+def test_evidence_used_only_by_withheld_or_withdrawn_claims_leaves_the_active_export(tmp_path):
+    final,_=finish(tmp_path)
+    payload=deepcopy(final['verification']['audit_basis'])
+    payload.update(executive_summary=[],caveats=[],next_questions=[])
+    for identifier in ('E2','E3','E4','E5','E6'):
+        payload['evidence'].append(dict(deepcopy(payload['evidence'][0]),id=identifier))
+    # E2 only withheld C2; E3 a contradiction naming active C1; E4 C1's recommendation; E5 a claimless gap; E6 only withdrawn C0.
+    payload['claims'].append(dict(deepcopy(payload['claims'][0]),id='C2',text='A withheld synthetic finding.',evidence_ids=['E2','E3','E4','E5']))
+    payload['contradictions']=[{'id':'K1','kind':'between_sources','description':'Synthetic.','claim_ids':['C1','C2'],'evidence_ids':['E3'],
+        'comparability':'Synthetic.','resolution':'unresolved','why_it_matters':'Synthetic.'}]
+    payload['gaps'][0].update(claim_ids=[],evidence_ids=['E5'])
+    raw=audit_for(payload);raw['claim_checks'][1]['assessment']='unresolved'
+    raw['claim_checks'][0]['uncertainty_review']={'recommended_class':'high','reason':'Synthetic caution.','evidence_ids':['E1','E4'],
+        'prior_claim_id':None,'prior_class':None,'prior_match_reason':'No prior supplied.'}
+    raw['evidence_checks']=[dict(deepcopy(raw['evidence_checks'][0]),evidence_id=e['id']) for e in payload['evidence']]
+    bound=audit_validation.bind(payload,raw)
+    withdrawn=[{'claim':dict(deepcopy(payload['claims'][0]),id='C0',evidence_ids=['E6']),'status':'withdrawn','reason':'Synthetic.',
+        'evidence':[deepcopy(payload['evidence'][5])],'final_check':{}}]
+    output=corrections.finalize(payload,bound,[],withdrawn)
+    assert [c['id'] for c in output['claims']]==['C1']
+    assert [e['id'] for e in output['evidence']]==['E1','E3','E4','E5']
+    assert [e['id'] for e in output['withheld_evidence']]==['E2','E6']
+    assert output['contradictions'][0]['evidence_ids']==['E3'] and output['contradictions'][0]['withheld_claim_ids']==['C2']
+    engine.write(tmp_path/'payload.json',output);engine.write(tmp_path/'audit.json',bound)
+    coverage_export.export_bundle(tmp_path);research_bundle.seal(tmp_path)
+    exported=bundle_connectors.resolvent(tmp_path)
+    metadata=exported['method_metadata']
+    assert set(metadata['id_map']['evidence'])=={'E1','E3','E4','E5'} and len(exported['evidence'])==4
+    assert metadata['claim_metadata']['c1']['uncertainty_review']['recommended_class']=='high'
+    assert [e['id'] for e in metadata['withheld_evidence']]==['E2','E6']
+    assert {e['id'] for r in metadata['withheld_claims'] for e in r['evidence']}>={'E2','E6'}
+    jsonschema.validate(exported,json.loads((Path(__file__).parent/'fixtures/resolvent-submission.schema.json').read_text()),format_checker=jsonschema.FormatChecker())
+    graph=engine.read(tmp_path/'answer.json')
+    assert 'E2' not in {e.get('origin_evidence_id',e['id']) for e in graph['evidence']}
+    assert graph['source_checks'][0]['uncertainty_review']['recommended_class']=='high'
+    run_dashboard(tmp_path,graph,"assert.match(withheldClaimsHtml(graph),/Inspect retained source passage/);")
+
+
+def test_payload_finalized_before_withheld_only_pruning_still_verifies(tmp_path):
+    payload,_=prepared(tmp_path)
+    payload['claims'].append(dict(deepcopy(payload['claims'][0]),id='C2',text='A withheld synthetic finding.',evidence_ids=['E2']))
+    payload['evidence'].extend([dict(deepcopy(payload['evidence'][0]),id='E2'),dict(deepcopy(payload['evidence'][0]),id='E3',premise_claim_ids=['C2'])])
+    raw=audit_for(payload);raw['claim_checks'][1]['assessment']='unresolved'
+    raw['evidence_checks']=[dict(deepcopy(raw['evidence_checks'][0]),evidence_id=e['id']) for e in payload['evidence']]
+    final=corrections.finalize(payload,audit_validation.bind(payload,raw),[])
+    assert [e['id'] for e in final['evidence']]==['E1']
+    final['evidence']=deepcopy(payload['evidence'][:2])  # The previous rule filtered premises only.
+    final['withheld_evidence']=deepcopy(payload['evidence'][2:])
+    corrections.verify_final(final)
 
 
 def test_v4_connectors_are_only_typed_within_run_links(tmp_path):
