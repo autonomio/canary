@@ -79,7 +79,7 @@ def test_resolved_defaults_and_digest_are_stable_and_explicit():
     b=research_spec.compile_mapping(a['resolved'])
     assert a['spec_sha256']==b['spec_sha256']
     assert a['resolved']['research']=={'model':'gpt-6.1-sol','effort':'xhigh'}
-    assert a['resolved']['audit']=={'model':'gpt-6.1-sol','effort':'xhigh','budget_seconds':None}
+    assert a['resolved']['audit']=={'model':'gpt-6.1-sol','effort':'xhigh','budget_seconds':None,'max_correction_rounds':3}
     assert a['resolved']['retrieval']['target_papers']==50
     a['resolved']['audit']['budget_seconds']=1
     with pytest.raises(research_spec.CompileError):research_spec.verify_compiled(a)

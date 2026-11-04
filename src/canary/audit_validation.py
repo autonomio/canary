@@ -134,6 +134,7 @@ def bind(payload, raw, *, passages=()):
         if check.get('assessment') == 'independent' and any(not (references[r].get('url') or references[r].get('doi') or references[r].get('record_url')) for r in refs):
             check.update(assessment='unknown', validation_issue='Independent evidence lacks an addressable source')
         if not valid:
+            check['validation_issue'] = 'No unique valid evidence-independence check'
             errors.append(item['id'] + ': No unique valid evidence-independence check')
         independence.append(check)
     audit.update(claim_checks=bound, evidence_checks=independence, validation_issues=errors,

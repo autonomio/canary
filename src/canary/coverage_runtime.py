@@ -736,10 +736,10 @@ def source(workspace, reference_id, *, match=None, page=None, context=2, limit=8
     return result
 
 
-def bind_payload(workspace):
+def bind_payload(workspace, *, investigation=None):
     """Expose mechanical provenance failures without rewriting or blocking science."""
     workspace = Path(workspace).resolve()
-    raw = read(workspace / "investigation.json")
+    raw = investigation if investigation is not None else read(workspace / "investigation.json")
     if raw is None:
         raise ValueError("Research investigation.json is not available")
     payload = json.loads(json.dumps(raw))
@@ -917,6 +917,26 @@ def _native_usage(thread_id, codex_home=None):
         "count_scope": "Unique native per-response receipts owned by this scientific thread; cached input/reasoning output are subsets, not extra tokens."}
 
 
+
+def usage_delta(usage, previous):
+    if previous is None:
+        return usage
+    if not usage.get("available") or not previous.get("available"):
+        return {"available": False, "reason": "Per-turn continuation usage cannot be separated from prior responses"}
+    seen = {r["response_id"] for r in previous.get("receipts", [])}
+    receipts = [r for r in usage.get("receipts", []) if r["response_id"] not in seen]
+    fields = ("input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens")
+    totals = {}
+    for name in fields:
+        values = [r.get("usage", {}).get(name) for r in receipts]
+        totals[name] = sum(values) if all(type(v) is int and v >= 0 for v in values) else None
+    for name, total, subset in (("uncached_input_tokens", "input_tokens", "cached_input_tokens"),
+                                ("other_output_tokens", "output_tokens", "reasoning_output_tokens")):
+        a, b = totals[total], totals[subset]
+        totals[name] = a - b if type(a) is int and type(b) is int and 0 <= b <= a else None
+    return dict(usage, response_count=len(receipts), receipts=receipts, totals=totals,
+        count_scope="Unique native responses added by this continuation turn; prior researcher turns are excluded.")
+
 def native_error(thread_id, codex_home):
     """Terminal task error from the native session; `codex exec --json` prints only its message.
 
@@ -952,19 +972,25 @@ def native_error(thread_id, codex_home):
             "same_run_retryable": False}
 
 
-def command_line(executable, model, effort, workspace, shape, output, *, store=None):
+def command_line(executable, model, effort, workspace, shape, output, *, store=None, resume_thread_id=None):
     from .codex_auth import credential_store
     store = credential_store(store or os.environ.get('CANARY_CODEX_CREDENTIALS_STORE', 'file'))
-    return [executable, "exec", "--ignore-user-config",
+    command = [executable, "exec", "--ignore-user-config",
             "-c", 'cli_auth_credentials_store=' + json.dumps(store), "--disable", "multi_agent", "--disable", "multi_agent_v2",
         "-m", model, "-c", f'model_reasoning_effort="{effort}"', "-c", "agents.enabled=false",
         "-c", "features.memories=false", "-c", "features.plugins=false", "-c", "features.apps=false",
         "-c", 'web_search="disabled"', "--skip-git-repo-check", "--json",
         "-c", 'sandbox_workspace_write.network_access=true',
-        "--approve-for-me", "--output-schema", str(shape), "-o", str(output), "-"]
+        "--approve-for-me", "--output-schema", str(shape), "-o", str(output)]
+    # Exec options precede its resume subcommand; retain the same isolation policy.
+    if resume_thread_id:
+        # Resume has its own schema/output arguments; approval mode belongs to exec.
+        command.remove("--approve-for-me")
+        return [executable, "exec", "--approve-for-me", "resume", *command[2:], resume_thread_id, "-"]
+    return command + ["-"]
 
 
-def refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed, *, finished=False, codex_home=None, execution=None, progress_state=None):
+def refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed, *, finished=False, codex_home=None, execution=None, progress_state=None, previous_usage=None):
     """Refresh committed artifacts and exact native receipts without another model call."""
     from .coverage_export import export_bundle, projection_inputs, refresh_profile_usage
     state = progress_state if progress_state is not None else {}
@@ -976,10 +1002,13 @@ def refresh_committed_progress(workspace, role, model, effort, thread_id, starte
         for name in ("research", "audit"):
             receipt = read(workspace / (name + "-receipt.json"))
             if isinstance(receipt, dict) and receipt.get("ended_at"):
+                if name == "audit" and any(k.startswith("audit_") for k in roles):
+                    continue
                 recorded_usage = receipt.get("usage", {})
                 roles[name] = dict(receipt, active=False, tokens=recorded_usage.get("totals", {}),
                                    receipts=recorded_usage.get("receipts", []))
         usage = (native_usage(thread_id, codex_home) if codex_home else native_usage(thread_id)) if thread_id else {"available": False, "reason": "Thread not yet recorded"}
+        usage = usage_delta(usage, previous_usage)
         roles[role] = {"active": not finished, "thread_id": thread_id, "model": model, "reasoning_effort": effort,
                        "started_at": started, "ended_at": now() if finished else None, "seconds": round(elapsed, 3),
                        "usage": usage, "tokens": usage.get("totals", {}), "receipts": usage.get("receipts", []),
@@ -1007,7 +1036,8 @@ def refresh_committed_progress(workspace, role, model, effort, thread_id, starte
 
 
 def scientific_session(workspace, role, model, effort, prompt, shape, *, executable, audit_timeout=None,
-                       execution=None, run_key=None, execution_environment=None):
+                       execution=None, run_key=None, execution_environment=None, round_index=None,
+                       resume_thread_id=None, expected_backend=None):
     if execution is None:
         # Detached orchestration workers use the API-owned native runtime. They
         # do not launch providers or create a second shared server.
@@ -1016,35 +1046,43 @@ def scientific_session(workspace, role, model, effort, prompt, shape, *, executa
         if not key:
             raise RuntimeError('Scientific execution requires an API-owned run')
         with httpx.Client(base_url=endpoint(), timeout=None, trust_env=False) as client:
-            response = client.post('/api/runs/' + quote(key, safe='') + '/execution', json={'role': role})
+            response = client.post('/api/runs/' + quote(key, safe='') + '/execution', json={'role': role, **({'round': round_index} if round_index is not None else {})})
         body = response.json()
         if response.is_error:
             raise RuntimeError(body.get('error', 'Scientific execution failed'))
-        return read(Path(workspace) / ('investigation.json' if role == 'research' else 'audit.json')), body
+        directory = Path(workspace) if round_index is None else Path(workspace) / 'rounds' / f'{round_index:03d}'
+        return read(directory / ('investigation.json' if role == 'research' else role + '.json')), body
     return _scientific_session(workspace, role, model, effort, prompt, shape,
-        executable=executable, audit_timeout=audit_timeout, execution=execution, run_key=run_key, environment=execution_environment)
+        executable=executable, audit_timeout=audit_timeout, execution=execution, run_key=run_key, environment=execution_environment,
+        round_index=round_index, resume_thread_id=resume_thread_id, expected_backend=expected_backend)
 
 
 def _scientific_session(workspace, role, model, effort, prompt, shape, *, executable,
-                        audit_timeout, execution, run_key, environment):
+                        audit_timeout, execution, run_key, environment, round_index, resume_thread_id, expected_backend):
     session = None
+    directory = workspace if round_index is None else workspace / "rounds" / f"{round_index:03d}"
+    directory.mkdir(parents=True, exist_ok=True)
+    result_name = "investigation.json" if role == "research" else role + ".json"
+    result_path = directory / result_name
+    profile_role = role if round_index is None else f"{role}_{round_index:03d}"
     progress_state = {}
     try:
         started, before = now(), time.monotonic()
-        schema_path, output_path = workspace / (role + "-schema.json"), workspace / (role + "-response.json")
+        schema_path, output_path = directory / (role + "-schema.json"), directory / (role + "-response.json")
         context = execution.context()
         executable = context['CANARY_CODEX_EXECUTABLE']
         command = command_line(executable, model, effort, workspace, schema_path, output_path,
-                               store=context['CANARY_CODEX_CREDENTIALS_STORE'])
-        session = execution.open(run_key, role, workspace, model, effort, shape, output_path, None, command, environment)
+                               store=context['CANARY_CODEX_CREDENTIALS_STORE'], resume_thread_id=resume_thread_id)
+        session = execution.open(run_key, role, workspace, model, effort, shape, output_path, None, command, environment, resume_thread_id=resume_thread_id, expected_backend=expected_backend)
         write(schema_path, shape)
-        (workspace / (role + "-prompt.txt")).write_text(prompt)
+        (directory / (role + "-prompt.txt")).write_text(prompt)
         event(workspace, role + "_started", model=model, reasoning_effort=effort)
+        previous_usage = native_usage(resume_thread_id, session.home) if resume_thread_id else None
         thread_id, turn_usage, timed_out, last_refresh, exit_code = None, [], False, 0.0, None
-        with (workspace / (role + "-events.jsonl")).open("w") as events, (workspace / (role + "-stderr.log")).open("w") as stderr:
+        with (directory / (role + "-events.jsonl")).open("w") as events, (directory / (role + "-stderr.log")).open("w") as stderr:
             session.stderr = stderr
             invocation = session.invocation()
-            write(workspace / (role + '-invocation.json'), dict(invocation,
+            write(directory / (role + '-invocation.json'), dict(invocation,
                 argv=command if session.backend == 'codex_exec' else [executable, 'app-server'],
                 started_at=started, model=model, effort=effort))
             def stop_audit():
@@ -1064,7 +1102,7 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
                         continue
                     if record.get("type") == "thread.started":
                         thread_id = record.get("thread_id")
-                        write(workspace / (role + "-active.json"), {"thread_id": thread_id, "model": model, "effort": effort, "started_at": started})
+                        write(directory / (role + "-active.json"), {"thread_id": thread_id, "model": model, "effort": effort, "started_at": started})
                     if record.get("type") == "turn.completed":
                         turn_usage.append(record.get("usage", {}))
                     item = record.get("item", {})
@@ -1077,8 +1115,8 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
                     if record.get("type") in ("thread.started", "item.completed", "turn.completed"):
                         elapsed = time.monotonic() - before
                         if record.get("type") == "thread.started" or elapsed - last_refresh >= 10:
-                            refresh_committed_progress(workspace, role, model, effort, thread_id, started, elapsed,
-                                codex_home=session.home, execution=invocation, progress_state=progress_state)
+                            refresh_committed_progress(workspace, profile_role, model, effort, thread_id, started, elapsed,
+                                codex_home=session.home, execution=invocation, progress_state=progress_state, previous_usage=previous_usage)
                             last_refresh = elapsed
                 exit_code = session.wait()
             finally:
@@ -1089,56 +1127,61 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
                 exit_code = session.wait()
                 thread_id = thread_id or session.thread_id
                 cleanup = session.archive()
+                usage = native_usage(thread_id, session.home) if thread_id else {"available": False, "reason": "No scientific thread ID"}
                 receipt = {"started_at": started, "ended_at": now(), "seconds": round(time.monotonic() - before, 3),
                     "exit_code": exit_code, "thread_id": thread_id, "model": model, "reasoning_effort": effort,
                     "timed_out": timed_out, "turn_usage": turn_usage,
-                    "usage": native_usage(thread_id, session.home) if thread_id else {"available": False, "reason": "No scientific thread ID"},
+                    "usage": usage_delta(usage, previous_usage), "thread_usage": usage,
                     "native_error": native_error(thread_id, session.home) if exit_code and thread_id else None,
                     **invocation, 'cleanup': cleanup}
-                write(workspace / (role + "-receipt.json"), receipt)
+                write(directory / (role + "-receipt.json"), receipt)
+                if resume_thread_id and thread_id != resume_thread_id:
+                    raise RuntimeError("Research continuation did not preserve its native thread")
         event(workspace, role + "_finished", seconds=receipt["seconds"], exit_code=exit_code, timed_out=timed_out)
         failure = receipt["native_error"]
         detail = "; native Codex error " + ": ".join(filter(None, (failure["code"], failure["message"]))) if failure else ""
-        candidate = output_path if output_path.exists() else workspace / "audit.json"
+        candidate = output_path if output_path.exists() else result_path
         if role == "audit" and candidate.exists():
             try:
                 read(candidate)
             except (ValueError, OSError):
-                immutable_bytes(workspace / "audit-incomplete-output.json", candidate.read_bytes())
+                immutable_bytes(directory / "audit-incomplete-output.json", candidate.read_bytes())
                 candidate.unlink()
         if output_path.exists():
             result = read(output_path)
-            write(workspace / ("investigation.json" if role == "research" else "audit.json"), result)
-        elif role == "audit" and (workspace / "audit.json").exists():
-            result = read(workspace / "audit.json")
+            write(result_path, result)
+        elif role == "audit" and (result_path).exists():
+            result = read(result_path)
             result["audit_complete"] = False
             result.setdefault("limitations", []).append(
                 "Audit stopped at its recorded time budget; intermediate audit preserved." if timed_out else
                 "Audit ended before a structured final response; intermediate audit preserved.")
-            write(workspace / "audit.json", result)
+            write(result_path, result)
         elif role == "audit":
             result = {"audit_complete": False, "claim_checks": [], "findings": [], "scores": {},
                 "source_reviewed_ids": [], "selection_assessment": "Not completed", "strengths": [],
                 "limitations": ["Audit did not produce a usable persisted payload"], "scope_note": "Unavailable audit is not scientific acceptance."}
-            write(workspace / "audit.json", result)
+            write(result_path, result)
         else:
             raise RuntimeError("Research session failed to produce structured final research; partial files and receipts are preserved" + detail)
-        if exit_code and role == "research":
+        if exit_code and role in ("research", "correction"):
             raise RuntimeError("Research session failed; existing partial investigation remains available" + detail)
-        refresh_committed_progress(workspace, role, model, effort, thread_id, started, receipt["seconds"], finished=True,
-            codex_home=session.home, execution=invocation, progress_state=progress_state)
+        refresh_committed_progress(workspace, profile_role, model, effort, thread_id, started, receipt["seconds"], finished=True,
+            codex_home=session.home, execution=invocation, progress_state=progress_state, previous_usage=previous_usage)
         return result, receipt
     finally:
         if session is not None:
             session.close()
 
 
-def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executable=None, on_reserved=None, local_text=None, additional_sources=(), research_state=None, continue_research=False):
+def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executable=None, on_reserved=None, local_text=None, additional_sources=(), research_state=None, continue_research=False, max_correction_rounds=3):
     from .research_state import validate as validate_state, describe as describe_state
     research_state = validate_state(research_state, continue_research)
     workspace = Path(workspace).resolve()
     if not question.strip() or minimum_papers < 1:
         raise ValueError("Question and paper target must be nonempty/positive")
+    if type(max_correction_rounds) is not int or max_correction_rounds < 0:
+        raise ValueError("Correction rounds must be a nonnegative integer")
     if audit_seconds is not None:
         raise ValueError("Audits have no time limit")
     executable = executable or os.environ.get('CANARY_CODEX_EXECUTABLE') or shutil.which("codex")
@@ -1164,6 +1207,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
         "status": "researching", "started_at": started, "generated_at": started,
         "selection_method": "coverage-guided", "minimum_papers": minimum_papers, "research_model": protocol.RESEARCH_MODEL,
         "research_effort": protocol.RESEARCH_EFFORT, "audit_model": protocol.AUDIT_MODEL, "audit_effort": protocol.AUDIT_EFFORT,
+        "max_correction_rounds": max_correction_rounds, "verification_version": 1,
         "no_subagents": True, "fresh_assets_only": not bool(local_text),
         **({"local_text": local_text, "corpus": "local_text"} if local_text else {}), "audit_budget_seconds": audit_seconds,
         "accounting_scope": "Native CLI workload; legacy DeepSeek gateway token ledger remains a separate deployment."}
@@ -1192,29 +1236,14 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
         check_cancelled()
         wait_for_tools(run_key)
         payload = bind_payload(workspace)
-        manifest.update(status="auditing", research_finished_at=now(), accounting=payload["accounting"])
-        write(workspace / "run.json", manifest)
-        write(workspace / "audit-input.json", payload)
-        from .source_adapters import GUIDANCE
-        audit, _ = scientific_session(workspace, "audit", protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT,
-            protocol.audit_prompt(question, command) + (protocol.LOCAL_TEXT_SCOPE if local_text else "")
-            + (GUIDANCE.format(sources=', '.join(additional_sources)) if additional_sources else '')
-            + ("\nRead research-state.json as supplied, unverified background. Check that inherited findings and reviews were not counted as fresh work; assess the stated continuation contribution.\n" if research_state is not None else ""), protocol.audit_schema(), executable=executable,
-            audit_timeout=None)
-        check_cancelled()
-        wait_for_tools(run_key)
-        from .audit_validation import bind as bind_audit
-        audit = bind_audit(payload, audit, passages=[json.loads(line)
-            for path in (workspace / "passages").glob("*.jsonl") for line in path.read_text().splitlines()])
-        write(workspace / "audit.json", audit)
-        payload["independent_audit"] = audit
-        payload["profile"] = {role: read(workspace / (role + "-receipt.json")) for role in ("research", "audit")}
-        payload["research_status"] = "raw_research_with_separate_audit"
+        from .correction_runtime import verify
+        payload = verify(workspace, payload, manifest, command, executable)
+        audit = payload["independent_audit"]
+        payload["profile"] = read(workspace / "profile.json", {})
         write(workspace / "payload.json", payload)
-        write(workspace / "profile.json", payload["profile"])
         target = "met" if payload["accounting"]["minimum_met"] else (
             "scarcity_reported_not_certified" if payload["accounting"]["scarcity_statement"] else "unmet")
-        manifest.update(status="partial" if target == "unmet" else "complete", minimum_target_status=target,
+        manifest.update(status="partial" if target == "unmet" or payload["verification"].get("failure") else "complete", minimum_target_status=target,
                         audit_complete=audit.get("audit_complete", False), answered=bool(payload.get("claims")),
                         scientific_acceptance="See individual independent claim checks and audit limitations")
     except Exception as error:

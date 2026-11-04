@@ -395,7 +395,20 @@ def scenario_export(out: Path, bundle_src: Path) -> dict:
             "artefacts": ["exported/manifest.canary.json", "scan.log"]}
 
 
+def scenario_native_verified(out):
+    """Run the HTTP worker, native stdio transport and correction-state fixtures."""
+    proc = subprocess.run([sys.executable, '-m', 'pytest', '-q', 'tests/test_corrections.py',
+        'tests/test_codex_execution.py::test_actual_api_worker_runs_research_correction_fresh_audit_and_retains_history',
+        'tests/test_codex_execution.py::test_continuation_preserves_research_thread_and_counts_only_new_responses'],
+        cwd=ROOT, capture_output=True, text=True, timeout=120)
+    (out/'native-verification.log').write_text(proc.stdout+proc.stderr, encoding='utf-8')
+    assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-1000:]
+    return {'Detail': 'Synthetic HTTP/native execution, correction/split/withdraw/dispute, stale verdict and retained-history fixtures pass. No model call or research-quality claim.',
+            'artefacts': ['native-verification.log']}
+
+
 SCENARIOS = [
+    ("native-verified-bundle", scenario_native_verified),
     ("review-only", scenario_review),
     ("synthetic-csv", scenario_csv),
     ("cycle-research", scenario_cycle),

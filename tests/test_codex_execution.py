@@ -32,7 +32,11 @@ def log(method,params):
 
 def persist(tid):
  t=threads[tid];rollout=home/(tid+'.jsonl')
- rollout.write_text(json.dumps({'type':'turn_context','payload':{'turn_id':'turn-'+tid,'model':t['model'],'effort':t['effort']}})+'\n'+json.dumps({'type':'token_usage_record','payload':{'thread_id':tid,'turn_id':'turn-'+tid,'response_id':'response-'+tid,'usage':{'input_tokens':100,'cached_input_tokens':80,'cache_write_input_tokens':0,'output_tokens':20,'reasoning_output_tokens':10,'total_tokens':120}}})+'\n')
+ rows=[]
+ for n in range(1,t.get('turns',1)+1):
+  turn_id='turn-'+tid+'-'+str(n)
+  rows.extend([{'type':'turn_context','payload':{'turn_id':turn_id,'model':t['model'],'effort':t['effort']}}, {'type':'token_usage_record','payload':{'thread_id':tid,'turn_id':turn_id,'response_id':'response-'+tid+'-'+str(n),'usage':{'input_tokens':100,'cached_input_tokens':80,'cache_write_input_tokens':0,'output_tokens':20,'reasoning_output_tokens':10,'total_tokens':120}}}])
+ rollout.write_text(''.join(json.dumps(r)+'\n' for r in rows))
  with sqlite3.connect(home/'state_1.sqlite') as db:
   db.execute('CREATE TABLE IF NOT EXISTS threads(id TEXT PRIMARY KEY,rollout_path TEXT,model TEXT,reasoning_effort TEXT)')
   db.execute('CREATE TABLE IF NOT EXISTS thread_spawn_edges(parent_thread_id TEXT,child_thread_id TEXT)')
@@ -42,12 +46,15 @@ def turn(tid):
  t=threads[tid];cwd=pathlib.Path(t['cwd']);(cwd/'synthetic-committed.txt').write_text('Synthetic fixture only.')
  while (cwd/'hold').exists() and not t['cancelled']: time.sleep(.01)
  if not t['cancelled']:
-  send({'method':'item/completed','params':{'threadId':tid,'item':{'type':'agentMessage','text':json.dumps({'marker':cwd.name,'value':17})}}})
+  for name,value in t.get('scripted',{}).get('files',{}).items():
+   path=cwd/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(value)
+  send({'method':'item/completed','params':{'threadId':tid,'item':{'type':'agentMessage','text':json.dumps(t.get('scripted',{}).get('response',{'marker':cwd.name,'value':17}))}}})
  send({'method':'turn/completed','params':{'threadId':tid,'turn':{'id':'turn-'+tid,'status':'interrupted' if t['cancelled'] else 'completed'}}})
 
 if sys.argv[1]=='exec':
  assert '--ignore-user-config' in sys.argv
- cwd=pathlib.Path.cwd();tid='exec-'+cwd.name;threads[tid]={'cwd':str(cwd),'model':sys.argv[sys.argv.index('-m')+1],'effort':'xhigh','cancelled':False}
+ cwd=pathlib.Path.cwd();tid=sys.argv[-2] if 'resume' in sys.argv else ('exec-audit-'+str(os.getpid()) if pathlib.Path(sys.argv[sys.argv.index('-o')+1]).name=='audit-response.json' else 'exec-'+cwd.name);threads[tid]={'cwd':str(cwd),'model':sys.argv[sys.argv.index('-m')+1],'effort':'xhigh','cancelled':False}
+ previous=home/(tid+'.jsonl');threads[tid]['turns']=sum(json.loads(line).get('type')=='token_usage_record' for line in previous.read_text().splitlines())+1 if previous.exists() else 1
  log('exec',{'argv':sys.argv,'cwd':str(cwd),'api_url':os.environ.get('CANARY_API_URL')})
  print(json.dumps({'type':'thread.started','thread_id':tid}),flush=True)
  if (home/'capacity').exists():
@@ -76,8 +83,17 @@ for line in sys.stdin:
  elif method=='thread/start':
   count+=1;tid='thread-'+str(count);c=params['config'];threads[tid]={'cwd':params['cwd'],'model':params['model'],'effort':c['model_reasoning_effort'],'cancelled':False}
   result={'thread':{'id':tid},'model':params['model'],'reasoningEffort':c['model_reasoning_effort'],'cwd':params['cwd']}
+ elif method=='thread/resume':
+  tid=params['threadId'];t=threads[tid];t['cancelled']=False
+  result={'thread':{'id':tid},'model':t['model'],'reasoningEffort':t['effort'],'cwd':t['cwd']}
  elif method=='turn/start':
-  tid=params['threadId'];result={'turn':{'id':'turn-'+tid}}
+  tid=params['threadId'];threads[tid]['turns']=threads[tid].get('turns',0)+1
+  fixture=home/'scripted.json'
+  if fixture.exists():
+   data=json.loads(fixture.read_text());props=params.get('outputSchema',{}).get('properties',{})
+   role='correction' if 'responses' in props else 'audit' if 'claim_checks' in props else 'research'
+   threads[tid]['scripted']=data[role].pop(0);fixture.write_text(json.dumps(data))
+  result={'turn':{'id':'turn-'+tid}}
   send({'id':m['id'],'result':result});threading.Thread(target=turn,args=(tid,),daemon=True).start();continue
  elif method=='turn/interrupt':threads[params['threadId']]['cancelled']=True
  elif method=='thread/archive':
@@ -458,5 +474,108 @@ def test_http_execution_receives_recorded_research_state(native, role):
             assert 'Continue research from this supplied state' in prompt
             assert 'No earlier experiment assets' not in prompt
         else:assert 'inherited findings and reviews were not counted as fresh work' in prompt
+    finally:
+        server.shutdown();server.server_close();thread.join(5)
+
+
+@pytest.mark.parametrize('backend', ['shared', 'exec'])
+def test_continuation_preserves_research_thread_and_counts_only_new_responses(native, backend):
+    pool,home,root = native
+    if backend == 'exec': (home/'personal').touch()
+    workspace=root/'resume';workspace.mkdir()
+    _, first=execute(pool,root,'resume')
+    original=(workspace/'research-receipt.json').read_bytes()
+    _, second=engine.scientific_session(workspace,'correction','gpt-6.1-sol','xhigh','Synthetic continuation',{},
+        executable=str(root/'codex'),execution=pool,run_key='resume',round_index=1,
+        resume_thread_id=first['thread_id'],expected_backend=first['backend'])
+    assert first['thread_id'] == second['thread_id']
+    assert second['usage']['totals']['input_tokens'] == 100
+    assert second['thread_usage']['totals']['input_tokens'] == 200
+    assert (workspace/'research-receipt.json').read_bytes() == original
+    assert (workspace/'rounds/001/correction-receipt.json').is_file()
+    _, audit=engine.scientific_session(workspace,'audit','gpt-6.1-sol','xhigh','Fresh synthetic audit',{},
+        executable=str(root/'codex'),execution=pool,run_key='resume',round_index=1)
+    assert audit['thread_id'] != first['thread_id']
+    if backend == 'shared':
+        methods=[c['method'] for c in calls(home)]
+        assert methods.count('thread/start')==2 and methods.count('thread/resume')==1
+    else:
+        command=next(c['params']['argv'] for c in calls(home) if c['method']=='exec' and 'resume' in c['params']['argv'])
+        assert command.index('--approve-for-me') < command.index('resume') < command.index('--output-schema')
+
+
+def test_http_correction_round_is_leased_once_and_resumes_only_server_owned_thread(native):
+    pool,home,root=native
+    server=dashboard.make_server(0,registry=root/'registry.json',root=root)
+    supervisor=server.RequestHandlerClass.supervisor
+    supervisor.auth.close();supervisor.auth=pool.auth;supervisor.execution=pool;pool.can_start=supervisor._can_execute
+    workspace=root/'round-http';workspace.mkdir()
+    manifest={'question':'Synthetic HTTP correction?','status':'researching','minimum_papers':1,'max_correction_rounds':1}
+    engine.write(workspace/'run.json',manifest)
+    runs.register_start('round-http','Fixture','',kind='question',bundle=str(workspace),status='running',path=supervisor.registry)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        with httpx.Client(base_url=f'http://127.0.0.1:{server.server_port}',timeout=20,trust_env=False) as client:
+            first=client.post('/api/runs/round-http/execution',json={'role':'research'}).json()
+            manifest.update(status='correcting',correction_round=1)
+            engine.write(workspace/'run.json',manifest)
+            engine.write(workspace/'rounds/001/correction-input.json',{'claim_ids':['C1']})
+            for body in ({'role':'correction'}, {'role':'correction','round':2}, {'role':'correction','round':True},
+                         {'role':'correction','round':1,'thread_id':'another-thread'}):
+                assert client.post('/api/runs/round-http/execution',json=body).status_code==400
+            second=client.post('/api/runs/round-http/execution',json={'role':'correction','round':1})
+            assert second.status_code==200,second.text
+            jsonschema.validate(second.json(),api_contract.schemas()['ExecutionReceipt'])
+            assert second.json()['thread_id']==first['thread_id']
+            assert client.post('/api/runs/round-http/execution',json={'role':'correction','round':1}).status_code==400
+            assert client.post('/api/runs/round-http/tools/finalize',json={'investigation':{}}).status_code in (400,404)
+    finally:
+        server.shutdown();server.server_close();thread.join(5)
+
+
+
+def test_actual_api_worker_runs_research_correction_fresh_audit_and_retains_history(native):
+    from test_corrections import prepared, response, audit_for
+    from canary import corrections, compact_bundle
+    pool,home,root=native
+    fixture=root/'fixture';fixture.mkdir();payload,_=prepared(fixture,rounds=1)
+    raw=json.loads((fixture/'investigation.json').read_text())
+    corrected=response(payload)
+    proposed,_=corrections.apply(payload,engine.read(fixture/'audit.json',{'claim_checks':[]} ),corrected)
+    # A fresh bound projection supplies the second auditor's current claim IDs.
+    revised=engine.bind_payload(fixture,investigation=proposed)
+    names=['question-plan.json','selection.json','reviewed-papers.json','papers/W1.txt','texts/W1.txt',
+        'passages/W1.jsonl','download-receipts/W1.json']
+    engine.write(home/'scripted.json',{'research':[{'files':{n:(fixture/n).read_text() for n in names},'response':raw}],
+        'audit':[{'response':audit_for(payload,'correction_needed')},{'response':audit_for(revised)}],
+        'correction':[{'response':corrected}]})
+    server=dashboard.make_server(0,registry=root/'registry.json',root=root/'data')
+    supervisor=server.RequestHandlerClass.supervisor
+    supervisor.auth.close();supervisor.auth=pool.auth;supervisor.execution=pool;pool.can_start=supervisor._can_execute
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        with httpx.Client(base_url=f'http://127.0.0.1:{server.server_port}',timeout=20,trust_env=False) as client:
+            started=client.post('/api/runs',json={'spec':{'question':'Synthetic fixture question?',
+                'retrieval':{'target_papers':1},'audit':{'max_correction_rounds':1}}})
+            assert started.status_code==201,started.text
+            key=started.json()['key']
+            def finished():
+                row=client.get('/api/runs/'+key).json()
+                return row if not row.get('live',True) else None
+            row=eventually(finished,timeout=25)
+            result=client.get('/api/runs/'+key+'/bundle').json()
+            graph=result['research']['answer']
+            assert graph['verification']['failure'] is None,(row,result)
+            assert graph['verification']['correction_rounds']==1
+            assert graph['claims'][0]['text'].startswith('Revised')
+            assert graph['source_checks'][0]['assessment']=='supported'
+            assert graph['claim_revisions'][0]['investigation']==raw
+            assert result['bundle']['retention']['mode']=='bundle_only'
+            roles=result['research']['profile']['roles']
+            assert sum(r['tokens']['input_tokens'] for r in roles.values())==400
+            recorded=calls(home)
+            assert len([c for c in recorded if c['method']=='thread/start'])==3
+            assert len([c for c in recorded if c['method']=='thread/resume'])==1
+            assert all(c['params']['model']=='gpt-6.1-sol' for c in recorded if c['method']=='thread/start')
     finally:
         server.shutdown();server.server_close();thread.join(5)
