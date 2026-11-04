@@ -61,7 +61,10 @@ def run(args, port):
         if args.cmd == 'runs' and args.runs_cmd == 'list':
             print(f"{'KEY':28} {'STATUS':12} {'KIND':8} NAME")
             for row in value['runs']:
-                print(f"{row.get('key','?'):28} {row.get('status','?'):12} {row.get('kind','?'):8} {row.get('name','')}")
+                pause = row.get('capacity_pause')
+                note = (f"  [waiting for model capacity; {pause.get('role')} resumes {pause.get('resume_at')}]"
+                        if isinstance(pause, dict) else '')
+                print(f"{row.get('key','?'):28} {row.get('status','?'):12} {row.get('kind','?'):8} {row.get('name','')}{note}")
         elif args.cmd == 'runs' and args.runs_cmd == 'log':
             if args.stream in ('all','timeline'):
                 for ev in value.get('timeline', []):

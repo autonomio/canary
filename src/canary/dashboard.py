@@ -358,6 +358,8 @@ class Supervisor:
             # A worker that died mid-session leaves its last progress export behind.
             if row.get('audit_status') == 'pending':
                 row['audit_status'] = runs.settled_audit_status(row.get('status'), 'pending')
+            # Live API-owned state, never persisted: a role waiting for model capacity.
+            row['capacity_pause'] = self.execution.capacity_pause(row.get('key'))
         return rows
 
     def cancel(self, key: str) -> dict:

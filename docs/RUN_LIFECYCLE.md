@@ -43,6 +43,14 @@ scientific sessions use the [API-owned shared Codex runtime](SHARED_CODEX.md); a
 shared turn ends if its owning service stops, with partial work preserved and no
 automatic scientific retry. API tools also require the service to be available.
 
+Transient model capacity (`server_overloaded`) is the one native error a role waits out:
+the service pauses it with a bounded backoff, then resumes the same native session on the
+same model and account. While a role waits, the run keeps its status and
+`GET /api/runs/{key}` (CLI `canary runs show`, MCP `canary_run`) adds `capacity_pause`: the
+role, the native error, when the session resumes and how much of the pause bound is used.
+The dashboard badge reads "Waiting for model capacity", and `canary runs log` shows each
+pause and resumption. Details are in [shared execution](SHARED_CODEX.md).
+
 ## Terminal outcomes
 
 `GET /api/runs/{key}` (CLI `canary runs show`, MCP `canary_run`) says why a question run

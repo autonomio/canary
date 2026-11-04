@@ -70,9 +70,21 @@ A failed role's receipt records `native_error` from the native session's final
 `task_complete` event; `codex exec --json` prints only its message. `code` is the
 verbatim `codex_error_info` and `message` is bounded and redacted. `server_overloaded`
 is `transient_provider_capacity`, not a scientific refusal or research error; other
-codes stay `unclassified`. `same_run_retryable` is false because a role runs once
-per run; `rerun` starts a new run with the saved settings. The run API reports the
-research role's error, and `/research` keeps each role's under `profile.roles`.
+codes stay `unclassified`. The run API reports the research role's error, and
+`/research` keeps each role's under `profile.roles`.
+
+`same_run_retryable` is true only for `server_overloaded`. When a turn fails with it,
+the API keeps the role's session registered and pauses for 30 s, doubling each time,
+at most 600 s in total per role. It then resumes the same native thread on the same
+model, account and workspace. The resumed turn's only input is a fixed continuation
+instruction (`CAPACITY_RESUME_PROMPT`), so committed files, thread history and usage
+receipts carry over. While a role waits, `GET /api/runs/{key}` reports `capacity_pause`
+and the dashboard shows "Waiting for model capacity". Cancel, finish and service
+shutdown interrupt the pause. The role receipt keeps every pause in `capacity_pauses`,
+and the run timeline records each pause and resumption. When the bound is exhausted, the
+role fails with its last `native_error`. A lost connection or a stopped session never
+resumes. Other codes keep `same_run_retryable` false; `rerun` starts a new run with the
+saved settings. No other model or account and no API-key fallback is used.
 
 ## Verification
 
