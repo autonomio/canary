@@ -49,7 +49,7 @@ def digest(value) -> str:
 
 def _declaration(source: str):
     if not isinstance(source, str) or not source.strip() or len(source.encode()) > MAX_DECLARATION_BYTES:
-        raise CompileError('yaml', 'Expected a nonempty YAML declaration under 2 MiB.')
+        raise CompileError('yaml', f'Expected a nonempty YAML declaration of at most {MAX_DECLARATION_BYTES / 1024 ** 2:g} MiB.')
     try:
         draft = yaml.load(source, Loader=DeclarationLoader)
     except (yaml.YAMLError, RecursionError, TypeError):
