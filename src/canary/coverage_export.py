@@ -14,7 +14,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .runs import has_native_findings
+from .runs import answers_question, has_native_findings
 from .claim_freshness import unknown as unknown_freshness
 
 EXECUTION_MODE = "coverage-guided full-paper research"
@@ -642,6 +642,11 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     audit = audit if isinstance(audit, dict) else {}
     audit_case = _audit_record(audit)
     checks = {c.get("claim_id"): c for c in _rows(audit_case.get("claim_checks"))}
+    recorded_status = run.get("status", "in_progress")
+    lifecycle = run.get("runtime_status", recorded_status) if recorded_status in ("in_progress", "answered") else recorded_status
+    # A stopped run without a recorded audit will not receive one.
+    active = lifecycle in ("planning", "researching", "reading", "acquiring", "auditing", "in_progress", "indexing_local_text")
+    unaudited, unaudited_reason = ("pending", "Audit pending.") if active else ("not_run", "No independent audit was run.")
     for claim in graph["claims"]:
         ambiguous = claim["id"] in duplicate_claim_ids
         check = {} if ambiguous else checks.get(claim["id"], {})
@@ -653,7 +658,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         bound_check = dict(check, claim_id=claim["id"], assessment=normalized,
                            raw_assessment=assessment, paragraph_ids=ids,
                            reason=("Duplicate claim ID; the ID-only audit record cannot be assigned to this occurrence."
-                                   if ambiguous else check.get("reason", "Audit pending." if not audit else "Not checked in the recorded audit scope.")),
+                                   if ambiguous else check.get("reason", unaudited_reason if not audit else "Not checked in the recorded audit scope.")),
                            correction_applied=False)
         if ambiguous:
             bound_check["claim_occurrence"] = claim["claim_occurrence"]
@@ -771,14 +776,14 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     if efficiency:
         graph["source_efficiency"] = efficiency
         _save(bundle / "source-efficiency.json", efficiency)
-    recorded_status = run.get("status", "in_progress")
-    lifecycle = run.get("runtime_status", recorded_status) if recorded_status in ("in_progress", "answered") else recorded_status
     has_findings = has_native_findings(graph)
     status = ("in_progress" if lifecycle in ("planning", "researching", "reading", "acquiring", "auditing")
               else "answered" if lifecycle in ("complete", "completed") and has_findings
               else "complete" if lifecycle == "answered" and not has_findings else lifecycle)
+    # Neither a clarifying question nor a stopped run's claim-free summary answers the question.
+    has_findings = answers_question(graph, status)
     requests = _load(source / "openalex-requests.json", _load(bundle / "openalex-requests.json", _load(bundle / "openalex-request-log.json", None)))
-    graph["audit"] = {"status": "pending" if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids else "partial",
+    graph["audit"] = {"status": unaudited if not audit else "complete" if audit_case.get("audit_complete") and not duplicate_claim_ids else "partial",
                        "model": audit_model, "reasoning_effort": audit_effort,
                        "checked_claims": sum(check.get("assessment") != "not_checked" for check in graph["source_checks"]),
                        "total_claims": len(graph["claims"]), "scope_note": audit.get("scope_note", audit_case.get("scope_note", "")),
