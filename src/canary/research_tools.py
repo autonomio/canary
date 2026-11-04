@@ -6,6 +6,7 @@ from typing import TypedDict
 
 from . import coverage_runtime as engine
 from . import runs
+from .coverage_protocol import agent_reference
 
 
 class ToolRequest(TypedDict, total=False):
@@ -51,7 +52,7 @@ def execute(row, action: str, body: ToolRequest, root: Path):
     if compact_bundle.exists(workspace):
         contribution = compact_bundle.read(workspace, expanded=True)
         if action == 'catalog':
-            return [dict(r, source_bytes_retained=False) for r in compact_bundle.payload(contribution).get('references', [])]
+            return [dict(agent_reference(r), source_bytes_retained=False) for r in compact_bundle.payload(contribution).get('references', [])]
         if action == 'source':
             import re
             if not isinstance(body.get('reference_id'), str) or not engine.SOURCE_ID.fullmatch(body['reference_id']):
@@ -79,9 +80,10 @@ def execute(row, action: str, body: ToolRequest, root: Path):
         if type(body.get('retry_failed', False)) is not bool:
             raise ValueError('retry_failed must be boolean')
         receipts = engine.acquire(workspace, ids, workers=body.get('workers', 12), retry_failed=body.get('retry_failed', False), root=root)
+        receipts = [dict(r, reference=agent_reference(r['reference'])) if r.get('reference') else r for r in receipts]
         return {'attempted': len(receipts), 'sources_available': len(engine.catalog(workspace)), 'receipts': receipts}
     if action == 'catalog':
-        return engine.catalog(workspace)
+        return [agent_reference(r) for r in engine.catalog(workspace)]
     if action == 'source':
         if not isinstance(body.get('reference_id'), str):
             raise ValueError('reference_id is required')

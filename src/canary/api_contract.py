@@ -158,6 +158,10 @@ def schemas():
         'Research':research,'ResearchResponse':obj({'key':S,'live':B,'research':ref('Research')},['key','live','research']),
         'ReferenceEncoding':typed(ReferenceEncoding),
         'PaperMetadata':typed(PaperMetadata),
+        'AgentReference':{**typed(protocol.AgentReference),
+            'description':'A retrieved source in agent tool output and named agent inputs: catalog rows, acquire receipts, audit and correction inputs. '
+                'Only '+', '.join(protocol.AGENT_PAPER_METADATA_FIELDS)+' come from the paper metadata snapshot, present when one was recorded. '
+                'Complete references, hashes and snapshots stay in research, bundle and export responses.'},
         'ResolventExport':obj({'schema_version':S,'sources':arr(O),'evidence':arr(O),'claims':arr(O),
             'result':O,'method_metadata':obj({'canary_encoding':ref('ReferenceEncoding'),
                 'paper_metadata':{'type':'object','additionalProperties':ref('PaperMetadata')}},closed=False)},
@@ -306,7 +310,8 @@ def document():
                                    ('catalog','Object',None),('source','ReadSourceRequest',None),('finalize','FinalizeRequest','Object')):
         op('tool_'+action,'post','/api/runs/{key}/tools/'+action,'Run-scoped deterministic '+action,response or 'Object',body=body,params=[key])
         if response is None:
-            result['paths']['/api/runs/{key}/tools/'+action]['post']['responses']['200']['content']['application/json']['schema'] = arr(O)
+            result['paths']['/api/runs/{key}/tools/'+action]['post']['responses']['200']['content']['application/json']['schema'] = (
+                arr(ref('AgentReference')) if action == 'catalog' else arr(O))
     for name in ('findings','experiments'):
         op(name,'get','/api/'+name,'Retained operational '+name+' view')
     return result
