@@ -162,7 +162,7 @@ def test_retrieved_preview_counts_and_log_are_distinct_from_reviewed(tmp_path):
 def test_real_dashboard_renders_committed_claims_without_an_executive_summary(tmp_path):
     import re, subprocess
     script = dashboard.UI_PATH.read_text()
-    names = ("qaGraph", "active", "nativeErrorHtml", "evidenceIndependenceHtml", "claimReviewChecksHtml", "verificationHtml", "historyArtifactsHtml", "claimLinksHtml", "withheldClaimsHtml", "claimHistoryHtml", "answerHtml")
+    names = ("qaGraph", "active", "clarificationHtml", "nativeErrorHtml", "evidenceIndependenceHtml", "claimReviewChecksHtml", "verificationHtml", "historyArtifactsHtml", "claimLinksHtml", "withheldClaimsHtml", "claimHistoryHtml", "answerHtml")
     functions = []
     for name in names:
         match = re.search(r"(?:^|\n)\s*function " + name + r"\([^\n]*", script)

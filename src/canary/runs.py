@@ -334,6 +334,9 @@ def parse_bundle(bundle: str | Path) -> dict:
                       source_usage_after=run.get("usage_after", {}))
         research = _load_json(bundle / "research-receipt.json", {})
         record["native_error"] = research.get("native_error") if isinstance(research, dict) else None
+        # The recorded reason a run stopped; failure for errors, clarification for a researcher's question.
+        record["failure"] = run.get("failure") if isinstance(run.get("failure"), str) else None
+        record["clarification"] = run.get("clarification") if isinstance(run.get("clarification"), dict) else None
     receipt = _load_json(Path(str(bundle) + ".receipt.json"), {})
     if isinstance(receipt, dict) and receipt:
         record["container"] = receipt.get("NAME")
@@ -457,11 +460,33 @@ def has_native_findings(answer) -> bool:
                for text in [item.get("text") if isinstance(item, dict) else item])
 
 
+def answers_question(answer, status) -> bool:
+    """Recorded findings that answer the question.
+
+    A clarifying question is not an answer. A stopped run's claim-free summary
+    is unbound prose, not a finding; claims it committed remain available.
+    """
+    if status == "needs_clarification" or not has_native_findings(answer):
+        return False
+    if status in _FAILURE_STATUS or str(status).startswith("failed"):
+        claims = answer.get("claims", [])
+        return any(isinstance(c, dict) and isinstance(c.get("text"), str) and c["text"].strip()
+                   for c in (claims if isinstance(claims, list) else []))
+    return True
+
+
+def settled_audit_status(status, audit_status):
+    """A stopped run that recorded no audit will not receive one: not_run, never pending."""
+    if audit_status == "pending" and status not in _ACTIVE_STATUS and status != "activity_unverified":
+        return "not_run"
+    return audit_status
+
+
 def _has_answer(bundle: Path, run: dict, status: str) -> bool:
     if run.get("execution_mode") == "coverage-guided full-paper research":
         answer = _load_json(bundle / "answer.json", {})
         # Answer availability is independent of coverage target or audit status.
-        return has_native_findings(answer)
+        return answers_question(answer, status)
     if status in _FAILURE_STATUS or str(status).startswith("failed"):
         return False
     if run.get("kind") == "question":
@@ -574,6 +599,7 @@ def log_rows(path: str | Path = REGISTRY, root: str | Path = ROOT) -> list[dict]
         entry.update({field: parsed.get(field, row.get(field)) for field in _LOG_FIELDS})
         if parsed.get("kind") == "question" and row.get("status") in _FAILURE_STATUS and parsed.get("status") in _ACTIVE_STATUS:
             entry["ended_at"] = row.get("ended_at")
+        entry["audit_status"] = settled_audit_status(entry["status"], entry["audit_status"])
         if entry["ended_at_estimated"] and not row.get("ended_at_estimated") and _timestamp(row.get("ended_at")):
             entry.update(ended_at=row["ended_at"], ended_at_estimated=False, duration_seconds=None)
         # Launcher timestamps remain available for bundles that have no research timing.

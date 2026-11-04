@@ -19,6 +19,8 @@ curl -s http://127.0.0.1:8789/api/runs/RUN_KEY/bundle
 Submission returns HTTP 201 and a run key. Poll that key while it is active; inspect
 its returned controls before cancellation. Terminal execution does not certify that
 the question was answered, coverage was complete, or every claim passed its audit.
+A `needs_clarification` run carries the researcher's `clarification` question instead
+of findings; a `failed` run carries its recorded `failure` reason.
 The bundle includes original/resolved settings and limitations. See
 [run lifecycle](RUN_LIFECYCLE.md) and [bundle storage/ontology](RESEARCH_BUNDLE.md).
 

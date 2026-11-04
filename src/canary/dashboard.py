@@ -354,6 +354,10 @@ class Supervisor:
                 if finished:
                     row.update(finished)
                     row["live"] = False
+        for row in rows:
+            # A worker that died mid-session leaves its last progress export behind.
+            if row.get('audit_status') == 'pending':
+                row['audit_status'] = runs.settled_audit_status(row.get('status'), 'pending')
         return rows
 
     def cancel(self, key: str) -> dict:
@@ -812,7 +816,14 @@ def research_for_row(row: dict, supervisor: "Supervisor") -> tuple[dict, bool]:
     if bundle and compact_bundle.exists(bundle):
         return compact_bundle.projection(bundle), processes.live(row.get('worker'))
     if (Path(str(bundle)) / "run.json").exists():
-        return research_bundle(bundle), processes.live(row.get('worker'))
+        research = research_bundle(bundle)
+        # The registry knows a run stopped even when its worker died before a final export.
+        audit = research.get("answer", {}).get("audit") if isinstance(research.get("answer"), dict) else None
+        if isinstance(audit, dict) and audit.get("status") == "pending":
+            audit["status"] = runs.settled_audit_status(row.get("status"), "pending")
+        if isinstance(research.get("run"), dict) and research["run"].get("audit_status") == "pending":
+            research["run"]["audit_status"] = runs.settled_audit_status(row.get("status"), "pending")
+        return research, processes.live(row.get('worker'))
     container = row.get("container") or ""
     if (row.get("status") in ("running", "paused") and container
             and supervisor.inspect(container)["live"]):

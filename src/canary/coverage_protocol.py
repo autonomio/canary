@@ -133,11 +133,27 @@ def investigation_schema():
         "next_questions": arr(obj({"id": S, "question": S, "justification": S,
                                    "gap_ids": SS, "residue_ids": SS})),
         "caveats": SS, "scope_note": S,
+        "clarification": {"anyOf": [clarification_schema(), {"type": "null"}]},
     })
 
 
 AUDIT_ISSUE_TYPES = ("missing_scope", "unresolved_reference", "compound", "overstatement", "causal_wording",
                      "wrong_endpoint", "wrong_denominator", "misattribution", "source_version_mismatch", "other")
+
+
+def clarification_schema():
+    """A researcher's stop because the question cannot be researched as asked."""
+    return obj({"question": S, "reason": S})
+
+
+def clarification_request(investigation):
+    """The recorded clarification stop, or None when research proceeded."""
+    value = investigation.get("clarification") if isinstance(investigation, dict) else None
+    question = value.get("question") if isinstance(value, dict) else None
+    if not isinstance(question, str) or not question.strip():
+        return None
+    reason = value.get("reason")
+    return {"question": question.strip(), "reason": reason.strip() if isinstance(reason, str) else ""}
 
 
 def audit_schema():
@@ -208,6 +224,7 @@ def research_prompt(question, command, minimum_papers=50, *, local_text=False, a
     return f"""Read the repository AGENTS.md first, then this workspace AGENTS.md. This is real research.
 Question: {question}
 {SCIENTIFIC_RULES}
+If you stop because the question cannot be researched as asked (for example, it needs the product or measure identified first), save and return investigation.json with clarification {{question, reason}}: the one question a person must answer, and why. Leave the summary and findings empty. Otherwise clarification is null.
 1. Write question-plan-draft.json conforming to question-plan-schema.json. Use 'concepts', never 'entities'.
 Translate the question into concepts/synonyms, outcomes, comparators, conditions, coverage aspects and explicit inclusion/exclusion criteria.
 {search}
