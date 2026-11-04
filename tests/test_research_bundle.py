@@ -474,3 +474,21 @@ def test_historical_staged_settings_remain_readable_and_match_the_response_schem
     assert client.post('/api/runs/historical-stage/rerun',json={}).status_code==400
     assert client.post('/api/runs/compile',json={'spec':packet['resolved']}).status_code==400
     assert calls==[]
+
+
+@pytest.mark.parametrize('sources', [['clinical_trials_gov'], None, {}, ''])
+def test_recorded_optional_sources_cannot_be_silently_omitted(sources):
+    packet = research_spec.compile_research('question: Q?')
+    packet['source_yaml'] = json.dumps({'question': 'Q?', 'retrieval': {'additional_sources': sources}})
+    with pytest.raises(research_spec.CompileError, match='absent from resolved settings'):
+        research_spec.verify_recorded(packet)
+
+
+def test_api_explicit_empty_optional_sources_remain_readable_after_release(api):
+    _, client, _ = api
+    created = client.post('/api/runs', json={'spec': {'question': 'Synthetic fixture question?',
+        'retrieval': {'additional_sources': []}}}).json()
+    bundle = wait_bundle(client, created['key'])['bundle']
+    assert bundle['retention']['mode'] == 'bundle_only'
+    assert client.get('/api/runs/'+created['key']+'/bundle/archive').status_code == 200
+    assert client.get('/api/runs/'+created['key']+'/exports/resolvent').status_code == 200

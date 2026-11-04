@@ -123,7 +123,13 @@ def retain(workspace):
         os.fsync(stream.fileno())
     (workspace / CHECKSUM).write_text(hashlib.sha256(body).hexdigest() + '\n')
     temporary.replace(workspace / NAME)
-    read(workspace, expanded=True)  # No release on a failed output commit/reconstruction.
+    try:
+        retained = manifest(workspace)  # Verify inputs and reconstruction before release.
+    except Exception:
+        # Leave the working bundle available for inspection and a corrected retry.
+        (workspace / NAME).unlink()
+        (workspace / CHECKSUM).unlink()
+        raise
     for path in workspace.iterdir():
         if path.name in (NAME, CHECKSUM):
             continue
@@ -131,4 +137,4 @@ def retain(workspace):
             shutil.rmtree(path)
         else:
             path.unlink()
-    return manifest(workspace)
+    return retained

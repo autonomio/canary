@@ -166,6 +166,9 @@ def verify_recorded(packet: dict) -> CompiledResearch:
                 raise CompileError('source_yaml', 'Recorded input structure disagrees with resolved settings.')
             for key, value in supplied.items():
                 if key not in recorded:
+                    # The compiler omits an explicitly empty optional-source list.
+                    if (*path, key) == ('retrieval', 'additional_sources') and value == []:
+                        continue
                     raise CompileError('source_yaml', 'Recorded input field is absent from resolved settings.')
                 compare(value, recorded[key], (*path, key))
             return
