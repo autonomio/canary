@@ -18,7 +18,11 @@ def protected(workspace):
     paths = [workspace / name for name in names]
     for name in ('papers', 'texts', 'passages', 'download-receipts', 'rounds'):
         paths.extend(p for p in (workspace / name).rglob('*') if p.is_file())
-    return {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths if p.is_file()}
+    hashes = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths if p.is_file()}
+    # Export copies a source's text from texts/ into papers/ once a record cites it, which can happen mid-session.
+    # A copy that matches its protected original is not a new input; one that differs still counts as a change.
+    return {p: sha for p, sha in hashes.items() if not (p.parent == workspace/'papers'
+        and sha == hashes.get(workspace/'texts'/p.name.removesuffix('.export.tmp')))}
 
 
 def session_outputs(directory, role):

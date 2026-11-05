@@ -105,7 +105,8 @@ def _typed_links(value, key):
 
 def _copy(source: Path, target: Path):
     """Keep saved files inside the bundle for the existing source-context API."""
-    if source.resolve() == target.resolve():
+    # Renaming a link over the file it already names does nothing, which would leave the temporary behind.
+    if target.exists() and source.samefile(target):
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(target.name + ".export.tmp")

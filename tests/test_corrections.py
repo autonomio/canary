@@ -1,5 +1,6 @@
 """Native correction component acceptance on synthetic, locally saved source bytes."""
 from copy import deepcopy
+import hashlib
 import json
 from pathlib import Path
 
@@ -209,7 +210,46 @@ def test_a_planted_link_in_a_round_cannot_write_outside_the_workspace(tmp_path, 
     assert result['verification']['failure'] is None
 
 
-@pytest.mark.parametrize('planted', ['rounds/001/note.json', 'passages/planted.jsonl', 'papers/planted.pdf'])
+def test_a_source_first_cited_by_the_audit_is_exported_without_failing_the_correction(tmp_path, monkeypatch):
+    payload, manifest = prepared(tmp_path, rounds=1)
+    text, body = 'A second synthetic source that no claim cites.', b'Synthetic saved body'
+    (tmp_path/'texts/W2.txt').write_text(text)
+    (tmp_path/'papers/W2.pdf').write_bytes(body)
+    passage = {'id': 'W2-p0001', 'reference_id': 'W2', 'page': None, 'start': 0, 'end': len(text), 'text': text}
+    (tmp_path/'passages/W2.jsonl').write_text(json.dumps(passage)+'\n')
+    engine.write(tmp_path/'download-receipts/W2.json', {'reference': dict(payload['references'][0], id='W2',
+        file='papers/W2.pdf', text_file='texts/W2.txt', body_sha256=hashlib.sha256(body).hexdigest(),
+        text_sha256=hashlib.sha256(text.encode()).hexdigest())})
+    payload = engine.bind_payload(tmp_path)
+    finding = {'id': 'F1', 'severity': 'material', 'description': 'A source no claim cites qualifies the finding.',
+        'claim_ids': ['C1'], 'reference_ids': ['W2'], 'passage_ids': ['W2-p0001']}
+    def scientific(workspace, role, *args, **kwargs):
+        # The refresh at the start of a session and the one at its end, as coverage_runtime runs them.
+        coverage_export.export_bundle(workspace)
+        coverage_export.export_bundle(workspace)
+        index = kwargs['round_index']
+        if role == 'correction':
+            return response(engine.read(workspace/f'rounds/{index:03d}/correction-input.json')['payload']), {}
+        subject = engine.read(workspace/'audit-input.json')
+        return (audit_for(subject) if index else dict(audit_for(subject, 'correction_needed'), findings=[finding])), {}
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    result = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert result['verification']['failure'] is None and result['claims']
+    assert (tmp_path/'papers/W2.txt').read_text() == text
+    assert not list((tmp_path/'papers').glob('*.export.tmp'))
+
+
+def test_a_temporary_link_left_by_an_earlier_export_is_not_a_new_input(tmp_path, monkeypatch):
+    payload, manifest = prepared(tmp_path, rounds=1)
+    def scientific(workspace, role, *args, **kwargs):
+        (workspace/'papers/W1.txt.export.tmp').write_bytes((workspace/'texts/W1.txt').read_bytes())
+        return audit_for(payload), {}
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    assert correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')['verification']['failure'] is None
+
+
+@pytest.mark.parametrize('planted', ['rounds/001/note.json', 'passages/planted.jsonl', 'papers/planted.pdf',
+    'papers/W1.txt', 'papers/W1.txt.export.tmp'])
 def test_a_new_file_outside_the_sessions_own_round_still_fails_the_run(tmp_path, monkeypatch, planted):
     payload, manifest = prepared(tmp_path, rounds=1)
     def scientific(workspace, role, *args, **kwargs):
