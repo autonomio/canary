@@ -179,7 +179,7 @@ def test_interruption_or_protected_input_change_cannot_leave_a_claim_active(tmp_
     assert (tmp_path/'investigation.json').read_bytes() == original
 
 
-def test_a_sessions_working_files_are_set_aside_and_do_not_fail_the_run(tmp_path, monkeypatch):
+def test_a_sessions_working_files_are_removed_and_do_not_fail_the_run(tmp_path, monkeypatch):
     payload, manifest = prepared(tmp_path, rounds=1)
     def scientific(workspace, role, *args, **kwargs):
         directory = workspace/'rounds'/f"{kwargs['round_index']:03d}"
@@ -192,8 +192,21 @@ def test_a_sessions_working_files_are_set_aside_and_do_not_fail_the_run(tmp_path
     assert result['verification']['failure'] is None and result['claims']
     assert not (tmp_path/'rounds/000/audit_read.py').exists()
     assert not (tmp_path/'rounds/000/source-audit/W1.json').exists()
-    assert (tmp_path/'session-work/000-audit/audit_read.py').read_text() == 'print(1)'
-    assert (tmp_path/'session-work/000-audit/source-audit/W1.json').read_text() == '{}'
+    assert json.loads((tmp_path/'rounds/000/audit-working-files.json').read_text()) == {'removed_files': 2, 'removed_bytes': 10}
+
+
+def test_a_planted_link_in_a_round_cannot_write_outside_the_workspace(tmp_path, monkeypatch):
+    workspace = tmp_path/'workspace'; workspace.mkdir()
+    outside = tmp_path/'outside.txt'; outside.write_text('untouched')
+    payload, manifest = prepared(workspace, rounds=1)
+    def scientific(root, role, *args, **kwargs):
+        (root/'rounds'/f"{kwargs['round_index']:03d}"/'audit-working-files.json').symlink_to(outside)
+        return audit_for(payload), {}
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    result = correction_runtime.verify(workspace, payload, manifest, 'tools', 'synthetic')
+    assert outside.read_text() == 'untouched'
+    assert not (workspace/'rounds/000/audit-working-files.json').is_symlink()
+    assert result['verification']['failure'] is None
 
 
 @pytest.mark.parametrize('planted', ['rounds/001/note.json', 'passages/planted.jsonl', 'papers/planted.pdf'])

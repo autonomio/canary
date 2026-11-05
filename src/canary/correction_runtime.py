@@ -27,21 +27,23 @@ def session_outputs(directory, role):
         '-active.json', '-incomplete-output.json')}
 
 
-def set_aside_working_files(workspace, before, role, number):
-    """A session's own scripts and notes in its round are neither inputs nor results: keep them from the next session."""
+def remove_working_files(workspace, before, role, number):
+    """A session's own scripts and notes in its round are neither inputs nor results: they go, so no later session reads them."""
     directory = workspace/'rounds'/f'{number:03d}'
-    target = workspace/'session-work'/f'{number:03d}-{role}'
-    for path in protected(workspace).keys() - before.keys() - session_outputs(directory, role):
-        if directory in path.parents:
-            destination = target/path.relative_to(directory)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            path.replace(destination)
+    working = [path for path in protected(workspace).keys() - before.keys() - session_outputs(directory, role)
+               if directory in path.parents]
+    if working:
+        size = sum(path.lstat().st_size for path in working)
+        for path in working:
+            path.unlink()
+        (directory/f'{role}-working-files.json').write_text(json.dumps({'removed_files': len(working), 'removed_bytes': size}))
 
 
 def changed_inputs(workspace, before, role, number):
-    set_aside_working_files(workspace, before, role, number)
+    remove_working_files(workspace, before, role, number)
     after = protected(workspace)
-    outputs = session_outputs(workspace/'rounds'/f'{number:03d}', role)
+    directory = workspace/'rounds'/f'{number:03d}'
+    outputs = session_outputs(directory, role) | {directory/f'{role}-working-files.json'}
     return any(after.get(path) != sha for path, sha in before.items()) or bool(after.keys() - before.keys() - outputs)
 
 
