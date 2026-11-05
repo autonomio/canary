@@ -21,13 +21,30 @@ def protected(workspace):
     return {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths if p.is_file()}
 
 
-def changed_inputs(workspace, before, role, number):
-    after = protected(workspace)
-    directory = workspace/'rounds'/f'{number:03d}'
-    allowed = {directory/(role+suffix) for suffix in ('.json', '-schema.json', '-response.json',
+def session_outputs(directory, role):
+    return {directory/(role+suffix) for suffix in ('.json', '-schema.json', '-response.json',
         '-prompt.txt', '-events.jsonl', '-stderr.log', '-invocation.json', '-receipt.json',
         '-active.json', '-incomplete-output.json')}
-    return any(after.get(path) != sha for path, sha in before.items()) or bool(after.keys() - before.keys() - allowed)
+
+
+def remove_working_files(workspace, before, role, number):
+    """A session's own scripts and notes in its round are neither inputs nor results: they go, so no later session reads them."""
+    directory = workspace/'rounds'/f'{number:03d}'
+    working = [path for path in protected(workspace).keys() - before.keys() - session_outputs(directory, role)
+               if directory in path.parents]
+    if working:
+        size = sum(path.lstat().st_size for path in working)
+        for path in working:
+            path.unlink()
+        (directory/f'{role}-working-files.json').write_text(json.dumps({'removed_files': len(working), 'removed_bytes': size}))
+
+
+def changed_inputs(workspace, before, role, number):
+    remove_working_files(workspace, before, role, number)
+    after = protected(workspace)
+    directory = workspace/'rounds'/f'{number:03d}'
+    outputs = session_outputs(directory, role) | {directory/f'{role}-working-files.json'}
+    return any(after.get(path) != sha for path, sha in before.items()) or bool(after.keys() - before.keys() - outputs)
 
 
 def agent_payload(payload):

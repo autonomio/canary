@@ -179,6 +179,48 @@ def test_interruption_or_protected_input_change_cannot_leave_a_claim_active(tmp_
     assert (tmp_path/'investigation.json').read_bytes() == original
 
 
+def test_a_sessions_working_files_are_removed_and_do_not_fail_the_run(tmp_path, monkeypatch):
+    payload, manifest = prepared(tmp_path, rounds=1)
+    def scientific(workspace, role, *args, **kwargs):
+        directory = workspace/'rounds'/f"{kwargs['round_index']:03d}"
+        (directory/'source-audit').mkdir(exist_ok=True)
+        (directory/'audit_read.py').write_text('print(1)')
+        (directory/'source-audit'/'W1.json').write_text('{}')
+        return audit_for(payload), {}
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    result = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert result['verification']['failure'] is None and result['claims']
+    assert not (tmp_path/'rounds/000/audit_read.py').exists()
+    assert not (tmp_path/'rounds/000/source-audit/W1.json').exists()
+    assert json.loads((tmp_path/'rounds/000/audit-working-files.json').read_text()) == {'removed_files': 2, 'removed_bytes': 10}
+
+
+def test_a_planted_link_in_a_round_cannot_write_outside_the_workspace(tmp_path, monkeypatch):
+    workspace = tmp_path/'workspace'; workspace.mkdir()
+    outside = tmp_path/'outside.txt'; outside.write_text('untouched')
+    payload, manifest = prepared(workspace, rounds=1)
+    def scientific(root, role, *args, **kwargs):
+        (root/'rounds'/f"{kwargs['round_index']:03d}"/'audit-working-files.json').symlink_to(outside)
+        return audit_for(payload), {}
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    result = correction_runtime.verify(workspace, payload, manifest, 'tools', 'synthetic')
+    assert outside.read_text() == 'untouched'
+    assert not (workspace/'rounds/000/audit-working-files.json').is_symlink()
+    assert result['verification']['failure'] is None
+
+
+@pytest.mark.parametrize('planted', ['rounds/001/note.json', 'passages/planted.jsonl', 'papers/planted.pdf'])
+def test_a_new_file_outside_the_sessions_own_round_still_fails_the_run(tmp_path, monkeypatch, planted):
+    payload, manifest = prepared(tmp_path, rounds=1)
+    def scientific(workspace, role, *args, **kwargs):
+        (workspace/planted).parent.mkdir(parents=True, exist_ok=True)
+        (workspace/planted).write_text('{}')
+        return audit_for(payload), {}
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    result = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert result['verification']['failure'] and not result['claims']
+
+
 def test_round_settings_accept_existing_declarations_but_reject_noninteger_limits():
     assert research_spec.compile_research('question: q')['resolved']['audit']['max_correction_rounds'] == 3
     for value in (-1,False,1.5,None):
