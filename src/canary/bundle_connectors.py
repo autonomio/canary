@@ -1,6 +1,7 @@
 """Consumer adapters over saved bundles. No research or destination mutation."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from functools import lru_cache
@@ -10,9 +11,44 @@ from . import research_bundle
 from .claim_freshness import unknown as unknown_freshness
 from .claim_uncertainty import review as uncertainty_review
 
-RESOLVENT_REVISION = '7d7e2da29b97814a70b42bd7bf442ee455b3da09'
+# The receiving contract: its validator refuses a contribution file above MAX_FILE_BYTES (10 MiB),
+# and its research-state reader decodes canary.references version 1.
+RESOLVENT_REVISION = '4993e7210429014cf217b0414e260156c95c8263'
+CONTRIBUTION_LIMIT_BYTES = 10 * 1024 * 1024
 UNCERTAINTY_POLICY = ('Resolvent candidate uncertainty is at least medium because this adapter does not '
                       'establish independent evidence. Original Canary uncertainty remains in claim_metadata.')
+
+
+class ContributionTooLarge(ValueError):
+    """A compact contribution above the destination file limit; nothing is exported."""
+
+    def __init__(self, size):
+        self.size, self.limit = size, CONTRIBUTION_LIMIT_BYTES
+        super().__init__(f'The Resolvent contribution would be {size:,} bytes; Resolvent refuses files above '
+                         f'{self.limit:,} bytes. Nothing was exported; the retained bundle keeps the research.')
+
+
+def contribution(value):
+    """The saved compact file (UTF-8 JSON and one newline) against the destination limit."""
+    from .bundle_encoding import dumps
+    size = len(dumps(value).encode('utf-8')) + 1
+    return {'bytes': size, 'limit_bytes': CONTRIBUTION_LIMIT_BYTES, 'within_limit': size <= CONTRIBUTION_LIMIT_BYTES}
+
+
+def compact(value, expanded=None):
+    """The compact contribution: encoded as recorded, or packed again from `expanded`.
+
+    A contribution recorded before its bundle manifest was compressed is packed again only
+    when it is over the limit; its native records stay as recorded.
+    """
+    from . import bundle_encoding
+    encoding = bundle_encoding.header(value)
+    if encoding is None:
+        return bundle_encoding.encode(value)
+    expanded = bundle_encoding.expand(value) if expanded is None else expanded  # Only a reconstructible one.
+    if 'compressed' in encoding or contribution(value)['within_limit']:
+        return value
+    return bundle_encoding.encode(expanded)
 
 
 def resolvent(workspace):
@@ -185,8 +221,20 @@ VERIFIED_UNCERTAINTY_POLICY = ('Original low uncertainty is retained only with e
     'Source independence is not scientific certainty. Original judgments remain in claim_metadata.')
 
 
+def round_record(record):
+    """A round's bound payload repeats the research graph; native metadata names it by digest instead.
+
+    The complete hash-checked record stays in canary-research.json and the revision API.
+    """
+    if 'payload' not in record:
+        return record
+    snapshot = json.dumps(record['payload'], ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    return dict({k: v for k, v in record.items() if k != 'payload'},
+                payload_sha256=hashlib.sha256(snapshot.encode('utf-8')).hexdigest())
+
+
 def verified_export(result, payload):
-    """Mechanical v4 mapping of the producer's already verified, closed graph."""
+    """Mechanical v5 mapping of the producer's already verified, closed graph."""
     from . import audit_validation
     from .corrections import audit_basis
     metadata = result['method_metadata']
@@ -239,14 +287,15 @@ def verified_export(result, payload):
         return dict(record, canary_claim_ids=record.get('claim_ids', []), canary_evidence_ids=record.get('evidence_ids', []),
             claim_ids=[mapping['claims'][i] for i in record.get('claim_ids', [])],
             evidence_ids=[mapping['evidence'][i] for i in record.get('evidence_ids', [])])
-    metadata.update(connector_version=4, uncertainty_policy=VERIFIED_UNCERTAINTY_POLICY,
+    metadata.update(connector_version=5, uncertainty_policy=VERIFIED_UNCERTAINTY_POLICY,
         evidence_independence=independence,
         study_results=[dict(r, claim_ids=[mapping['claims'][c['id']] for c in payload['claims'] if r['id'] in c.get('study_result_ids', [])])
             for r in payload.get('study_results', [])],
         contradictions=[linked(r) for r in payload.get('contradictions', [])],
         withheld_claims=payload.get('withheld_claims', []), withheld_evidence=payload.get('withheld_evidence', []),
         withheld_study_results=payload.get('withheld_study_results', []),
-        claim_revisions=payload.get('claim_revisions', []), history_manifest=payload.get('history_manifest', []),
+        claim_revisions=[round_record(r) for r in payload.get('claim_revisions', [])],
+        history_manifest=payload.get('history_manifest', []),
         verification={k: v for k, v in payload['verification'].items() if k != 'audit_basis'})
     result['connectors'] = connectors
     result['result']['limitations'] = [line for line in result['result']['limitations'] if line != UNCERTAINTY_POLICY
@@ -273,10 +322,17 @@ EXPORTERS = {'resolvent': resolvent}
 
 
 def export(workspace, connector, *, representation='compact'):
+    """The compact contribution fits the destination limit or is refused; expanded is for reading."""
     from . import bundle_encoding
     if connector not in EXPORTERS:
         raise ValueError('Unsupported connector: ' + connector)
     if representation not in ('compact', 'expanded'):
         raise ValueError('Unsupported bundle representation')
     result = EXPORTERS[connector](workspace)
-    return bundle_encoding.encode(result) if representation == 'compact' else bundle_encoding.expand(result)
+    if representation == 'expanded':
+        return bundle_encoding.expand(result)
+    result = compact(result)
+    size = contribution(result)
+    if not size['within_limit']:
+        raise ContributionTooLarge(size['bytes'])
+    return result

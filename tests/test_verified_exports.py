@@ -51,12 +51,18 @@ def test_v4_preserves_audited_class_independence_low_uncertainty_and_typed_resul
     assert result['claims'][0]['uncertainty']=='low'
     assert result['evidence'][0]['independent'] is True
     metadata=result['method_metadata']
-    assert metadata['connector_version']==4
+    assert metadata['connector_version']==5
     assert metadata['study_results'][0]['claim_ids']==['c1']
     assert metadata['study_results'][0]['fields']['value']['verbatims'][0]['text'].startswith('Synthetic fixture')
     assert metadata['claim_metadata']['c1']['final_verdict']=='supported'
     assert metadata['claim_metadata']['c1']['statement_sha256']==hashlib.sha256(final['claims'][0]['text'].encode()).hexdigest()
-    assert metadata['claim_revisions']==final['claim_revisions']
+    # Round records stay native; the repeated research graph each one bound is named by digest.
+    research_round=metadata['claim_revisions'][0]
+    assert 'payload' not in research_round and research_round['investigation']==final['claim_revisions'][0]['investigation']
+    assert research_round['payload_sha256']==hashlib.sha256(json.dumps(final['claim_revisions'][0]['payload'],
+        ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    assert metadata['claim_revisions'][1]==final['claim_revisions'][1]
+    assert compact_bundle.payload(result)['claim_revisions']==final['claim_revisions']
 
 
 @pytest.mark.parametrize('kind',['recommendation','source_record','derived_comparison'])

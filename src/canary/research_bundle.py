@@ -28,9 +28,16 @@ class BundleRetention(TypedDict):
     limitation: str
 
 
+class ContributionSize(TypedDict):
+    bytes: int
+    limit_bytes: int
+    within_limit: bool
+
+
 class _BundleOptions(TypedDict, total=False):
     retention: BundleRetention
     encoding: BundleEncoding
+    contribution: ContributionSize
 
 
 class ResearchBundle(_BundleOptions):

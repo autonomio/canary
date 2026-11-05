@@ -1,20 +1,29 @@
 """Lossless references in Canary extensions; native Resolvent records stay plain."""
 from __future__ import annotations
 
+import base64
+import binascii
 from collections import Counter
 import copy
 import hashlib
 import json
+import lzma
 import math
 from typing import Literal, TypedDict
 
 FORMAT = 'canary.references'
-VERSION = 1
+VERSION = 1  # The version Resolvent's research-state reader decodes.
 REF, VALUE, LITERAL = '$canary_ref', '$canary_value', '$canary_literal'
 NUMBER = '$canary_number'
 OBJECT = '$canary_object'
 JS_SAFE_INTEGER = 2**53-1
 ARTIFACTS = {'canary-bundle.json', 'canary-research.json'}
+# Resolvent reads canary-research.json and never Canary's bundle manifest, which carries a
+# supplied research state twice. Only the manifest is compressed, whole and unlisted.
+COMPRESSED = 'canary-bundle.json'
+COMPRESSION = 'xz'
+COMPRESSED_LIMIT = 256 * 1024 * 1024  # A bundle file is untrusted input: never inflate it beyond this.
+DECOMPRESSION_MEMORY = 128 * 1024 * 1024
 
 
 class BundleEncoding(TypedDict):
@@ -30,7 +39,15 @@ class EncodedArtifact(TypedDict):
     style: Literal['default', 'compact']
 
 
-class ReferenceEncoding(TypedDict):
+class CompressedArtifact(TypedDict):
+    index: int
+    name: Literal['canary-bundle.json']
+    compression: Literal['xz']
+    bytes: int  # Exact UTF-8 size of the original content.
+    sha256: str  # SHA-256 of that content.
+
+
+class _ReferenceEncoding(TypedDict):
     format: Literal['canary.references']
     version: Literal[1]
     values: list[object]
@@ -38,6 +55,10 @@ class ReferenceEncoding(TypedDict):
     view: bool
     expanded_bytes: int
     sha256: str
+
+
+class ReferenceEncoding(_ReferenceEncoding, total=False):
+    compressed: list[CompressedArtifact]  # The artifact's content is base64 of its xz stream.
 
 
 def dumps(value):
@@ -92,11 +113,27 @@ def header(value) -> ReferenceEncoding | None:
     if (not isinstance(item, dict) or item.get('format') != FORMAT or
             type(item.get('version')) is not int or item['version'] != VERSION or
             not isinstance(item.get('values'), list) or not isinstance(item.get('artifacts'), list) or
+            not isinstance(item.get('compressed', []), list) or
             type(item.get('view')) is not bool or type(item.get('expanded_bytes')) is not int or
             item['expanded_bytes'] < 0 or not isinstance(item.get('sha256'), str) or
             (item['view'] and 'canary_view' not in metadata)):
         raise ValueError('Unsupported Canary bundle encoding')
     return item
+
+
+def _inflate(item, content):
+    """The exact recorded content: never inflated beyond its recorded size, and hash-checked."""
+    try:
+        stream = lzma.LZMADecompressor(format=lzma.FORMAT_XZ, memlimit=DECOMPRESSION_MEMORY)
+        body = stream.decompress(base64.b64decode(content, validate=True), item['bytes'] + 1)
+        if len(body) != item['bytes'] or not stream.eof or stream.unused_data:
+            raise ValueError('size')
+        text = body.decode('utf-8')
+    except (binascii.Error, lzma.LZMAError, TypeError, ValueError):
+        raise ValueError('Invalid compressed Canary artifact') from None
+    if hashlib.sha256(body).hexdigest() != item['sha256']:
+        raise ValueError('Compressed Canary artifact checksum mismatch')
+    return text
 
 
 def encode(value):
@@ -108,8 +145,15 @@ def encode(value):
     metadata = result['method_metadata']
     has_view = 'canary_view' in metadata
     view = metadata.pop('canary_view', None)
-    artifacts, contents = [], []
+    artifacts, contents, compressed = [], [], []
     for index, item in enumerate(result['result']['artifacts']):
+        if item.get('name') == COMPRESSED and isinstance(item.get('content'), str):
+            body = item['content'].encode('utf-8')
+            if len(body) <= COMPRESSED_LIMIT:
+                compressed.append({'index': index, 'name': COMPRESSED, 'compression': COMPRESSION,
+                                   'bytes': len(body), 'sha256': hashlib.sha256(body).hexdigest()})
+                item['content'] = base64.b64encode(lzma.compress(body, format=lzma.FORMAT_XZ)).decode('ascii')
+            continue
         if item.get('name') not in ARTIFACTS:
             continue
         try:
@@ -184,9 +228,12 @@ def encode(value):
         result['result']['artifacts'][artifact['index']]['content'] = dumps(pack(content))
     if has_view:
         metadata['canary_view'] = pack(view)
+    # Resolvent checks this digest over the listed artifacts and view; compressed ones carry their own.
     metadata['canary_encoding'] = {'format': FORMAT, 'version': VERSION, 'values': values,
         'artifacts': artifacts, 'view': has_view, 'expanded_bytes': len(dumps(value).encode('utf-8')),
         'sha256': _digest(_extensions(value, artifacts, has_view))}
+    if compressed:
+        metadata['canary_encoding']['compressed'] = compressed
     if len(dumps(result).encode('utf-8')) >= metadata['canary_encoding']['expanded_bytes']:
         return value
     if expand(result) != value:
@@ -265,6 +312,18 @@ def expand(value):
 
     result = copy.deepcopy(value)
     seen = set()
+    for item in encoding.get('compressed', []):
+        if (not isinstance(item, dict) or type(item.get('index')) is not int or
+                not 0 <= item['index'] < len(result['result']['artifacts']) or item['index'] in seen or
+                item.get('name') != COMPRESSED or item.get('compression') != COMPRESSION or
+                type(item.get('bytes')) is not int or not 0 <= item['bytes'] <= COMPRESSED_LIMIT or
+                not isinstance(item.get('sha256'), str)):
+            raise ValueError('Invalid compressed Canary artifact')
+        seen.add(item['index'])
+        artifact = result['result']['artifacts'][item['index']]
+        if artifact['name'] != item['name']:
+            raise ValueError('Compressed Canary artifact name changed')
+        artifact['content'] = _inflate(item, artifact.get('content'))
     for item in encoding['artifacts']:
         if (not isinstance(item, dict) or type(item.get('index')) is not int or
                 not 0 <= item['index'] < len(result['result']['artifacts']) or item['index'] in seen or

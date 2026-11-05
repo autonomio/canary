@@ -56,6 +56,8 @@ def test_live_openapi_cli_and_responses_share_the_contract(api,capsys):
     representation = next(p for p in export['parameters'] if p['name']=='representation')
     assert representation['schema'] == {'enum':['compact','expanded'],'default':'compact'}
     assert contract['components']['schemas']['ReferenceEncoding']['properties']['version']['enum'] == [1]
+    assert 'compressed' not in contract['components']['schemas']['ReferenceEncoding']['required']
+    assert export['responses']['422']['content']['application/json']['schema'] == {'$ref': '#/components/schemas/ContributionTooLarge'}
     assert cli.main(['api','--port',str(server.server_port)]) == 0
     assert json.loads(capsys.readouterr().out) == contract
     for path in ('/api/status','/api/connection','/api/auth/status','/api/auth/usage','/api/runs','/api/log','/api/usage',

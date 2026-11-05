@@ -1,6 +1,8 @@
 """Lossless delivered JSON, independent of model behavior or scientific judgment."""
+import base64
 import copy
 import json
+import lzma
 import subprocess
 
 import jsonschema
@@ -8,6 +10,17 @@ import pytest
 
 from canary import bundle_connectors, bundle_encoding as codec
 from test_compact_bundle import prepared
+
+
+def earlier_layout(contribution):
+    """Version 1 as recorded before the bundle manifest was compressed: both artifacts reference-packed."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(codec, 'COMPRESSED', None)
+        return codec.encode(contribution)
+
+
+def research(contribution):
+    return next(a['content'] for a in contribution['result']['artifacts'] if a['name'] == 'canary-research.json')
 
 
 @pytest.fixture
@@ -77,9 +90,11 @@ def test_browser_json_roundtrip_preserves_original_numbers_and_artifact_strings(
 
 def test_unrecognized_artifact_format_is_preserved_byte_for_byte(contribution):
     content = json.dumps({'format': 'Synthetic pretty JSON', 'verbatim': 'α\nβ'}, ensure_ascii=False, indent=2)+'\n'
-    contribution['result']['artifacts'][0]['content'] = content
+    for artifact in contribution['result']['artifacts']:
+        artifact['content'] = content
     encoded = codec.encode(contribution)
-    assert encoded['result']['artifacts'][0]['content'] == content
+    # The research artifact is kept verbatim; the bundle manifest is compressed whole.
+    assert research(encoded) == content
     assert codec.expand(encoded) == contribution
 
 
@@ -110,10 +125,16 @@ def test_large_native_record_is_complete_even_when_it_cannot_shrink():
 
 
 @pytest.mark.parametrize('failure', ['version', 'bool_version', 'null_header', 'missing_view', 'index', 'cycle',
-                                    'pointer', 'missing', 'artifact_index', 'duplicate_artifact', 'checksum'])
+                                    'pointer', 'missing', 'artifact_index', 'duplicate_artifact', 'checksum',
+                                    'base64', 'trailing_data', 'larger_than_recorded', 'smaller_than_recorded',
+                                    'beyond_limit', 'compressed_checksum', 'compressed_and_listed',
+                                    'compressed_research', 'compressed_header'])
 def test_invalid_reference_encoding_is_reported(contribution, failure):
     encoded = codec.encode(contribution)
     header = encoded['method_metadata']['canary_encoding']
+    manifest = header['compressed'][0]
+    artifact = encoded['result']['artifacts'][manifest['index']]
+    stream = base64.b64decode(artifact['content'])
     if failure == 'version': header['version'] = 2
     elif failure == 'bool_version': header['version'] = True
     elif failure == 'null_header': encoded['method_metadata']['canary_encoding'] = None
@@ -127,4 +148,48 @@ def test_invalid_reference_encoding_is_reported(contribution, failure):
     elif failure == 'artifact_index': header['artifacts'][0]['index'] = -1
     elif failure == 'duplicate_artifact': header['artifacts'].append(copy.deepcopy(header['artifacts'][0]))
     elif failure == 'checksum': header['sha256'] = '0'*64
+    elif failure == 'base64': artifact['content'] = '!' + artifact['content']
+    elif failure == 'trailing_data': artifact['content'] = base64.b64encode(stream + b'trailing').decode()
+    elif failure == 'larger_than_recorded': manifest['bytes'] -= 1
+    elif failure == 'smaller_than_recorded': manifest['bytes'] += 1
+    elif failure == 'beyond_limit': manifest['bytes'] = codec.COMPRESSED_LIMIT + 1
+    elif failure == 'compressed_checksum': manifest['sha256'] = '0'*64
+    elif failure == 'compressed_and_listed': manifest['index'] = header['artifacts'][0]['index']
+    elif failure == 'compressed_research': manifest['name'] = 'canary-research.json'
+    elif failure == 'compressed_header': header['compressed'] = manifest
     with pytest.raises(ValueError): codec.expand(encoded)
+
+
+def test_compressed_manifest_cannot_inflate_beyond_its_recorded_size(contribution):
+    encoded = codec.encode(contribution)
+    manifest = encoded['method_metadata']['canary_encoding']['compressed'][0]
+    bomb = lzma.compress(b' ' * 2 * 1024 * 1024)  # 2 MiB from a few hundred bytes.
+    encoded['result']['artifacts'][manifest['index']]['content'] = base64.b64encode(bomb).decode()
+    manifest['bytes'] = 1024
+    with pytest.raises(ValueError, match='Invalid compressed'):
+        codec.expand(encoded)
+
+
+def test_receiver_reader_decodes_the_research_artifact_without_the_manifest(contribution):
+    # Resolvent's research-state reader decodes version 1: the listed artifacts and view, checked by
+    # sha256. It never reads the bundle manifest, here replaced as in its own reader test.
+    encoded = codec.encode(contribution)
+    header = encoded['method_metadata']['canary_encoding']
+    assert header['version'] == 1 and [a['name'] for a in header['artifacts']] == ['canary-research.json']
+    assert [c['name'] for c in header['compressed']] == ['canary-bundle.json']
+    reader = copy.deepcopy(encoded)
+    del reader['method_metadata']['canary_encoding']['compressed']
+    reader['result']['artifacts'][header['compressed'][0]['index']]['content'] = 'unused' * 10000
+    assert research(codec.expand(reader)) == research(contribution)
+
+
+def test_earlier_layout_remains_readable_and_is_packed_again_from_its_expansion(contribution):
+    earlier = earlier_layout(contribution)
+    header = codec.header(earlier)
+    assert 'compressed' not in header and {a['name'] for a in header['artifacts']} == codec.ARTIFACTS
+    assert codec.expand(json.loads(codec.dumps(earlier))) == contribution
+    assert codec.encode(earlier) == earlier  # A recorded contribution is returned as recorded.
+    again = codec.encode(codec.expand(earlier))
+    assert codec.header(again)['compressed'] and codec.expand(again) == contribution
+    for field in ('claims', 'evidence', 'sources'):
+        assert again[field] == earlier[field]

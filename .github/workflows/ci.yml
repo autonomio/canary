@@ -1,5 +1,5 @@
-# Budgets (enforced by timeout-minutes, measured 2026-09-27):
-#   smoke ~21s -> 3 min; matrix ~22s -> 5 min; docker cold ~2.5min / warm ~90s -> 8 min
+# Budgets (enforced by timeout-minutes, measured 2026-09-27; smoke re-measured 2026-11-05):
+#   smoke ~2m55s-3m08s (pytest 163-172s) -> 4 min; matrix ~22s -> 5 min; docker cold ~2.5min / warm ~90s -> 8 min
 # smoke runs on every push; matrix + docker run only on pull_request.
 # Docs-only pushes skip CI; every PR runs the checks required by branch protection.
 name: ci
@@ -17,7 +17,7 @@ concurrency:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/*.sh && python3 -m py_compile scripts/*.py && python3 scripts/check_dashboard_js.py

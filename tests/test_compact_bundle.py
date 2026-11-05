@@ -181,6 +181,7 @@ assert.match(bundleHtml(data),/Bundle only; full papers released/);
 assert.match(bundleHtml(data),/Download research bundle/);
 assert.match(bundleHtml(data),/Lossless bundle/);
 assert.match(bundleHtml(data),/findings and exact excerpts unchanged/);
+assert.match(bundleHtml(data),/Resolvent contribution · [0-9.]+ MB of the 10.49 MB \\(10 MiB\\) file limit/);
 assert.match(bundleHtml(data),/representation=expanded/);
 const state={sourceId:'W1',scope:'paper'};
 S.sourceContexts={[contextKey('W1',undefined,'paper')]:{scope:'excerpts',paragraphs:[],text_available:true}};

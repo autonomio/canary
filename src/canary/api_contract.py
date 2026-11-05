@@ -170,6 +170,10 @@ def schemas():
             'result':O,'method_metadata':obj({'canary_encoding':ref('ReferenceEncoding'),
                 'paper_metadata':{'type':'object','additionalProperties':ref('PaperMetadata')}},closed=False)},
             ['schema_version','sources','evidence','claims','result','method_metadata'],closed=False),
+        'ContributionTooLarge':{**obj({'error':S,'code':fixed('contribution_too_large'),'bytes':I,'limit_bytes':I},
+            ['error','code','bytes','limit_bytes']),
+            'description':'The compact contribution file (JSON and one newline) would exceed limit_bytes, the file size '
+                'Resolvent accepts. Nothing is exported; the retained bundle keeps the research.'},
         'BundleResponse':obj({'key':S,'live':B,'bundle':ref('BundleManifest'),'research':ref('Research')},['key','live','bundle','research']),
         'Findings':findings,'RecordedClaim':claim,'RecordedEvidence':evidence,'Passage':passage,
         'SourceContext':context,'GeneratedInvestigation':generated,'QuestionPlan':_query_schema(),
@@ -293,10 +297,14 @@ def document():
     op('archive','get','/api/runs/{key}/bundle/archive','Download a finished bundle with exact saved materials',params=[key],media='application/zip')
     op('artifact','get','/api/runs/{key}/bundle/artifacts/{artifact_path}','Download one hash-checked inventoried artifact',params=[key,('artifact_path','path',S,True)],media='application/octet-stream')
     op('export','get','/api/runs/{key}/exports/{connector}',
-       'Export native Resolvent records with lossless Canary references; expanded reconstructs original extension JSON',
+       'Export native Resolvent records with losslessly packed Canary JSON; compact output fits the 10 MiB contribution limit '
+       'or is refused with 422 contribution_too_large; expanded reconstructs original extension JSON for reading and is not size-bounded',
        response='ResolventExport',
        params=[key,('connector','path',{'enum':['resolvent']},True),
                ('representation','query',{'enum':['compact','expanded'],'default':'compact'},False)],mcp=True)
+    result['paths']['/api/runs/{key}/exports/{connector}']['get']['responses']['422'] = {
+        'description':'Compact contribution above the destination file limit; nothing exported',
+        'content':{'application/json':{'schema':ref('ContributionTooLarge')}}}
     op('source_context','get','/api/runs/{key}/sources/{source_id}/context','Read exact passages and broader saved section or paper','SourceContext',
        params=[key,source,('paragraph_id','query',S,False),('scope','query',{'enum':['section','paper'],'default':'section'},False)],mcp=True)
     op('source_file','get','/api/runs/{key}/sources/{source_id}/file','Download the saved original source; never an abstract substitute',params=[key,source],media='application/octet-stream')
