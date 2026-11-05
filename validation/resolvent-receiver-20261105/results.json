@@ -1,0 +1,62 @@
+{
+  "scope": "Offline receiving proof on synthetic research; no model calls, no scientific review and no canonical publication.",
+  "pinned_revision": "4993e7210429014cf217b0414e260156c95c8263",
+  "inputs": "replay.py on a sealed synthetic verified workspace (55 sources, 30 supported claims, 1 correction round, 1.7 MB supplied research state; not committed) and a clone of autonomio/resolvent. Its words come from a small vocabulary, so its compressed sizes are smaller than prose gives; manifest_compression.py estimates that on prose-like text.",
+  "cases": [
+    {
+      "case": "current",
+      "stored_bytes": 2926143,
+      "contribution": {"bytes": 2926143, "limit_bytes": 10485760, "within_limit": true},
+      "manifest_cpu_ms": 1223,
+      "receipt": {
+        "handoff_bytes": 2926143,
+        "receiver_revision": "4993e7210429014cf217b0414e260156c95c8263",
+        "recorded_contract_revision": "4993e7210429014cf217b0414e260156c95c8263",
+        "research_artifact_read_by_receiver": {"readable": true, "artifact_index": 1,
+          "sha256": "d13ae0608d5afb6edeff7b58a434ebfcf90d4a73ddf5c32c53a0602314ff80b2"},
+        "claims_submitted": 30,
+        "retained_excerpts_verified": 60,
+        "dry_run": true,
+        "apply": true,
+        "compiler_require_closure": true,
+        "idempotent_retry": true
+      }
+    },
+    {
+      "case": "earlier-retained",
+      "stored_bytes": 7973444,
+      "contribution": {"bytes": 7973444, "limit_bytes": 10485760, "within_limit": true},
+      "manifest_cpu_ms": 1446,
+      "receipt": {
+        "handoff_bytes": 7973444,
+        "receiver_revision": "4993e7210429014cf217b0414e260156c95c8263",
+        "recorded_contract_revision": "7d7e2da29b97814a70b42bd7bf442ee455b3da09",
+        "research_artifact_read_by_receiver": {"readable": true, "artifact_index": 1,
+          "sha256": "d13ae0608d5afb6edeff7b58a434ebfcf90d4a73ddf5c32c53a0602314ff80b2"},
+        "claims_submitted": 30,
+        "retained_excerpts_verified": 60,
+        "dry_run": true,
+        "apply": true,
+        "compiler_require_closure": true,
+        "idempotent_retry": true
+      }
+    },
+    {
+      "case": "current export offered to the earlier pin",
+      "receiver_revision": "7d7e2da29b97814a70b42bd7bf442ee455b3da09",
+      "handoff_bytes": 2926143,
+      "returncode": 1,
+      "output": "FAIL: File exceeds the 2 MiB contribution limit: /tmp/canary-receiver-9m3zzbz3/control-receiver/input-artefacts/RUN-e6cb8e155ce241cca934178452727120.json"
+    }
+  ],
+  "manifest_compression": {
+    "method": "manifest_compression.py: a 2.6 MB research state in prose-like text (word bigrams over this repository's Markdown), stored twice as a supplied state is (YAML source and resolved JSON).",
+    "state_json_bytes": 2605435,
+    "manifest_bytes": 5448286,
+    "embedded_string_bytes": 5603349,
+    "xz_base64_bytes": 786856,
+    "deflate_base64_bytes": 2109728,
+    "xz_saving_vs_embedded": 0.86,
+    "text_zlib_ratio": 3.44
+  }
+}

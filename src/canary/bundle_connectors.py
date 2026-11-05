@@ -11,8 +11,9 @@ from . import research_bundle
 from .claim_freshness import unknown as unknown_freshness
 from .claim_uncertainty import review as uncertainty_review
 
-RESOLVENT_REVISION = '7d7e2da29b97814a70b42bd7bf442ee455b3da09'
-# Resolvent's validator refuses a contribution file above MAX_FILE_BYTES (10 MiB).
+# The receiving contract: its validator refuses a contribution file above MAX_FILE_BYTES (10 MiB),
+# and its research-state reader decodes canary.references version 1.
+RESOLVENT_REVISION = '4993e7210429014cf217b0414e260156c95c8263'
 CONTRIBUTION_LIMIT_BYTES = 10 * 1024 * 1024
 UNCERTAINTY_POLICY = ('Resolvent candidate uncertainty is at least medium because this adapter does not '
                       'establish independent evidence. Original Canary uncertainty remains in claim_metadata.')
@@ -32,6 +33,22 @@ def contribution(value):
     from .bundle_encoding import dumps
     size = len(dumps(value).encode('utf-8')) + 1
     return {'bytes': size, 'limit_bytes': CONTRIBUTION_LIMIT_BYTES, 'within_limit': size <= CONTRIBUTION_LIMIT_BYTES}
+
+
+def compact(value, expanded=None):
+    """The compact contribution: encoded as recorded, or packed again from `expanded`.
+
+    A contribution recorded before its bundle manifest was compressed is packed again only
+    when it is over the limit; its native records stay as recorded.
+    """
+    from . import bundle_encoding
+    encoding = bundle_encoding.header(value)
+    if encoding is None:
+        return bundle_encoding.encode(value)
+    expanded = bundle_encoding.expand(value) if expanded is None else expanded  # Only a reconstructible one.
+    if 'compressed' in encoding or contribution(value)['within_limit']:
+        return value
+    return bundle_encoding.encode(expanded)
 
 
 def resolvent(workspace):
@@ -314,7 +331,7 @@ def export(workspace, connector, *, representation='compact'):
     result = EXPORTERS[connector](workspace)
     if representation == 'expanded':
         return bundle_encoding.expand(result)
-    result = bundle_encoding.encode(result)
+    result = compact(result)
     size = contribution(result)
     if not size['within_limit']:
         raise ContributionTooLarge(size['bytes'])

@@ -2422,7 +2422,7 @@
       }
       function bundleEncodingHtml(b) {
         const e=b.encoding;
-        if (!e || e.format!=='canary.references' || ![1,2].includes(e.version) || !Number.isFinite(e.stored_bytes) || !Number.isFinite(e.expanded_bytes) || e.expanded_bytes<=0) return '';
+        if (!e || e.format!=='canary.references' || e.version!==1 || !Number.isFinite(e.stored_bytes) || !Number.isFinite(e.expanded_bytes) || e.expanded_bytes<=0) return '';
         const saved=Math.max(0,Math.round(100*(1-e.stored_bytes/e.expanded_bytes)));
         return `<p class="hint">Lossless bundle · ${(e.stored_bytes/1000000).toFixed(2)} MB from ${(e.expanded_bytes/1000000).toFixed(2)} MB · ${saved}% smaller · findings and exact excerpts unchanged</p>`;
       }

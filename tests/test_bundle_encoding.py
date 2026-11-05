@@ -2,8 +2,8 @@
 import base64
 import copy
 import json
+import lzma
 import subprocess
-import zlib
 
 import jsonschema
 import pytest
@@ -12,31 +12,15 @@ from canary import bundle_connectors, bundle_encoding as codec
 from test_compact_bundle import prepared
 
 
-def packed(encoded):
-    return json.loads(zlib.decompress(base64.b64decode(encoded['method_metadata']['canary_encoding']['data'])))
+def earlier_layout(contribution):
+    """Version 1 as recorded before the bundle manifest was compressed: both artifacts reference-packed."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(codec, 'COMPRESSED', None)
+        return codec.encode(contribution)
 
 
-def repack(encoded, edit):
-    """Edit version 2 packing as a damaged or hostile file could."""
-    header = encoded['method_metadata']['canary_encoding']
-    value = packed(encoded)
-    edit(value)
-    body = codec.dumps(value).encode()
-    header.update(packed_bytes=len(body), data=base64.b64encode(zlib.compress(body)).decode())
-
-
-def as_version_1(encoded):
-    """The same packing laid out inline, as version 1 stored it."""
-    result = copy.deepcopy(encoded)
-    header, value = result['method_metadata']['canary_encoding'], packed(encoded)
-    for item, content in zip(header['artifacts'], value['artifacts']):
-        result['result']['artifacts'][item['index']]['content'] = codec.dumps(content)
-    if header['view']:
-        result['method_metadata']['canary_view'] = value['view']
-    for name in ('compression', 'packed_bytes', 'data'):
-        del header[name]
-    header.update(version=1, values=value['values'])
-    return result
+def research(contribution):
+    return next(a['content'] for a in contribution['result']['artifacts'] if a['name'] == 'canary-research.json')
 
 
 @pytest.fixture
@@ -106,9 +90,11 @@ def test_browser_json_roundtrip_preserves_original_numbers_and_artifact_strings(
 
 def test_unrecognized_artifact_format_is_preserved_byte_for_byte(contribution):
     content = json.dumps({'format': 'Synthetic pretty JSON', 'verbatim': 'α\nβ'}, ensure_ascii=False, indent=2)+'\n'
-    contribution['result']['artifacts'][0]['content'] = content
+    for artifact in contribution['result']['artifacts']:
+        artifact['content'] = content
     encoded = codec.encode(contribution)
-    assert encoded['result']['artifacts'][0]['content'] == content
+    # The research artifact is kept verbatim; the bundle manifest is compressed whole.
+    assert research(encoded) == content
     assert codec.expand(encoded) == contribution
 
 
@@ -141,58 +127,69 @@ def test_large_native_record_is_complete_even_when_it_cannot_shrink():
 @pytest.mark.parametrize('failure', ['version', 'bool_version', 'null_header', 'missing_view', 'index', 'cycle',
                                     'pointer', 'missing', 'artifact_index', 'duplicate_artifact', 'checksum',
                                     'base64', 'trailing_data', 'larger_than_recorded', 'smaller_than_recorded',
-                                    'beyond_limit', 'v1_missing_view', 'v1_cycle'])
+                                    'beyond_limit', 'compressed_checksum', 'compressed_and_listed',
+                                    'compressed_research', 'compressed_header'])
 def test_invalid_reference_encoding_is_reported(contribution, failure):
     encoded = codec.encode(contribution)
-    if failure.startswith('v1_'):
-        encoded = as_version_1(encoded)
     header = encoded['method_metadata']['canary_encoding']
-    stream = base64.b64decode(header['data']) if 'data' in header else b''
-    def view(value):
-        return lambda packing: packing.update(view=value)
-    def cycle(packing):
-        packing['values'][0] = {codec.VALUE: 0}
-        packing['view'] = {codec.VALUE: 0}
-    if failure == 'version': header['version'] = 3
+    manifest = header['compressed'][0]
+    artifact = encoded['result']['artifacts'][manifest['index']]
+    stream = base64.b64decode(artifact['content'])
+    if failure == 'version': header['version'] = 2
     elif failure == 'bool_version': header['version'] = True
     elif failure == 'null_header': encoded['method_metadata']['canary_encoding'] = None
-    elif failure == 'missing_view': repack(encoded, lambda packing: packing.pop('view'))
-    elif failure == 'index': repack(encoded, view({codec.VALUE: -1}))
-    elif failure == 'cycle': repack(encoded, cycle)
-    elif failure == 'pointer': repack(encoded, view({codec.REF: '/method_metadata/canary_view'}))
-    elif failure == 'missing': repack(encoded, view({codec.REF: '/sources/999999/excerpt'}))
+    elif failure == 'missing_view': del encoded['method_metadata']['canary_view']
+    elif failure == 'index': encoded['method_metadata']['canary_view'] = {codec.VALUE: -1}
+    elif failure == 'cycle':
+        header['values'][0] = {codec.VALUE: 0}
+        encoded['method_metadata']['canary_view'] = {codec.VALUE: 0}
+    elif failure == 'pointer': encoded['method_metadata']['canary_view'] = {codec.REF: '/method_metadata/canary_view'}
+    elif failure == 'missing': encoded['method_metadata']['canary_view'] = {codec.REF: '/sources/999999/excerpt'}
     elif failure == 'artifact_index': header['artifacts'][0]['index'] = -1
     elif failure == 'duplicate_artifact': header['artifacts'].append(copy.deepcopy(header['artifacts'][0]))
     elif failure == 'checksum': header['sha256'] = '0'*64
-    elif failure == 'base64': header['data'] = '!' + header['data']
-    elif failure == 'trailing_data': header['data'] = base64.b64encode(stream + b'trailing').decode()
-    elif failure == 'larger_than_recorded': header['packed_bytes'] -= 1
-    elif failure == 'smaller_than_recorded': header['packed_bytes'] += 1
-    elif failure == 'beyond_limit': header['packed_bytes'] = codec.PACKED_LIMIT + 1
-    elif failure == 'v1_missing_view': del encoded['method_metadata']['canary_view']
-    elif failure == 'v1_cycle':
-        header['values'][0] = {codec.VALUE: 0}
-        encoded['method_metadata']['canary_view'] = {codec.VALUE: 0}
+    elif failure == 'base64': artifact['content'] = '!' + artifact['content']
+    elif failure == 'trailing_data': artifact['content'] = base64.b64encode(stream + b'trailing').decode()
+    elif failure == 'larger_than_recorded': manifest['bytes'] -= 1
+    elif failure == 'smaller_than_recorded': manifest['bytes'] += 1
+    elif failure == 'beyond_limit': manifest['bytes'] = codec.COMPRESSED_LIMIT + 1
+    elif failure == 'compressed_checksum': manifest['sha256'] = '0'*64
+    elif failure == 'compressed_and_listed': manifest['index'] = header['artifacts'][0]['index']
+    elif failure == 'compressed_research': manifest['name'] = 'canary-research.json'
+    elif failure == 'compressed_header': header['compressed'] = manifest
     with pytest.raises(ValueError): codec.expand(encoded)
 
 
-def test_packed_data_cannot_inflate_beyond_its_recorded_size(contribution):
+def test_compressed_manifest_cannot_inflate_beyond_its_recorded_size(contribution):
     encoded = codec.encode(contribution)
-    header = encoded['method_metadata']['canary_encoding']
-    bomb = zlib.compress(b' ' * 2 * 1024 * 1024, 9)  # 2 MiB from about 2 KB.
-    header.update(data=base64.b64encode(bomb).decode(), packed_bytes=1024)
-    with pytest.raises(ValueError, match='Invalid packed'):
+    manifest = encoded['method_metadata']['canary_encoding']['compressed'][0]
+    bomb = lzma.compress(b' ' * 2 * 1024 * 1024)  # 2 MiB from a few hundred bytes.
+    encoded['result']['artifacts'][manifest['index']]['content'] = base64.b64encode(bomb).decode()
+    manifest['bytes'] = 1024
+    with pytest.raises(ValueError, match='Invalid compressed'):
         codec.expand(encoded)
 
 
-def test_version_1_remains_readable_and_is_packed_again_on_reexport(contribution):
+def test_receiver_reader_decodes_the_research_artifact_without_the_manifest(contribution):
+    # Resolvent's research-state reader decodes version 1: the listed artifacts and view, checked by
+    # sha256. It never reads the bundle manifest, here replaced as in its own reader test.
     encoded = codec.encode(contribution)
-    earlier = as_version_1(encoded)
-    assert codec.header(earlier)['version'] == 1
+    header = encoded['method_metadata']['canary_encoding']
+    assert header['version'] == 1 and [a['name'] for a in header['artifacts']] == ['canary-research.json']
+    assert [c['name'] for c in header['compressed']] == ['canary-bundle.json']
+    reader = copy.deepcopy(encoded)
+    del reader['method_metadata']['canary_encoding']['compressed']
+    reader['result']['artifacts'][header['compressed'][0]['index']]['content'] = 'unused' * 10000
+    assert research(codec.expand(reader)) == research(contribution)
+
+
+def test_earlier_layout_remains_readable_and_is_packed_again_from_its_expansion(contribution):
+    earlier = earlier_layout(contribution)
+    header = codec.header(earlier)
+    assert 'compressed' not in header and {a['name'] for a in header['artifacts']} == codec.ARTIFACTS
     assert codec.expand(json.loads(codec.dumps(earlier))) == contribution
-    again = codec.encode(earlier)
-    assert codec.header(again)['version'] == codec.VERSION
-    assert codec.expand(again) == contribution
-    assert len(codec.dumps(again)) < len(codec.dumps(earlier))
+    assert codec.encode(earlier) == earlier  # A recorded contribution is returned as recorded.
+    again = codec.encode(codec.expand(earlier))
+    assert codec.header(again)['compressed'] and codec.expand(again) == contribution
     for field in ('claims', 'evidence', 'sources'):
         assert again[field] == earlier[field]

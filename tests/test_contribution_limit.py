@@ -1,15 +1,18 @@
 """A verified run's Resolvent contribution fits the destination file limit, or Canary refuses it explicitly."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import random
+import subprocess
 
 import jsonschema
+import pytest
 
 from canary import (api_contract, audit_validation, bundle_connectors, bundle_encoding, cli, compact_bundle,
                     corrections, coverage_export, coverage_runtime as engine, research_bundle, runs)
 from canary.paper_metadata import snapshot
-from test_bundle_encoding import as_version_1
+from test_bundle_encoding import earlier_layout
 from test_corrections import audit_for, prepared, response
 from test_coverage_evidence_ui import run_dashboard
 from test_research_bundle import api  # noqa: F401
@@ -119,12 +122,16 @@ def test_verified_run_that_exceeded_the_limit_now_fits_with_record_audit_and_cla
         'bytes': stored, 'limit_bytes': scaled, 'within_limit': True}
     assert manifest['encoding']['version'] == bundle_encoding.VERSION
     expanded = bundle_encoding.expand(compact)
-    # Before: version 4 listed complete round records natively and version 1 packed inline.
+    # Before: version 4 listed complete round records natively and the bundle manifest was reference-packed.
     previous = json.loads(json.dumps(expanded))
     previous['method_metadata'].update(connector_version=4, claim_revisions=final['claim_revisions'])
-    assert bundle_connectors.contribution(as_version_1(bundle_encoding.encode(previous)))['bytes'] > scaled
+    assert bundle_connectors.contribution(earlier_layout(previous))['bytes'] > scaled
     schema = json.loads((Path(__file__).parent / 'fixtures/resolvent-submission.schema.json').read_text())
     jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker()).validate(compact)
+    # The receiver's research-state reader decodes the listed version 1 artifact; the manifest is compressed.
+    header = compact['method_metadata']['canary_encoding']
+    assert header['version'] == 1 and [a['name'] for a in header['artifacts']] == ['canary-research.json']
+    assert compact['method_metadata']['destination_contract_revision'] == bundle_connectors.RESOLVENT_REVISION
     jsonschema.validate(manifest, {'$ref': '#/components/schemas/BundleManifest',
                                    'components': {'schemas': api_contract.schemas()}})
     for field in ('sources', 'evidence', 'claims', 'connectors'):
@@ -142,6 +149,37 @@ def test_verified_run_that_exceeded_the_limit_now_fits_with_record_audit_and_cla
     assert bundle_connectors.export(workspace, 'resolvent') == compact
     correction = research_bundle.revision(workspace, 3, 'correction')
     assert json.loads(correction['content'])['payload'] == final['claim_revisions'][-2]['payload']
+
+
+def test_retained_contribution_refused_before_is_packed_again_within_the_limit(tmp_path, monkeypatch):
+    workspace = tmp_path / 'retained'
+    workspace.mkdir()
+    final, _ = finish(workspace)
+    (workspace / '.run-reservation').touch()
+    compact_bundle.retain(workspace)
+    # As an earlier Canary retained it: complete round records natively, both artifacts
+    # reference-packed, and recorded against the earlier receiver pin.
+    earlier = compact_bundle.read(workspace, expanded=True)
+    earlier['method_metadata'].update(connector_version=4, claim_revisions=final['claim_revisions'],
+                                      destination_contract_revision='7d7e2da29b97814a70b42bd7bf442ee455b3da09')
+    earlier = earlier_layout(earlier)
+    body = (bundle_encoding.dumps(earlier) + '\n').encode()
+    (workspace / compact_bundle.NAME).write_bytes(body)
+    (workspace / compact_bundle.CHECKSUM).write_text(hashlib.sha256(body).hexdigest() + '\n')
+    assert bundle_connectors.export(workspace, 'resolvent') == earlier  # Within the limit: as recorded.
+    again = bundle_encoding.encode(bundle_encoding.expand(earlier))
+    size = bundle_connectors.contribution(again)['bytes']
+    limit = (size + len(body)) // 2  # The recorded file is over it; packed again, it fits.
+    monkeypatch.setattr(bundle_connectors, 'CONTRIBUTION_LIMIT_BYTES', limit)
+    exported = bundle_connectors.export(workspace, 'resolvent')
+    assert exported == again and bundle_encoding.header(exported)['compressed']
+    assert compact_bundle.manifest(workspace)['contribution'] == {'bytes': size, 'limit_bytes': limit, 'within_limit': True}
+    for field in ('sources', 'evidence', 'claims', 'connectors'):
+        assert exported[field] == earlier[field]
+    for field in ('claim_revisions', 'verification', 'independent_audit', 'destination_contract_revision'):
+        assert exported['method_metadata'][field] == earlier['method_metadata'][field]
+    assert bundle_encoding.expand(exported) == bundle_encoding.expand(earlier)
+    assert (workspace / compact_bundle.NAME).read_bytes() == body  # The retained file is not rewritten.
 
 
 def test_contribution_that_cannot_fit_is_refused_and_the_run_says_so(api, tmp_path, monkeypatch, capsys):
@@ -184,3 +222,36 @@ const fits=Object.assign({}, """ + json.dumps(view) + """, {compiled_bundle:Obje
 assert.match(bundleHtml(fits),/Resolvent contribution · 4.21 MB of the 10.49 MB \\(10 MiB\\) file limit/);
 assert.match(bundleHtml(fits),/Download research bundle/);
 """)
+
+
+RECEIVER = os.environ.get('CANARY_RESOLVENT_RECEIVER')
+
+
+@pytest.mark.skipif(not RECEIVER, reason='Set CANARY_RESOLVENT_RECEIVER to a Resolvent clone containing the pinned revision')
+def test_pinned_receiver_admits_a_contribution_between_2_and_10_mib(api, tmp_path):
+    """The actual receiving path: research reader, dry run, apply, closure compiler and idempotent retry."""
+    from scripts.verify_resolvent_receiver import verify
+    server, _, _ = api
+    workspace = tmp_path / 'receiving'
+    workspace.mkdir()
+    corrected_run(workspace, assessed=1000, rounds=1)  # Its research artifact stays within the reader's 32 MiB.
+    (workspace / '.run-reservation').touch()
+    size = compact_bundle.retain(workspace)['contribution']['bytes']
+    assert 2 * 1024 * 1024 < size <= bundle_connectors.CONTRIBUTION_LIMIT_BYTES == 10 * 1024 * 1024
+    runs.register_start('receiving', 'Fixture', '', kind='question', bundle=str(workspace), status='done',
+                        path=server.RequestHandlerClass.supervisor.registry)
+    receiver = tmp_path / 'receiver'
+    subprocess.run(['git', 'clone', '--quiet', '--no-checkout', RECEIVER, str(receiver)], check=True)
+    subprocess.run(['git', 'checkout', '--quiet', bundle_connectors.RESOLVENT_REVISION], cwd=receiver, check=True)
+    claims = [c['id'] for c in compact_bundle.read(workspace)['claims']]
+    decisions = tmp_path / 'decisions.json'
+    decisions.write_text(json.dumps({
+        'claims': {c: {'action': 'accept', 'reason': 'Synthetic receiving proof; not a scientific review.'} for c in claims},
+        'connection_review': {c: {'considered_claim_ids': [], 'outcome': 'deferred',
+                                  'reason': 'The disposable receiver holds no other claims.'} for c in claims},
+        'follow_up_gaps': ['Synthetic receiving proof: relationships to other claims were not assessed.']}))
+    report = verify(f'http://127.0.0.1:{server.server_port}', 'receiving', receiver, decisions, tmp_path / 'receipt')
+    assert report['receiver_revision'] == report['recorded_contract_revision'] == bundle_connectors.RESOLVENT_REVISION
+    assert report['handoff_bytes'] == size
+    assert report['research_artifact_read_by_receiver']['readable'] is True
+    assert [d['disposition'] for d in report['dispositions']] == ['created'] * len(claims)

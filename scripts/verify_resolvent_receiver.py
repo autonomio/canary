@@ -11,9 +11,25 @@ import zipfile
 import httpx
 import yaml
 
+from canary import compact_bundle
+from canary.bundle_connectors import RESOLVENT_REVISION
+
+# The receiver's own research-state reader must decode the exact preserved research artifact.
+READ_RESEARCH = '''import hashlib, json, sys
+from scripts.research_state import research_artifact
+with open(sys.argv[1], encoding='utf-8') as handle:
+    index, artifact = research_artifact(json.load(handle))
+print(json.dumps({'index': index, 'sha256': hashlib.sha256(json.dumps(
+    artifact, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()}))
+'''
+
 
 def sha(value):
     return hashlib.sha256(value).hexdigest()
+
+
+def canonical_sha(value):
+    return sha(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8'))
 
 
 def verify_archive(manifest, content, handoff):
@@ -61,6 +77,8 @@ def verify(api_url, run, receiver, decisions, output):
     assert not list((receiver/'input-artefacts').glob('RUN-*.json')), 'Receiver already contains contributions'
     assert not list((receiver/'claims').glob('C-*.yaml')), 'Receiver already contains claims'
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=receiver, text=True).strip()
+    # Contributions recorded against an earlier pin are received here too; the receipt names both.
+    assert revision == RESOLVENT_REVISION, 'Use a disposable receiver at the pinned revision ' + RESOLVENT_REVISION
     with httpx.Client(base_url=api_url, timeout=120, trust_env=False) as api:
         base = '/api/runs/' + run
         def get(path):
@@ -72,13 +90,20 @@ def verify(api_url, run, receiver, decisions, output):
         exported = get('/exports/resolvent')
         handoff = exported.json()
         archive = get('/bundle/archive').content
-    assert revision == handoff['method_metadata']['destination_contract_revision'], 'Use the recorded receiver revision'
     excerpts = verify_archive(manifest, archive, handoff)
     output.mkdir(parents=True, exist_ok=False)
     (output/'research-bundle.zip').write_bytes(archive)
     incoming = receiver/'input-artefacts'/(handoff['id']+'.json')
     # The exact size-checked export; re-indenting it could exceed the receiver's file limit.
     incoming.write_bytes(exported.content + b'\n')
+    reader = subprocess.run([sys.executable, '-c', READ_RESEARCH, str(incoming)], cwd=receiver,
+                            text=True, capture_output=True)
+    if reader.returncode == 0:
+        research = json.loads(reader.stdout)
+        assert research['sha256'] == canonical_sha(compact_bundle.payload(handoff)), 'The receiver reads different research'
+        research = {'readable': True, 'artifact_index': research['index'], 'sha256': research['sha256']}
+    else:  # Admission does not need it, but the receiver's continuation export then reports unknown coverage.
+        research = {'readable': False, 'error': (reader.stderr.strip().splitlines() or ['no output'])[-1]}
     (output/'admission-decisions.json').write_bytes(Path(decisions).read_bytes())
     command = [sys.executable, 'scripts/world_control.py', str(incoming), '--decisions',
                str(output/'admission-decisions.json')]
@@ -109,7 +134,10 @@ def verify(api_url, run, receiver, decisions, output):
         kind = json.loads(source['locator']).get('source_kind', source['kind'])
         source_kinds[kind] = source_kinds.get(kind, 0) + 1
     report = {'run_key': run, 'bundle_id': manifest['id'], 'receiver_revision': revision,
+              'recorded_contract_revision': handoff['method_metadata']['destination_contract_revision'],
               'bundle_archive_sha256': sha(archive), 'handoff_sha256': sha(incoming.read_bytes()),
+              'handoff_bytes': incoming.stat().st_size,
+              'research_artifact_read_by_receiver': research,
               'claims_submitted': len(handoff['claims']), 'verbatims_reconstructed': 0 if compact else excerpts,
               'retained_excerpts_verified': excerpts if compact else 0,
               'source_verification_scope': 'retained excerpts and locators; full originals released' if compact else 'transported originals and exact canonical slices',
