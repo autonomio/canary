@@ -40,6 +40,7 @@ def payload(contribution):
 
 
 def manifest(workspace):
+    from .bundle_connectors import contribution
     from .research_spec import verify_recorded
     result = read(workspace)
     decoded = bundle_encoding.expand(result)
@@ -55,6 +56,9 @@ def manifest(workspace):
         value['encoding'] = {'format': encoding['format'], 'version': encoding['version'],
                              'stored_bytes': (Path(workspace) / NAME).stat().st_size,
                              'expanded_bytes': len(bundle_encoding.dumps(decoded).encode('utf-8'))}
+    # The export: this file as stored, or an earlier encoding packed again.
+    current = encoding is not None and encoding['version'] == bundle_encoding.VERSION
+    value['contribution'] = contribution(result if current else bundle_encoding.encode(decoded))
     return value
 
 

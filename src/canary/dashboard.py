@@ -1477,9 +1477,14 @@ class Handler(BaseHTTPRequestHandler):
                 if row is None:
                     raise KeyError(parts[3])
                 from .bundle_encoding import dumps
-                contribution = bundle_connectors.export(row['bundle'], unquote(parts[5]),
-                    representation=query.get('representation', ['compact'])[0])
-                self._send(200, dumps(contribution).encode('utf-8'))
+                try:
+                    contribution = bundle_connectors.export(row['bundle'], unquote(parts[5]),
+                        representation=query.get('representation', ['compact'])[0])
+                except bundle_connectors.ContributionTooLarge as error:
+                    self._send(422, {'error': str(error), 'code': 'contribution_too_large',
+                                     'bytes': error.size, 'limit_bytes': error.limit})
+                else:
+                    self._send(200, dumps(contribution).encode('utf-8'))
             elif re.fullmatch(r"/api/runs/[^/]+/bundle(?:/archive|/artifacts/.+)?", parsed.path):
                 parts = parsed.path.split('/')
                 key = unquote(parts[3])

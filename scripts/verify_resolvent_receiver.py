@@ -69,14 +69,16 @@ def verify(api_url, run, receiver, decisions, output):
             return response
         manifest = get('/bundle').json()['bundle']
         assert manifest['state'] == 'finished', 'Research must have a sealed inventory'
-        handoff = get('/exports/resolvent').json()
+        exported = get('/exports/resolvent')
+        handoff = exported.json()
         archive = get('/bundle/archive').content
     assert revision == handoff['method_metadata']['destination_contract_revision'], 'Use the recorded receiver revision'
     excerpts = verify_archive(manifest, archive, handoff)
     output.mkdir(parents=True, exist_ok=False)
     (output/'research-bundle.zip').write_bytes(archive)
     incoming = receiver/'input-artefacts'/(handoff['id']+'.json')
-    incoming.write_text(json.dumps(handoff, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+    # The exact size-checked export; re-indenting it could exceed the receiver's file limit.
+    incoming.write_bytes(exported.content + b'\n')
     (output/'admission-decisions.json').write_bytes(Path(decisions).read_bytes())
     command = [sys.executable, 'scripts/world_control.py', str(incoming), '--decisions',
                str(output/'admission-decisions.json')]

@@ -1,13 +1,42 @@
 """Lossless delivered JSON, independent of model behavior or scientific judgment."""
+import base64
 import copy
 import json
 import subprocess
+import zlib
 
 import jsonschema
 import pytest
 
 from canary import bundle_connectors, bundle_encoding as codec
 from test_compact_bundle import prepared
+
+
+def packed(encoded):
+    return json.loads(zlib.decompress(base64.b64decode(encoded['method_metadata']['canary_encoding']['data'])))
+
+
+def repack(encoded, edit):
+    """Edit version 2 packing as a damaged or hostile file could."""
+    header = encoded['method_metadata']['canary_encoding']
+    value = packed(encoded)
+    edit(value)
+    body = codec.dumps(value).encode()
+    header.update(packed_bytes=len(body), data=base64.b64encode(zlib.compress(body)).decode())
+
+
+def as_version_1(encoded):
+    """The same packing laid out inline, as version 1 stored it."""
+    result = copy.deepcopy(encoded)
+    header, value = result['method_metadata']['canary_encoding'], packed(encoded)
+    for item, content in zip(header['artifacts'], value['artifacts']):
+        result['result']['artifacts'][item['index']]['content'] = codec.dumps(content)
+    if header['view']:
+        result['method_metadata']['canary_view'] = value['view']
+    for name in ('compression', 'packed_bytes', 'data'):
+        del header[name]
+    header.update(version=1, values=value['values'])
+    return result
 
 
 @pytest.fixture
@@ -110,21 +139,60 @@ def test_large_native_record_is_complete_even_when_it_cannot_shrink():
 
 
 @pytest.mark.parametrize('failure', ['version', 'bool_version', 'null_header', 'missing_view', 'index', 'cycle',
-                                    'pointer', 'missing', 'artifact_index', 'duplicate_artifact', 'checksum'])
+                                    'pointer', 'missing', 'artifact_index', 'duplicate_artifact', 'checksum',
+                                    'base64', 'trailing_data', 'larger_than_recorded', 'smaller_than_recorded',
+                                    'beyond_limit', 'v1_missing_view', 'v1_cycle'])
 def test_invalid_reference_encoding_is_reported(contribution, failure):
     encoded = codec.encode(contribution)
+    if failure.startswith('v1_'):
+        encoded = as_version_1(encoded)
     header = encoded['method_metadata']['canary_encoding']
-    if failure == 'version': header['version'] = 2
+    stream = base64.b64decode(header['data']) if 'data' in header else b''
+    def view(value):
+        return lambda packing: packing.update(view=value)
+    def cycle(packing):
+        packing['values'][0] = {codec.VALUE: 0}
+        packing['view'] = {codec.VALUE: 0}
+    if failure == 'version': header['version'] = 3
     elif failure == 'bool_version': header['version'] = True
     elif failure == 'null_header': encoded['method_metadata']['canary_encoding'] = None
-    elif failure == 'missing_view': del encoded['method_metadata']['canary_view']
-    elif failure == 'index': encoded['method_metadata']['canary_view'] = {codec.VALUE: -1}
-    elif failure == 'cycle':
-        header['values'][0] = {codec.VALUE: 0}
-        encoded['method_metadata']['canary_view'] = {codec.VALUE: 0}
-    elif failure == 'pointer': encoded['method_metadata']['canary_view'] = {codec.REF: '/method_metadata/canary_view'}
-    elif failure == 'missing': encoded['method_metadata']['canary_view'] = {codec.REF: '/sources/999999/excerpt'}
+    elif failure == 'missing_view': repack(encoded, lambda packing: packing.pop('view'))
+    elif failure == 'index': repack(encoded, view({codec.VALUE: -1}))
+    elif failure == 'cycle': repack(encoded, cycle)
+    elif failure == 'pointer': repack(encoded, view({codec.REF: '/method_metadata/canary_view'}))
+    elif failure == 'missing': repack(encoded, view({codec.REF: '/sources/999999/excerpt'}))
     elif failure == 'artifact_index': header['artifacts'][0]['index'] = -1
     elif failure == 'duplicate_artifact': header['artifacts'].append(copy.deepcopy(header['artifacts'][0]))
     elif failure == 'checksum': header['sha256'] = '0'*64
+    elif failure == 'base64': header['data'] = '!' + header['data']
+    elif failure == 'trailing_data': header['data'] = base64.b64encode(stream + b'trailing').decode()
+    elif failure == 'larger_than_recorded': header['packed_bytes'] -= 1
+    elif failure == 'smaller_than_recorded': header['packed_bytes'] += 1
+    elif failure == 'beyond_limit': header['packed_bytes'] = codec.PACKED_LIMIT + 1
+    elif failure == 'v1_missing_view': del encoded['method_metadata']['canary_view']
+    elif failure == 'v1_cycle':
+        header['values'][0] = {codec.VALUE: 0}
+        encoded['method_metadata']['canary_view'] = {codec.VALUE: 0}
     with pytest.raises(ValueError): codec.expand(encoded)
+
+
+def test_packed_data_cannot_inflate_beyond_its_recorded_size(contribution):
+    encoded = codec.encode(contribution)
+    header = encoded['method_metadata']['canary_encoding']
+    bomb = zlib.compress(b' ' * 2 * 1024 * 1024, 9)  # 2 MiB from about 2 KB.
+    header.update(data=base64.b64encode(bomb).decode(), packed_bytes=1024)
+    with pytest.raises(ValueError, match='Invalid packed'):
+        codec.expand(encoded)
+
+
+def test_version_1_remains_readable_and_is_packed_again_on_reexport(contribution):
+    encoded = codec.encode(contribution)
+    earlier = as_version_1(encoded)
+    assert codec.header(earlier)['version'] == 1
+    assert codec.expand(json.loads(codec.dumps(earlier))) == contribution
+    again = codec.encode(earlier)
+    assert codec.header(again)['version'] == codec.VERSION
+    assert codec.expand(again) == contribution
+    assert len(codec.dumps(again)) < len(codec.dumps(earlier))
+    for field in ('claims', 'evidence', 'sources'):
+        assert again[field] == earlier[field]

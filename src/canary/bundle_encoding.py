@@ -1,25 +1,33 @@
 """Lossless references in Canary extensions; native Resolvent records stay plain."""
 from __future__ import annotations
 
+import base64
+import binascii
 from collections import Counter
 import copy
 import hashlib
 import json
 import math
 from typing import Literal, TypedDict
+import zlib
 
 FORMAT = 'canary.references'
-VERSION = 1
+# Version 2 deflates the version 1 packing (value table, artifacts, view) into one stream.
+VERSION = 2
 REF, VALUE, LITERAL = '$canary_ref', '$canary_value', '$canary_literal'
 NUMBER = '$canary_number'
 OBJECT = '$canary_object'
 JS_SAFE_INTEGER = 2**53-1
 ARTIFACTS = {'canary-bundle.json', 'canary-research.json'}
+COMPRESSION = 'deflate'
+PACKED_LIMIT = 256 * 1024 * 1024  # A bundle file is untrusted input: never inflate it beyond this.
+PACKED = ('Packed Canary JSON. method_metadata.canary_encoding holds it; read it with '
+          'canary.bundle_encoding.expand or the expanded export.')
 
 
 class BundleEncoding(TypedDict):
     format: Literal['canary.references']
-    version: Literal[1]
+    version: Literal[1, 2]
     stored_bytes: int
     expanded_bytes: int
 
@@ -30,14 +38,20 @@ class EncodedArtifact(TypedDict):
     style: Literal['default', 'compact']
 
 
-class ReferenceEncoding(TypedDict):
+class _ReferenceEncoding(TypedDict):
     format: Literal['canary.references']
-    version: Literal[1]
-    values: list[object]
+    version: Literal[1, 2]
     artifacts: list[EncodedArtifact]
     view: bool
     expanded_bytes: int
     sha256: str
+
+
+class ReferenceEncoding(_ReferenceEncoding, total=False):
+    values: list[object]  # Version 1: the shared value table, inline.
+    compression: Literal['deflate']  # Version 2: zlib stream, base64 in data.
+    packed_bytes: int  # Version 2: exact inflated size of data.
+    data: str
 
 
 def dumps(value):
@@ -90,20 +104,43 @@ def header(value) -> ReferenceEncoding | None:
         return None
     item = metadata['canary_encoding']
     if (not isinstance(item, dict) or item.get('format') != FORMAT or
-            type(item.get('version')) is not int or item['version'] != VERSION or
-            not isinstance(item.get('values'), list) or not isinstance(item.get('artifacts'), list) or
+            type(item.get('version')) is not int or item['version'] not in (1, VERSION) or
+            not isinstance(item.get('artifacts'), list) or
             type(item.get('view')) is not bool or type(item.get('expanded_bytes')) is not int or
             item['expanded_bytes'] < 0 or not isinstance(item.get('sha256'), str) or
-            (item['view'] and 'canary_view' not in metadata)):
+            (item['version'] == 1 and (not isinstance(item.get('values'), list) or
+                                       (item['view'] and 'canary_view' not in metadata))) or
+            (item['version'] == VERSION and (item.get('compression') != COMPRESSION or
+                not isinstance(item.get('data'), str) or type(item.get('packed_bytes')) is not int or
+                not 0 <= item['packed_bytes'] <= PACKED_LIMIT))):
         raise ValueError('Unsupported Canary bundle encoding')
     return item
 
 
+def _packed(item):
+    """Inflate version 2 data to exactly its recorded size, never more."""
+    try:
+        stream = zlib.decompressobj()
+        body = stream.decompress(base64.b64decode(item['data'], validate=True), item['packed_bytes'] + 1)
+        if len(body) != item['packed_bytes'] or not stream.eof or stream.unused_data:
+            raise ValueError('size')
+        packed = json.loads(body)
+    except (binascii.Error, zlib.error, ValueError):
+        raise ValueError('Invalid packed Canary bundle data') from None
+    if (not isinstance(packed, dict) or set(packed) - {'view'} != {'values', 'artifacts'} or
+            not isinstance(packed['values'], list) or not isinstance(packed['artifacts'], list) or
+            len(packed['artifacts']) != len(item['artifacts']) or ('view' in packed) != item['view']):
+        raise ValueError('Invalid packed Canary bundle data')
+    return packed
+
+
 def encode(value):
     """Return a smaller contribution when possible; never change the input."""
-    if header(value) is not None:
-        expand(value)  # Re-export only a supported, reconstructible contribution.
-        return value
+    encoding = header(value)
+    if encoding is not None:
+        expanded = expand(value)  # Re-export only a supported, reconstructible contribution.
+        # An earlier version is packed again; its native records stay as recorded.
+        return value if encoding['version'] == VERSION else encode(expanded)
     result = copy.deepcopy(value)
     metadata = result['method_metadata']
     has_view = 'canary_view' in metadata
@@ -180,11 +217,16 @@ def encode(value):
             return {VALUE: identifiers[key]}
         return children(node)
 
-    for artifact, content in zip(artifacts, contents):
-        result['result']['artifacts'][artifact['index']]['content'] = dumps(pack(content))
+    packed = {'values': values, 'artifacts': [pack(content) for content in contents]}
     if has_view:
-        metadata['canary_view'] = pack(view)
-    metadata['canary_encoding'] = {'format': FORMAT, 'version': VERSION, 'values': values,
+        packed['view'] = pack(view)
+    body = dumps(packed).encode('utf-8')
+    if len(body) > PACKED_LIMIT:
+        return value
+    for artifact in artifacts:
+        result['result']['artifacts'][artifact['index']]['content'] = PACKED
+    metadata['canary_encoding'] = {'format': FORMAT, 'version': VERSION, 'compression': COMPRESSION,
+        'packed_bytes': len(body), 'data': base64.b64encode(zlib.compress(body, 9)).decode('ascii'),
         'artifacts': artifacts, 'view': has_view, 'expanded_bytes': len(dumps(value).encode('utf-8')),
         'sha256': _digest(_extensions(value, artifacts, has_view))}
     if len(dumps(result).encode('utf-8')) >= metadata['canary_encoding']['expanded_bytes']:
@@ -203,6 +245,12 @@ def expand(value):
     encoding = header(value)
     if encoding is None:
         return value
+    if encoding['version'] == 1:
+        values, view = encoding['values'], value['method_metadata'].get('canary_view')
+        contents = None  # Version 1 artifacts hold their packed JSON inline.
+    else:
+        packed = _packed(encoding)
+        values, view, contents = packed['values'], packed.get('view'), packed['artifacts']
     active, memo = set(), {}
 
     def pointer(path):
@@ -245,13 +293,13 @@ def expand(value):
                 return pointer(node[REF])
             if set(node) == {VALUE}:
                 index = node[VALUE]
-                if type(index) is not int or not 0 <= index < len(encoding['values']):
+                if type(index) is not int or not 0 <= index < len(values):
                     raise ValueError('Invalid Canary bundle value index')
                 if index in active:
                     raise ValueError('Cyclic Canary bundle value reference')
                 if index not in memo:
                     active.add(index)
-                    memo[index] = unpack(encoding['values'][index])
+                    memo[index] = unpack(values[index])
                     active.remove(index)
                 return copy.deepcopy(memo[index])
             if set(node) == {LITERAL}:
@@ -265,7 +313,7 @@ def expand(value):
 
     result = copy.deepcopy(value)
     seen = set()
-    for item in encoding['artifacts']:
+    for position, item in enumerate(encoding['artifacts']):
         if (not isinstance(item, dict) or type(item.get('index')) is not int or
                 not 0 <= item['index'] < len(result['result']['artifacts']) or item['index'] in seen or
                 item.get('name') not in ARTIFACTS or item.get('style') not in ('default', 'compact')):
@@ -274,10 +322,10 @@ def expand(value):
         artifact = result['result']['artifacts'][item['index']]
         if artifact['name'] != item['name']:
             raise ValueError('Encoded Canary artifact name changed')
-        content = unpack(json.loads(artifact['content']))
+        content = unpack(json.loads(artifact['content']) if contents is None else contents[position])
         artifact['content'] = json.dumps(content, ensure_ascii=False) if item['style'] == 'default' else dumps(content)
     if encoding['view']:
-        result['method_metadata']['canary_view'] = unpack(value['method_metadata']['canary_view'])
+        result['method_metadata']['canary_view'] = unpack(view)
     if _digest(_extensions(result, encoding['artifacts'], encoding['view'])) != encoding['sha256']:
         raise ValueError('Canary bundle reconstruction checksum mismatch')
     del result['method_metadata']['canary_encoding']

@@ -55,14 +55,18 @@ a SHA-256 sidecar. Registry rows retain small operational summaries for polling
 and the log; native Codex account/session storage remains vendor-managed.
 
 New contributions remove duplicate Canary values with `method_metadata.canary_encoding`
-(`format: canary.references`, `version: 1`). Resolvent's native `claims`, `evidence`,
+(`format: canary.references`, `version: 2`). Resolvent's native `claims`, `evidence`,
 `sources`, uncertainty/freshness metadata, audit limitations, gaps and residue stay
 readable and unchanged. Only the embedded Canary JSON artifacts and dashboard
-projection use in-document references and a shared value table. The API rebuilds
-their original values and exact embedded JSON strings in code, checking a SHA-256
-of the reconstructed extensions. It rejects unsupported versions, missing/cyclic
-references and changed content; no model interprets the encoding. Consumer-added
-metadata remains supported.
+projection are packed: in-document references and a shared value table, stored as one
+deflate stream in `data` (base64; `packed_bytes` is its exact inflated size). Each
+packed artifact's `content` says where its JSON is. Version 1 kept the same packing
+inline; it remains readable, and its re-export is packed as version 2 with native
+records unchanged. The API rebuilds the original values and exact embedded JSON
+strings in code, checking a SHA-256 of the reconstructed extensions. It rejects
+unsupported versions, missing/cyclic references, data that inflates beyond its
+recorded size or 256 MiB, and changed content; no model interprets the encoding.
+Consumer-added metadata remains supported.
 
 `GET /api/runs/{key}/exports/resolvent` and `canary bundle RUN_KEY --connector resolvent`
 return compact UTF-8 JSON. For readers requiring the previous fully expanded
@@ -80,7 +84,18 @@ details show stored/expanded byte counts and the lossless saving, plus an expand
 download for compatibility. Manifest `encoding` fields are typed in OpenAPI.
 Old plain bundles remain readable; re-export can encode them without rewriting
 their stored files or checksums. Encoding is omitted when it would increase size.
-There is no universal byte ceiling promised: larger research remains complete.
+
+Resolvent refuses a contribution file above 10 MiB (`MAX_FILE_BYTES`). The compact
+export is that file: UTF-8 JSON and one newline. Canary measures it before returning
+it. A contribution above the limit is refused with HTTP 422 `contribution_too_large`,
+its measured `bytes` and `limit_bytes`; nothing is shortened or partially exported,
+and the retained bundle keeps all research. A retained bundle's manifest records
+`contribution` (`bytes`, `limit_bytes`, `within_limit`), so the API, CLI, MCP and
+dashboard state before any download whether the run's export fits; the dashboard then
+offers the retained archive. The expanded representation is for reading and is not
+size-bounded. A supplied research state is stored twice in the specification (its YAML
+and resolved JSON) and each correction round adds a bound payload snapshot; packing
+removes that repetition from the size the destination sees.
 The [offline replay](../validation/bundle-references-20261030/results.json) records
 size and component CPU measurements, exact value/embedded-string round trips and
 unchanged native records. It makes no full-question runtime or scientific-quality claim.
@@ -172,7 +187,7 @@ Freshness policies are `scheduled`, `event_driven`, `historical`, `unknown`. `as
 | Download archive | `GET /api/runs/{key}/bundle/archive` | Finished snapshot ZIP with manifest and inventoried artifacts |
 | Repeat settings | `POST /api/runs/{key}/rerun` with `{}` | A distinct run using the saved compiled settings |
 | Scientific round record | `GET /api/runs/{key}/revisions/{round}/{kind}` | Hash-checked original research, audit or correction record; survives source cleanup |
-| Consumer handoff | `GET /api/runs/{key}/exports/resolvent` | Resolvent source-material submission |
+| Consumer handoff | `GET /api/runs/{key}/exports/resolvent` | Resolvent source-material submission within the 10 MiB file limit; otherwise HTTP 422 `contribution_too_large` with its measured size |
 
 Invalid declarations return HTTP 400 with `code: invalid_research_spec` and located field issues. Compile/submit declarations require JSON; foreign browser origins/hosts are refused. Existing research/source endpoints remain usable. The frontend now loads the bundle endpoint and renders the API's projection, original/resolved settings, repeat action, artifact links and export actions. It never reads local run files directly.
 
@@ -185,13 +200,13 @@ remain subsequent slices. The primary README remains the final delivery step in
 
 The selected pilot is [autonomio/resolvent](https://github.com/autonomio/resolvent), contract revision `7d7e2da29b97814a70b42bd7bf442ee455b3da09`. The old `Vaquum/Resolvent` URL redirects to the predecessor world model. The adapter normalizes a finished bundle into the current [source-material submission](https://github.com/autonomio/resolvent/blob/7d7e2da29b97814a70b42bd7bf442ee455b3da09/docs/contracts/activity/model_input_source.json), validated in tests against the pinned destination schema. No new topic research or canonical world-model write occurs during export.
 
-The handoff uses a stable `RUN-<bundle uuid>` ID, deterministic local ID mappings and exact source excerpts/offsets/hashes. Connector **version 4** maps the producer's supported-only final graph. Audited `reported_finding` records with linked study results become source-attributed `observed_fact` candidates; recommendations, documentary `source_record` records and other interpretations remain `derived_inference`. This records the stated study observation, not universal truth or consumer admission.
+The handoff uses a stable `RUN-<bundle uuid>` ID, deterministic local ID mappings and exact source excerpts/offsets/hashes. Connector **version 5** maps the producer's supported-only final graph, as version 4 did; it differs only in how round records are listed (below). Audited `reported_finding` records with linked study results become source-attributed `observed_fact` candidates; recommendations, documentary `source_record` records and other interpretations remain `derived_inference`. This records the stated study observation, not universal truth or consumer admission.
 
 Evidence is independent only with a current explicit audit judgment, inspected/addressable source support and a study-family basis. Different URLs or an auditor session never establish independence. Evidence depending on premise claims is not promoted to independent. Original `low` uncertainty stays low only with independent inspected **supporting** evidence; otherwise `low`/`moderate` map to `medium` and `high` stays `high`. Original uncertainty/freshness and the final verdict, statement hash and scientific snapshot hash remain in `method_metadata.claim_metadata`.
 
-Only source-justified within-run dependency/coupling links become native connectors, retaining their spec, reason, uncertainty and evidence. The neutral producer withholds claims depending on withheld premises and closes all active claim, evidence and connector references before the adapter runs. Evidence and study results used only by withheld or withdrawn claims are absent from active `evidence`, `sources` and `study_results`; they stay in `withheld_evidence`, `withheld_study_results` and each withheld claim record, and an auditor's uncertainty recommendation may still cite them. Such payloads record `verification.projection_version: 2`, and verification rejects reintroduced withheld-only records. Payloads finalized earlier record no projection version and keep their recorded projection. Typed `study_results`, linked `contradictions`, evidence-family judgments, `withheld_claims`, `withheld_study_results`, `claim_revisions` and `history_manifest` are first-class method metadata. Run-level audit findings (`verification.run_findings`), a stopped verification and an incomplete final audit are restated in `result.limitations`. The adapter does not decide scientific acceptance or links to existing world-model claims.
+Only source-justified within-run dependency/coupling links become native connectors, retaining their spec, reason, uncertainty and evidence. The neutral producer withholds claims depending on withheld premises and closes all active claim, evidence and connector references before the adapter runs. Evidence and study results used only by withheld or withdrawn claims are absent from active `evidence`, `sources` and `study_results`; they stay in `withheld_evidence`, `withheld_study_results` and each withheld claim record, and an auditor's uncertainty recommendation may still cite them. Such payloads record `verification.projection_version: 2`, and verification rejects reintroduced withheld-only records. Payloads finalized earlier record no projection version and keep their recorded projection. Typed `study_results`, linked `contradictions`, evidence-family judgments, `withheld_claims`, `withheld_study_results`, `claim_revisions` and `history_manifest` are first-class method metadata. In version 5, each `claim_revisions` round record omits its bound `payload` snapshot, which repeats the research graph, and names it by `payload_sha256` (SHA-256 of its key-sorted compact JSON); the complete hash-checked records stay in `canary-research.json` and the revision API. Run-level audit findings (`verification.run_findings`), a stopped verification and an incomplete final audit are restated in `result.limitations`. The adapter does not decide scientific acceptance or links to existing world-model claims.
 
-Historical version 2/3 bundles remain readable with their original conservative mapping: all candidates `derived_inference`, independence unestablished and uncertainty at least medium. Retained historical exports are not rewritten to acquire version 4 judgments.
+Historical version 2/3 bundles remain readable with their original conservative mapping: all candidates `derived_inference`, independence unestablished and uncertainty at least medium. Retained historical exports are not rewritten to acquire version 4 judgments, and retained version 4 exports keep their complete round records.
 
 Resolvent currently has no native residue or claim-freshness field. Those records are preserved losslessly in the research artifact/metadata rather than converted into claims or resolution tasks. Its receiving admission process must account for them. Gaps likewise remain typed in the retained artifact. No acceptance criteria, pre-research brief or world-model relationships are invented to fill fields.
 

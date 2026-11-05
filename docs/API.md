@@ -62,7 +62,9 @@ extracted Unicode text; PDF originals have their own content hash and page conte
 
 New completed requests retain the research bundle and release working papers and
 full text. `bundle.retention.mode` is `bundle_only`; the downloadable artifact is
-`resolvent.json`, directly accepted as a Resolvent contribution. The same bundle
+`resolvent.json`, directly accepted as a Resolvent contribution while
+`bundle.contribution.within_limit` is true. Above Resolvent's 10 MiB file limit the
+export is refused with HTTP 422 `contribution_too_large`. The same bundle
 contains the dashboard projection and repeat settings. Source context then returns
 `scope: excerpts`, `text_complete: false`, `offset_verified: false` and no local
 file link. Cited verbatim, source URLs, hashes and recorded offsets remain; full

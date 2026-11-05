@@ -878,7 +878,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     by_origin = {e["id"]: e for e in payload.get("evidence", [])}
     for item in graph["evidence"]:
         item["premise_claim_ids"] = by_origin.get(item.get("origin_evidence_id", item["id"]), {}).get("premise_claim_ids", [])
-    graph["export_policy"] = {"connector_version": 4} if payload.get("verification", {}).get("version") else {}
+    graph["export_policy"] = {"connector_version": 5} if payload.get("verification", {}).get("version") else {}
     graph["history_manifest"] = payload.get("history_manifest", [])
     graph["verification_progress"] = payload.get("verification_progress")
     graph["claim_links"] = payload.get("claim_links", [])
