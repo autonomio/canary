@@ -28,7 +28,25 @@ def protected(workspace):
 def session_outputs(directory, role):
     return {directory/(role+suffix) for suffix in ('.json', '-schema.json', '-response.json',
         '-prompt.txt', '-events.jsonl', '-stderr.log', '-invocation.json', '-receipt.json',
-        '-active.json', '-incomplete-output.json')}
+        '-active.json', '-incomplete-output.json', '-rejected-response.json')}
+
+
+def source_passages(workspace):
+    return [json.loads(line) for p in (Path(workspace)/'passages').glob('*.jsonl') for line in p.read_text().splitlines()]
+
+
+def reviewer(workspace, number):
+    """Why a correction response for round number would be rejected, checked as verify() checks it, or None.
+
+    The API's correction session uses this to return an invalid response to the same session once.
+    """
+    previous = Path(workspace)/'rounds'/f'{number-1:03d}'
+    try:
+        subject, audit = (json.loads((previous/name).read_text(encoding='utf-8')) for name in ('subject.json', 'audit-bound.json'))
+    except (OSError, ValueError):
+        return None  # No recorded round to check against; verify() still checks the response.
+    subject['canonical_passage_ids'] = [p['id'] for p in source_passages(workspace)]
+    return lambda response: corrections.problem(subject, audit, response)
 
 
 def remove_working_files(workspace, before, role, number):
@@ -72,7 +90,7 @@ def verify(workspace, payload, manifest, command, executable):
             history_manifest=inventory(history), verification_progress={'phase': phase, 'round': round_index},
             research_status='candidate_research_pending_audit'))
     manifest['research_finished_at'] = engine.now()
-    failure = None
+    failure = stopped = None
     phase = ('audit', 0)
     attempt, receipt = None, {}
     try:
@@ -108,7 +126,7 @@ def verify(workspace, payload, manifest, command, executable):
             engine.wait_for_tools(os.environ.get('RUN_KEY'))
             if changed_inputs(workspace, before, 'audit', round_index):
                 raise ValueError('Read-only audit changed protected scientific inputs')
-            passages = [json.loads(line) for p in (workspace/'passages').glob('*.jsonl') for line in p.read_text().splitlines()]
+            passages = source_passages(workspace)
             audit = audit_validation.bind(payload, raw, passages=passages)
             engine.write(workspace/'audit.json', audit)
             engine.write(workspace/'audit-receipt.json', receipt)  # Current projection; immutable original lives in its round.
@@ -142,17 +160,23 @@ def verify(workspace, payload, manifest, command, executable):
             if changed_inputs(workspace, before, 'correction', next_round):
                 raise ValueError('Correction changed protected inputs instead of returning a typed revision')
             proposed, removed = corrections.apply(dict(payload, canonical_passage_ids=[p['id'] for p in passages]), audit, response)
-            withdrawn.extend(removed)
-            payload = engine.bind_payload(workspace, investigation=proposed)
+            corrected = engine.bind_payload(workspace, investigation=proposed)
             history.append({'round': next_round, 'kind': 'correction', 'responses': response['responses'],
-                'investigation': proposed, 'payload': payload, 'receipt': receipt})
+                'investigation': proposed, 'payload': corrected, 'receipt': receipt})
             engine.immutable_bytes(workspace/'rounds'/f'{next_round:03d}'/'subject.json',
-                (json.dumps(payload, ensure_ascii=False, indent=2)+'\n').encode())
+                (json.dumps(corrected, ensure_ascii=False, indent=2)+'\n').encode())
+            # Until a correction is wholly applied, payload stays the one the last audit checked.
+            payload = corrected
+            withdrawn.extend(removed)
     except Exception as error:
         failure = type(error).__name__ + ': ' + str(error)
         manifest['verification_failure'] = failure
         engine.write(workspace/'run.json', manifest)
         kind, number = phase
+        status = 'cancelled' if isinstance(error, engine.RunCancelled) or engine.cancellation_requested() else 'failed'
+        # Active claims can only be those the last completed audit passed, unchanged since.
+        stopped = {'kind': kind, 'round': number, 'status': status,
+                   'audit_round': next((r['round'] for r in reversed(history) if r['kind'] == 'audit'), None)}
         if not any(r['kind'] == kind and r['round'] == number for r in history):
             directory = workspace/'rounds'/f'{number:03d}'
             response_path = directory/(kind+'-response.json')
@@ -162,8 +186,7 @@ def verify(workspace, payload, manifest, command, executable):
                 response_text = response_path.read_text(encoding='utf-8')
             except OSError:
                 response_text = None
-            history.append({'round': number, 'kind': kind, 'status': 'cancelled' if
-                isinstance(error, engine.RunCancelled) or engine.cancellation_requested() else 'failed',
+            history.append({'round': number, 'kind': kind, 'status': status,
                 'failure': failure, 'claim_ids': [c['id'] for c in payload.get('claims', [])],
                 'receipt': engine.read(directory/(kind+'-receipt.json'), receipt), 'response_text': response_text,
                 'raw_audit' if kind == 'audit' else 'response': attempt})
@@ -172,10 +195,10 @@ def verify(workspace, payload, manifest, command, executable):
             engine.immutable_bytes(workspace/'investigation-unexpected-change.json', (workspace/'investigation.json').read_bytes())
             (workspace/'investigation.json').write_bytes(original)
         if isinstance(error, engine.RunCancelled) or engine.cancellation_requested():
-            final = corrections.finalize(payload, audit, history, withdrawn, failure=failure)
+            final = corrections.finalize(payload, audit, history, withdrawn, failure=failure, stopped=stopped)
             engine.write(workspace/'payload.json', final)
             raise
-    final = corrections.finalize(payload, audit, history, withdrawn, failure=failure)
+    final = corrections.finalize(payload, audit, history, withdrawn, failure=failure, stopped=stopped)
     engine.write(workspace/'payload.json', final)
     engine.write(workspace/'claim-revisions.json', history)
     manifest['verification'] = {k: v for k, v in final['verification'].items() if k != 'audit_basis'}

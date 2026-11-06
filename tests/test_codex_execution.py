@@ -17,7 +17,7 @@ from test_coverage_evidence_ui import run_dashboard
 
 
 FAKE = r'''#!/usr/bin/env python3
-import json,os,pathlib,sqlite3,sys,threading,time
+import json,os,pathlib,sqlite3,subprocess,sys,threading,time
 home=pathlib.Path(os.environ['CODEX_HOME']);home.mkdir(exist_ok=True)
 if '--version' in sys.argv:
  print('codex-fixture 0.162.0');raise SystemExit()
@@ -62,6 +62,11 @@ def turn(tid):
   send({'method':'turn/completed','params':{'threadId':tid,'turn':{'id':'turn-'+tid,'status':'failed'}}});return
  if not t['cancelled']:
   t['error']=None
+  # Shell commands the session runs, with the environment Canary set for it.
+  for command in t.get('scripted',{}).get('commands',[]):
+   done=subprocess.run(command,shell=True,cwd=cwd,env=dict(os.environ,**t.get('env',{})),capture_output=True,text=True,timeout=60)
+   with lock:
+    with (home/'commands.jsonl').open('a') as f:f.write(json.dumps({'command':command,'exit_code':done.returncode,'stderr':done.stderr})+'\n')
   for name,value in t.get('scripted',{}).get('files',{}).items():
    path=cwd/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(value)
   send({'method':'item/completed','params':{'threadId':tid,'item':{'type':'agentMessage','text':json.dumps(t.get('scripted',{}).get('response',{'marker':cwd.name,'value':17}))}}})
@@ -93,10 +98,10 @@ for line in sys.stdin:
    send({'id':m['id'],'error':{'code':-32600,'message':'PRIVATE-TOKEN'}});continue
   result={'account':{'type':'chatgpt'}}
  elif method=='thread/start':
-  count+=1;tid='thread-'+str(count);c=params['config'];threads[tid]={'cwd':params['cwd'],'model':params['model'],'effort':c['model_reasoning_effort'],'cancelled':False}
+  count+=1;tid='thread-'+str(count);c=params['config'];threads[tid]={'cwd':params['cwd'],'model':params['model'],'effort':c['model_reasoning_effort'],'cancelled':False,'env':c.get('shell_environment_policy.set',{})}
   result={'thread':{'id':tid},'model':params['model'],'reasoningEffort':c['model_reasoning_effort'],'cwd':params['cwd']}
  elif method=='thread/resume':
-  tid=params['threadId'];t=threads[tid];t['cancelled']=False
+  tid=params['threadId'];t=threads[tid];t['cancelled']=False;t['env']=params.get('config',{}).get('shell_environment_policy.set',{})
   result={'thread':{'id':tid},'model':t['model'],'reasoningEffort':t['effort'],'cwd':t['cwd']}
  elif method=='turn/start':
   tid=params['threadId'];threads[tid]['turns']=threads[tid].get('turns',0)+1
@@ -684,7 +689,12 @@ def test_http_correction_round_is_leased_once_and_resumes_only_server_owned_thre
             jsonschema.validate(second.json(),api_contract.schemas()['ExecutionReceipt'])
             assert second.json()['thread_id']==first['thread_id']
             assert client.post('/api/runs/round-http/execution',json={'role':'correction','round':1}).status_code==400
-            assert client.post('/api/runs/round-http/tools/finalize',json={'investigation':{}}).status_code in (400,404)
+            # Issue #187: the session's progress export records the phase as runtime_status; the tools stay closed.
+            recorded=engine.read(workspace/'run.json')
+            assert (recorded['status'],recorded['runtime_status'])==('in_progress','correcting')
+            for action,body in (('discover',{'plan':{}}),('acquire',{'ids':['W2']}),('finalize',{'investigation':{}})):
+                refused=client.post('/api/runs/round-http/tools/'+action,json=body)
+                assert refused.status_code==400 and refused.json()['error'].startswith(action+' is closed during correction: '),refused.text
     finally:
         server.shutdown();server.server_close();thread.join(5)
 
@@ -735,6 +745,81 @@ def test_actual_api_worker_runs_research_correction_fresh_audit_and_retains_hist
             assert all(c['params']['model']=='gpt-6.1-sol' for c in recorded if c['method']=='thread/start')
     finally:
         server.shutdown();server.server_close();thread.join(5)
+
+
+@pytest.mark.parametrize('retry_fixes',[True,False],ids=['retry_accepted','retry_still_invalid'])
+def test_actual_api_worker_correction_cannot_acquire_and_gets_one_retry_naming_its_passages(native,retry_fixes):
+    # Issue #187: a correction session acquired a paper with canary.tools_cli and cited W…-r001-table5 passage IDs.
+    import hashlib,shlex
+    from copy import deepcopy
+    from test_corrections import two_claims,response,audit_for
+    from canary import audit_validation,corrections
+    pool,home,root=native
+    fixture=root/'fixture';fixture.mkdir();payload,_,first=two_claims(fixture)
+    raw=json.loads((fixture/'investigation.json').read_text())
+    corrected=response(payload);invalid,still=deepcopy(corrected),deepcopy(corrected)
+    invalid['responses'][0]['passage_ids']=['W1-r001-table5'];still['responses'][0]['passage_ids']=['W1-r001-figure9']
+    proposed,_=corrections.apply(payload,audit_validation.bind(payload,first),corrected)
+    revised=engine.bind_payload(fixture,investigation=proposed)
+    # As a session does, it acquires after its progress export has recorded the correcting phase.
+    acquire=('for i in $(seq 250); do grep -q \'"runtime_status": "correcting"\' run.json && break; sleep .02; done; '
+             +shlex.quote(sys.executable)+' -m canary.tools_cli --run "$RUN_KEY" acquire --ids W2')
+    names=['question-plan.json','selection.json','reviewed-papers.json','papers/W1.txt','texts/W1.txt',
+        'passages/W1.jsonl','download-receipts/W1.json']
+    engine.write(home/'scripted.json',{'research':[{'files':{n:(fixture/n).read_text() for n in names},'response':raw}],
+        'audit':[{'response':first},{'response':audit_for(revised)}],
+        'correction':[{'commands':[acquire],'response':invalid},{'response':corrected if retry_fixes else still}]})
+    server=dashboard.make_server(0,registry=root/'registry.json',root=root/'data')
+    supervisor=server.RequestHandlerClass.supervisor
+    supervisor.auth.close();supervisor.auth=pool.auth;supervisor.execution=pool;pool.can_start=supervisor._can_execute
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        with httpx.Client(base_url=f'http://127.0.0.1:{server.server_port}',timeout=20,trust_env=False) as client:
+            started=client.post('/api/runs',json={'spec':{'question':'Synthetic fixture question?',
+                'retrieval':{'target_papers':1},'audit':{'max_correction_rounds':1}}})
+            assert started.status_code==201,started.text
+            key=started.json()['key']
+            eventually(lambda:not client.get('/api/runs/'+key).json().get('live',True),timeout=25)
+            graph=client.get('/api/runs/'+key+'/bundle').json()['research']['answer']
+            exported=client.get('/api/runs/'+key+'/exports/resolvent').json()
+    finally:
+        server.shutdown();server.server_close();thread.join(5)
+    # The tool refuses the acquisition by name, and the run continues.
+    [attempt]=[json.loads(line) for line in (home/'commands.jsonl').read_text().splitlines()]
+    assert attempt['exit_code']==1 and 'acquire is closed during correction: ' in attempt['stderr'],attempt
+    # The invalid response goes back to the same session once, naming the exact passage IDs.
+    problem='Correction response rejected: C1 cites passage IDs that are not source passages of this run: '
+    [correction]=[r for r in graph['claim_revisions'] if r['kind']=='correction']
+    retry=correction['receipt']['response_retry']
+    assert (retry['problem'],retry['resumed'],retry['role'])==(problem+'W1-r001-table5',True,'correction_001')
+    assert retry['rejected_response_sha256']==hashlib.sha256(json.dumps(invalid).encode()).hexdigest()
+    jsonschema.validate(correction['receipt'],api_contract.schemas()['ExecutionReceipt'])
+    recorded=calls(home)
+    turns=[c['params'] for c in recorded if c['method']=='turn/start' and 'responses' in c['params']['outputSchema']['properties']]
+    assert len(turns)==2 and turns[0]['threadId']==turns[1]['threadId']
+    assert problem+'W1-r001-table5' in turns[1]['input'][0]['text'] and 'This is the only retry' in turns[1]['input'][0]['text']
+    audits=len([c for c in recorded if c['method']=='thread/start'])-1
+    if retry_fixes:
+        assert graph['verification']['failure'] is None and 'stopped' not in graph['verification'] and audits==2
+        assert [c['id'] for c in graph['claims']]==['C1','C2'] and graph['claims'][0]['text'].startswith('Revised')
+    else:
+        # The round still fails: the claim the audit passed stays supported; only the flagged one is withheld.
+        failure='ValueError: '+problem+'W1-r001-figure9'
+        assert (graph['verification']['failure'],correction['status'],audits)==(failure,'failed',1)
+        assert graph['verification']['stopped']=={'kind':'correction','round':1,'status':'failed','audit_round':0}
+        assert [c['id'] for c in graph['claims']]==['C2'] and [r['claim']['id'] for r in graph['withheld_claims']]==['C1']
+        assert graph['withheld_claims'][0]['reason'].startswith('Verification stopped ('+failure+'). ')
+        assert [c['statement'] for c in exported['claims']]==[graph['claims'][0]['text']]
+        assert corrections.stopped_text(graph['verification']) in exported['result']['limitations']
+    run_dashboard(root,graph,r'''
+const html=verificationHtml(graph);
+assert.match(html,/Correction round 1 · Canary could not accept the first response\. Correction response rejected: C1 cites passage IDs that are not source passages of this run: W1-r001-table5\. The same session was asked once to fix it;/);
+if(graph.verification.failure){
+ assert.match(html,/Correction round 1 did not finish\. Only claims audit round 0 passed, unchanged since, stay active; every other claim was withheld\./);
+ assert.match(html,/the round then stopped: ValueError: Correction response rejected: C1 cites passage IDs that are not source passages of this run: W1-r001-figure9/);
+ assert.match(withheldClaimsHtml(graph),/C1 · withheld/);
+} else assert.match(html,/its corrected response was accepted\./);
+''')
 
 
 

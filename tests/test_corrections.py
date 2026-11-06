@@ -180,6 +180,61 @@ def test_interruption_or_protected_input_change_cannot_leave_a_claim_active(tmp_
     assert (tmp_path/'investigation.json').read_bytes() == original
 
 
+def two_claims(path, rounds=1):
+    """Research with C1 for the audit to flag and C2 for it to pass, and that audit."""
+    _, manifest = prepared(path, rounds=rounds)
+    raw = engine.read(path/'investigation.json')
+    raw['claims'].append(dict(deepcopy(raw['claims'][0]), id='C2', text='A second synthetic attributed source record.'))
+    engine.write(path/'investigation.json', raw)
+    payload = engine.bind_payload(path)
+    audit = audit_for(payload)
+    audit['claim_checks'][0].update(assessment='correction_needed', issue_types=['missing_scope'])
+    return payload, manifest, audit
+
+
+@pytest.mark.parametrize('failure', ['session_error', 'acquired_source', 'invalid_response', 'cancelled'])
+def test_a_failed_correction_keeps_the_claims_the_audit_passed(tmp_path, monkeypatch, failure):
+    # Issue #187: a failed correction round withheld every claim, including those the audit passed.
+    payload, manifest, flagged = two_claims(tmp_path)
+    def scientific(workspace, role, *args, **kwargs):
+        if role == 'audit': return flagged, {}
+        if failure == 'cancelled': raise engine.RunCancelled('Synthetic cancellation')
+        if failure == 'session_error': raise RuntimeError('Synthetic correction failure')
+        returned = response(payload)
+        if failure == 'acquired_source': (workspace/'papers/W2.pdf').write_bytes(b'Synthetic acquired body')
+        else: returned['responses'][0]['passage_ids'] = ['W1-r001-table5']
+        return returned, {}
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    if failure == 'cancelled':
+        with pytest.raises(engine.RunCancelled): correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+        final = engine.read(tmp_path/'payload.json')
+    else: final = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert final['claims'] == [payload['claims'][1]] and [r['claim']['id'] for r in final['withheld_claims']] == ['C1']
+    assert final['verification']['stopped'] == {'kind': 'correction', 'round': 1, 'audit_round': 0,
+                                                'status': 'cancelled' if failure == 'cancelled' else 'failed'}
+    assert final['withheld_claims'][0]['reason'].startswith('Verification stopped (' + final['verification']['failure'] + '). ')
+    assert corrections.stopped_text(final['verification']).endswith(
+        '. Correction round 1 did not finish. Only claims audit round 0 passed, unchanged since, stay active; '
+        'every other claim was withheld. Working sources are kept.')
+
+
+def test_a_rejected_correction_names_every_problem_with_its_ids(tmp_path):
+    payload, _, flagged = two_claims(tmp_path)
+    check = audit_validation.bind(payload, flagged)
+    data = response(payload)
+    data['responses'][0]['passage_ids'] = ['W1-r001-table5', 'W1-p0001', 'W1-r001-figure9']
+    data['responses'].append(dict(data['responses'][0], claim_id='C9'))
+    data['investigation']['claims'][1]['text'] += ' Unexplained rewrite.'
+    with pytest.raises(ValueError) as rejected: corrections.apply(payload, check, data)
+    assert str(rejected.value) == ('Correction response rejected: responses name claims that do not exist: C9; '
+        'C1 cites passage IDs that are not source passages of this run: W1-r001-table5, W1-r001-figure9; '
+        'changed or removed claims without a response: C2')
+    assert corrections.problem(payload, check, data) == str(rejected.value)
+    assert corrections.problem(payload, check, {'responses': []}) == (
+        "Correction response does not match its schema at the top level: 'investigation' is a required property")
+    assert corrections.problem(payload, check, response(payload)) is None
+
+
 def test_a_sessions_working_files_are_removed_and_do_not_fail_the_run(tmp_path, monkeypatch):
     payload, manifest = prepared(tmp_path, rounds=1)
     def scientific(workspace, role, *args, **kwargs):

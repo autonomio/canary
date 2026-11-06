@@ -3268,7 +3268,20 @@
   function verificationHtml(g) {
     const v=g?.verification;
     if(!v?.version) return g?.verification_progress ? `<section class="coverage"><h3>${g.verification_progress.phase==='correction' ? 'Correcting findings' : 'Auditing findings'} · round ${esc(g.verification_progress.round)}</h3><p>Findings remain provisional while source checks and corrections continue.</p>${historyArtifactsHtml(g)}</section>` : '';
-    return `<section class="coverage"><h3>Verified research output</h3><p>${esc(v.supported_claims)} supported claims · ${esc(v.withheld_claims)} withheld · ${esc(v.correction_rounds)} correction rounds · ${Math.round(100*(v.withheld_share || 0))}% withheld</p><p class="hint">Only claims with a current supported verdict are active. Every audit is a fresh session; corrections return to the original researcher. Model judgments retain their stated source and scope limits.</p>${(v.run_issues || []).map(issue=>`<p role="alert">Run-level record check: ${esc(issue)}</p>`).join('')}${(v.run_findings || []).map(f=>`<p role="alert">Run-level audit finding · ${esc(f.severity || 'material')}: ${esc(f.description || '')}${(f.claim_ids || []).length ? ` · names no current claim (${esc(f.claim_ids.join(', '))})` : ''}. No claim was withheld for it; each claim keeps its own source check, and the run is reported as partial. ${(f.passage_ids || []).filter(id=>(g.passages || []).some(p=>p.id===id)).map(id=>qaButton('data-qa-passage',id,'Source passage')).join(' ')}</p>`).join('')}${v.failure ? `<p role="alert">Verification stopped: ${esc(v.failure)}. Affected claims were withheld; working sources are kept for inspection.</p>` : ''}${historyArtifactsHtml(g)}</section>`;
+    return `<section class="coverage"><h3>Verified research output</h3><p>${esc(v.supported_claims)} supported claims · ${esc(v.withheld_claims)} withheld · ${esc(v.correction_rounds)} correction rounds · ${Math.round(100*(v.withheld_share || 0))}% withheld</p><p class="hint">Only claims with a current supported verdict are active. Every audit is a fresh session; corrections return to the original researcher. Model judgments retain their stated source and scope limits.</p>${(v.run_issues || []).map(issue=>`<p role="alert">Run-level record check: ${esc(issue)}</p>`).join('')}${(v.run_findings || []).map(f=>`<p role="alert">Run-level audit finding · ${esc(f.severity || 'material')}: ${esc(f.description || '')}${(f.claim_ids || []).length ? ` · names no current claim (${esc(f.claim_ids.join(', '))})` : ''}. No claim was withheld for it; each claim keeps its own source check, and the run is reported as partial. ${(f.passage_ids || []).filter(id=>(g.passages || []).some(p=>p.id===id)).map(id=>qaButton('data-qa-passage',id,'Source passage')).join(' ')}</p>`).join('')}${v.failure ? `<p role="alert">${esc(stoppedText(v))}</p>` : ''}${responseRetryHtml(g)}${historyArtifactsHtml(g)}</section>`;
+  }
+  function stoppedText(v) {
+    // Payloads finalized before verification.stopped was recorded withheld every claim when verification stopped.
+    const s=v.stopped;
+    if(!s) return `Verification stopped: ${v.failure}. Affected claims were withheld; working sources are kept for inspection.`;
+    const kept=s.audit_round===null ? 'No audit completed, so every claim was withheld.' : `Only claims audit round ${s.audit_round} passed, unchanged since, stay active; every other claim was withheld.`;
+    return `Verification stopped: ${v.failure}. ${s.kind==='audit' ? 'Audit' : 'Correction'} round ${s.round} did not finish. ${kept} Working sources are kept for inspection.`;
+  }
+  function responseRetryHtml(g) {
+    return (g.claim_revisions || []).filter(r=>r.kind==='correction' && r.receipt?.response_retry).map(r=>{
+      const x=r.receipt.response_retry;
+      return `<p${r.failure ? ' role="alert"' : ''}>Correction round ${esc(r.round)} · Canary could not accept the first response. ${esc(x.problem)}. ${x.resumed ? 'The same session was asked once to fix it' : 'The session could not be asked to fix it'}; ${r.failure ? `the round then stopped: ${esc(r.failure)}` : 'its corrected response was accepted'}.</p>`;
+    }).join('');
   }
   function historyArtifactsHtml(g) {
     const rows=g.history_manifest || [];

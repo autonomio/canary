@@ -69,7 +69,9 @@ stopped, not only that it stopped:
 A stopped run without a recorded audit reports `audit_status: not_run`; `pending` means the
 run is still active. An audit session that ran and then exited nonzero, timed out or returned no
 final structured response reports `audit_status: failed` (`cancelled` when stopped by the
-service). The run is `partial` with `verification.failure` set, and no claim is active.
+service). The run is `partial` with `verification.failure` and `verification.stopped` set. No verdict
+from the stopped session is accepted: only claims an earlier completed audit passed, unchanged since,
+stay active. The same holds when a correction round fails; the claims the audit flagged stay withheld.
 
 ## Scientific tools
 
@@ -88,6 +90,8 @@ provider credential. Discover/acquire/finalize and active source-read receipts e
 in tracked API-owned tool processes. Acquisition retains concurrent per-paper workers,
 cursor history and individual failures. Research waits for its already-running source
 tools before binding findings. Cancellation stops those processes before snapshotting.
+During audit and correction only `catalog` and `source` run; discover, acquire and finalize
+return an error naming the phase.
 Finished sources remain readable without appending to sealed scientific artifacts.
 
 `catalog` returns typed `AgentReference` rows, and `acquire` receipts carry the same row, so

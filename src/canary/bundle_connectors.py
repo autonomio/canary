@@ -236,7 +236,7 @@ def round_record(record):
 def verified_export(result, payload):
     """Mechanical v5 mapping of the producer's already verified, closed graph."""
     from . import audit_validation
-    from .corrections import audit_basis
+    from .corrections import audit_basis, stopped_text
     metadata = result['method_metadata']
     mapping = metadata['id_map']
     audit = payload['independent_audit']
@@ -306,8 +306,7 @@ def verified_export(result, payload):
     result['result']['limitations'].extend(
         ['Run-level audit finding (material; names no current claim, so no claim was withheld for it): ' + str(f.get('description', ''))
          for f in verification.get('run_findings', [])]
-        + (['Verification stopped: ' + str(verification['failure']) + '. Every claim was withheld; working sources are kept.']
-           if verification.get('failure') else [])
+        + ([stopped_text(verification)] if verification.get('failure') else [])
         + ([] if verification.get('audit_complete') else
            ['The final independent audit did not cover its full declared scope; see method_metadata.independent_audit.']))
     result['result']['limitations'] = list(dict.fromkeys(result['result']['limitations']))
