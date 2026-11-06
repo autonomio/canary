@@ -1077,7 +1077,9 @@ def refresh_committed_progress(workspace, role, model, effort, thread_id, starte
 
 def scientific_session(workspace, role, model, effort, prompt, shape, *, executable, audit_timeout=None,
                        execution=None, run_key=None, execution_environment=None, round_index=None,
-                       resume_thread_id=None, expected_backend=None, resume_archived=True):
+                       resume_thread_id=None, expected_backend=None, resume_archived=True, review=None):
+    """review(response) names why a typed final response cannot be accepted, or returns None.
+    A named problem returns the response to the same session once (response_retry)."""
     if execution is None:
         # Detached orchestration workers use the API-owned native runtime. They
         # do not launch providers or create a second shared server.
@@ -1094,11 +1096,13 @@ def scientific_session(workspace, role, model, effort, prompt, shape, *, executa
         return read(directory / ('investigation.json' if role == 'research' else role + '.json')), body
     return _scientific_session(workspace, role, model, effort, prompt, shape,
         executable=executable, audit_timeout=audit_timeout, execution=execution, run_key=run_key, environment=execution_environment,
-        round_index=round_index, resume_thread_id=resume_thread_id, expected_backend=expected_backend, resume_archived=resume_archived)
+        round_index=round_index, resume_thread_id=resume_thread_id, expected_backend=expected_backend, resume_archived=resume_archived,
+        review=review)
 
 
 def _scientific_session(workspace, role, model, effort, prompt, shape, *, executable,
-                        audit_timeout, execution, run_key, environment, round_index, resume_thread_id, expected_backend, resume_archived):
+                        audit_timeout, execution, run_key, environment, round_index, resume_thread_id, expected_backend, resume_archived,
+                        review=None):
     session = None
     directory = workspace if round_index is None else workspace / "rounds" / f"{round_index:03d}"
     directory.mkdir(parents=True, exist_ok=True)
@@ -1119,7 +1123,7 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
         event(workspace, role + "_started", model=model, reasoning_effort=effort)
         previous_usage = native_usage(resume_thread_id, session.home) if resume_thread_id else None
         thread_id, turn_usage, timed_out, last_refresh, exit_code = None, [], False, 0.0, None
-        pauses, exhausted = [], False
+        pauses, exhausted, retry = [], False, None
         with (directory / (role + "-events.jsonl")).open("w") as events, (directory / (role + "-stderr.log")).open("w") as stderr:
             session.stderr = stderr
             invocation = session.invocation()
@@ -1139,8 +1143,9 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
                     session.start(prompt)
                     if resuming is not None and session.exit_code is None:
                         resuming["resumed"] = True
-                        event(workspace, role + "_capacity_resumed", role=profile_role,
-                              text="Resumed the same native session after a model capacity pause.")
+                        if resuming is not retry:
+                            event(workspace, role + "_capacity_resumed", role=profile_role,
+                                  text="Resumed the same native session after a model capacity pause.")
                     resuming, failed_turn = None, False
                     for line in session:
                         events.write(line); events.flush()
@@ -1169,6 +1174,31 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
                                 last_refresh = elapsed
                     exit_code = session.wait()
                     thread_id = thread_id or session.thread_id
+                    problem = None
+                    if (review and retry is None and not exit_code and thread_id and not session.cancelled.is_set()
+                            and output_path.exists()):
+                        try:
+                            problem = review(read(output_path))
+                        except ValueError:
+                            problem = 'The final response is not valid JSON'
+                    if problem:
+                        # One retry in the same session, naming every problem; the rejected response is kept.
+                        cleanup = session.archive()
+                        rejected = output_path.read_bytes()
+                        immutable_bytes(directory / (role + "-rejected-response.json"), rejected)
+                        output_path.unlink()
+                        retry = {"role": profile_role, "problem": problem, "rejected_at": now(),
+                                 "rejected_response_sha256": hashlib.sha256(rejected).hexdigest(), "resumed": False}
+                        event(workspace, role + "_response_rejected", role=profile_role, text=(
+                            "Canary could not accept the response and returns it once to the same session. " + problem)[:1600])
+                        command = command_line(executable, model, effort, workspace, schema_path, output_path,
+                                               store=context['CANARY_CODEX_CREDENTIALS_STORE'], resume_thread_id=thread_id)
+                        rejected_session, session = session, execution.open(run_key, role, workspace, model, effort, shape,
+                            output_path, stderr, command, environment, resume_thread_id=thread_id, expected_backend=session.backend,
+                            resume_archived=cleanup.get("archived", True), replacing=session)
+                        rejected_session.close()
+                        resuming, resume_thread_id, prompt = retry, thread_id, protocol.correction_retry_prompt(round_index, problem)
+                        continue
                     # Only a turn that failed by itself is classified; a lost connection or a stop never resumes.
                     if not exit_code or not thread_id or not failed_turn or session.cancelled.is_set():
                         break
@@ -1218,7 +1248,7 @@ def _scientific_session(workspace, role, model, effort, prompt, shape, *, execut
                     "timed_out": timed_out, "turn_usage": turn_usage,
                     "usage": usage_delta(usage, previous_usage), "thread_usage": usage,
                     "native_error": native_error(thread_id, session.home) if exit_code and thread_id else None,
-                    "capacity_pauses": pauses, **invocation, 'cleanup': cleanup}
+                    "capacity_pauses": pauses, **({"response_retry": retry} if review else {}), **invocation, 'cleanup': cleanup}
                 write(directory / (role + "-receipt.json"), receipt)
                 if resume_thread_id and thread_id != resume_thread_id:
                     raise RuntimeError("Research continuation did not preserve its native thread")

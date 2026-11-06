@@ -35,6 +35,12 @@ def _save(path: Path, value):
     temporary.replace(path)
 
 
+def run_phase(run):
+    """The run's recorded phase. An export stores an active phase as status in_progress and keeps it in runtime_status."""
+    status = run.get("status", "in_progress")
+    return run.get("runtime_status", status) if status in ("in_progress", "answered") else status
+
+
 def projection_inputs(workspace):
     """Cheap change detection for live projections; final export always rehashes.
 
@@ -63,9 +69,7 @@ def projection_inputs(workspace):
                 continue
             entries.append((str(path.relative_to(workspace)), stat.st_ino, stat.st_size, stat.st_mtime_ns))
     run = _load(workspace / 'run.json', {})
-    status = run.get('status', 'in_progress')
-    inputs = {'question': run.get('question'), 'model': run.get('model', 'gpt-6.1-sol'),
-              'lifecycle': run.get('runtime_status', status) if status in ('in_progress', 'answered') else status,
+    inputs = {'question': run.get('question'), 'model': run.get('model', 'gpt-6.1-sol'), 'lifecycle': run_phase(run),
               'target': run.get('minimum_papers', run.get('target_papers', run.get('target_publications', 50))),
               'local_text': run.get('local_text'), 'started_at': run.get('started_at'),
               'ended_at': run.get('ended_at'), 'failure': run.get('failure')}
@@ -211,7 +215,8 @@ def render_markdown(graph: dict):
         lines.extend([f"Verification: {verification['supported_claims']} supported claims; {verification['withheld_claims']} withheld "
             f"({verification['withheld_share']:.0%}); {verification['correction_rounds']} correction rounds.", ""])
         if verification.get("failure"):
-            lines.extend(["Verification stopped: " + str(verification["failure"]), ""])
+            from .corrections import stopped_text
+            lines.extend([stopped_text(verification), ""])
         for finding in _rows(verification.get("run_findings")):
             lines.extend(["Run-level audit finding (material; names no current claim): " + str(finding.get("description", "")), ""])
     for summary_index, summary in enumerate(graph.get("executive_summary", []), 1):
@@ -706,8 +711,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     # Evidence withheld with other claims stays a valid, disclosed basis for an active claim's recommendation.
     withheld_evidence_ids = {e.get("id") for e in _rows(payload.get("withheld_evidence"))}
     evidence_ids = [e.get("id") for e in _rows(investigation.get("evidence"))] + sorted(withheld_evidence_ids, key=str)
-    recorded_status = run.get("status", "in_progress")
-    lifecycle = run.get("runtime_status", recorded_status) if recorded_status in ("in_progress", "answered") else recorded_status
+    lifecycle = run_phase(run)
     # A stopped run without a recorded audit will not receive one.
     active = lifecycle in ("planning", "researching", "reading", "acquiring", "auditing", "correcting", "in_progress", "indexing_local_text")
     unaudited, unaudited_reason = ("pending", "Audit pending.") if active else ("not_run", "No independent audit was run.")

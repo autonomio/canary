@@ -99,63 +99,106 @@ def targets(payload, audit):
 
 
 def apply(payload, audit, response):
-    """Require explicit lineage for every rewrite, split or withdrawal."""
-    jsonschema.validate(response, schema())
+    """Require explicit lineage for every rewrite, split or withdrawal.
+
+    A rejection names every problem with its claim and passage IDs, so one retry can fix them all.
+    """
+    error = jsonschema.exceptions.best_match(jsonschema.Draft202012Validator(schema()).iter_errors(response))
+    if error is not None:
+        raise ValueError('Correction response does not match its schema at '
+                         + ('/'.join(map(str, error.absolute_path)) or 'the top level') + ': ' + error.message[:300])
     old = {c['id']: c for c in payload['claims']}
     proposed = deepcopy(response['investigation'])
     new = {c['id']: c for c in proposed['claims']}
-    if len(old) != len(payload['claims']) or len(new) != len(proposed['claims']):
-        raise ValueError('Correction cannot use duplicate claim IDs')
-    responses = {r['claim_id']: r for r in response['responses']}
-    if len(responses) != len(response['responses']) or not set(responses) <= old.keys():
-        raise ValueError('Correction responses require unique existing claim IDs')
-    if not set(targets(payload, audit)) <= responses.keys():
-        raise ValueError('Every flagged claim requires an explicit correction response')
+    problems = []
+    def named(text, identifiers):
+        if identifiers:
+            problems.append(text + ': ' + ', '.join(identifiers))
+    named('claim IDs used more than once', sorted({i for claims in (payload['claims'], proposed['claims'])
+                                                  for i, n in Counter(c['id'] for c in claims).items() if n > 1}))
+    counts = Counter(r['claim_id'] for r in response['responses'])
+    named('more than one response for', sorted(i for i, n in counts.items() if n > 1))
+    named('responses name claims that do not exist', sorted(counts.keys() - old.keys()))
+    named('flagged claims without a response', [i for i in targets(payload, audit) if i not in counts])
+    responses = {r['claim_id']: r for r in response['responses'] if r['claim_id'] in old}
     passages = {p['id'] for e in payload.get('evidence', []) for p in e.get('verbatims', [])}
     # The caller supplies all canonical IDs for source-based disputes/revisions.
     passages.update(payload.get('canonical_passage_ids', []))
     owned, withdrawn = Counter(), []
     for identifier, record in responses.items():
-        if not record['reason'].strip() or any(p not in passages for p in record['passage_ids']):
-            raise ValueError('Correction response requires a reason and valid source passage IDs')
+        if not record['reason'].strip():
+            problems.append(identifier + ' gives no reason')
+        named(identifier + ' cites passage IDs that are not source passages of this run',
+              [p for p in record['passage_ids'] if p not in passages])
         replacements = record['replacement_claim_ids']
         if len(set(replacements)) != len(replacements):
-            raise ValueError('Replacement IDs must be unique')
+            problems.append(identifier + ' repeats a replacement ID')
         if record['action'] == 'withdraw':
             if replacements or identifier in new:
-                raise ValueError('Withdrawn claim cannot remain active or name replacements')
+                problems.append(identifier + ' is withdrawn but stays active or names replacements')
             withdrawn.append({'claim': deepcopy(old[identifier]), 'reason': record['reason'], 'status': 'withdrawn',
                 'evidence': [deepcopy(e) for e in payload.get('evidence', []) if e['id'] in old[identifier].get('evidence_ids', [])],
                 'study_results': [deepcopy(r) for r in payload.get('study_results', []) if r['id'] in old[identifier].get('study_result_ids', [])],
                 'final_check': next((deepcopy(c) for c in audit.get('claim_checks', []) if c['claim_id'] == identifier), {})})
         elif record['action'] == 'dispute':
             if replacements or new.get(identifier) != old[identifier] or not record['passage_ids']:
-                raise ValueError('Dispute must preserve the claim and cite original source passages')
+                problems.append(identifier + ' is disputed, so it must stay unchanged, name no replacements and cite source passages')
         else:
             if not replacements or any(i not in new or i in old and i != identifier for i in replacements):
-                raise ValueError('Revision must identify its replacement claims without taking another claim ID')
+                problems.append(identifier + ' is revised, so it must name its replacement claims in the proposed '
+                                'investigation without taking another claim ID')
             if identifier in new and identifier not in replacements:
-                raise ValueError('Revised parent remaining active must be named as a replacement')
+                problems.append(identifier + ' is revised and stays active, so it must name itself as a replacement')
             owned.update(replacements)
-    if any(count != 1 for count in owned.values()):
-        raise ValueError('A replacement claim must have exactly one parent')
-    for identifier, claim in old.items():
-        if new.get(identifier) != claim and identifier not in responses:
-            raise ValueError('Changed or removed claim lacks a response: ' + identifier)
-    if any(identifier not in owned for identifier in new.keys() - old.keys()):
-        raise ValueError('New claim lacks revision lineage')
+    named('replacement claims with more than one parent', sorted(i for i, n in owned.items() if n != 1))
+    named('changed or removed claims without a response', [i for i, c in old.items() if new.get(i) != c and i not in responses])
+    named('new claims without a revision parent', sorted(i for i in new.keys() - old.keys() if i not in owned))
+    if problems:
+        raise ValueError('Correction response rejected: ' + '; '.join(problems))
     return proposed, withdrawn
 
 
-def finalize(payload, audit, history, withdrawn=(), *, failure=None):
-    """Keep failed claims visible, while closing the active graph over supported claims."""
+def listed(paths, shown=5):
+    return ', '.join(paths[:shown]) + (f' and {len(paths) - shown} more' if len(paths) > shown else '')
+
+
+def stopped_text(verification):
+    """How a stopped verification left the claims, as reports and exports state it."""
+    stopped = verification.get('stopped')
+    if not stopped:  # Finalized before verification.stopped was recorded, when a stop withheld every claim.
+        return 'Verification stopped: ' + str(verification['failure']) + '. Every claim was withheld; working sources are kept.'
+    kept = ('It changed protected inputs (' + listed(stopped['changed_inputs']) + '), so every claim was withheld.'
+            if stopped.get('changed_inputs') else 'No audit completed, so every claim was withheld.'
+            if stopped['audit_round'] is None else
+            f"Only claims audit round {stopped['audit_round']} passed, unchanged since, stay active; every other claim was withheld.")
+    return (f"Verification stopped: {verification['failure']}. {stopped['kind'].capitalize()} round {stopped['round']} "
+            f"did not finish. {kept} Working sources are kept.")
+
+
+def problem(payload, audit, response):
+    """Why apply() would reject this response, or None."""
+    try:
+        apply(payload, audit, response)
+    except ValueError as error:
+        return str(error)
+    return None
+
+
+def finalize(payload, audit, history, withdrawn=(), *, failure=None, stopped=None):
+    """Keep failed claims visible, while closing the active graph over supported claims.
+
+    A stopped verification (failure, and where it stopped) keeps the claims the last completed audit passed,
+    unchanged since; nothing from the stopped session is accepted. If that session changed protected inputs,
+    the audited sources are no longer intact and no claim stays active.
+    """
     original = deepcopy(payload)
     checks = {c['claim_id']: c for c in audit.get('claim_checks', [])}
     flagged = set(targets(payload, audit))
     accepted, withheld = [], deepcopy(list(withdrawn))
     mechanical_issues = blocking_issues(payload)
     scoped_issues = claim_issues(payload)
-    eligible_ids = {c['id'] for c in payload.get('claims', []) if not failure and not mechanical_issues
+    changed = (stopped or {}).get('changed_inputs') if failure else None
+    eligible_ids = {c['id'] for c in payload.get('claims', []) if not mechanical_issues and not changed
         and c['id'] not in flagged and checks.get(c['id'], {}).get('assessment') == 'supported'
         and audit_validation.current(payload, c, checks[c['id']])}
     dependencies = {c['id']: set() for c in payload.get('claims', [])}
@@ -181,12 +224,16 @@ def finalize(payload, audit, history, withdrawn=(), *, failure=None):
         else:
             material = [f.get('description', '') for f in audit.get('findings', []) if f.get('severity') == 'material'
                 and claim['id'] in (f.get('claim_ids') or [])]
-            reason = (failure or ('Source binding checks failed: ' + '; '.join(mechanical_issues) if mechanical_issues else None)
+            reason = (('Protected inputs changed after the last completed audit: ' + listed(changed) if changed else None)
+                or ('Source binding checks failed: ' + '; '.join(mechanical_issues) if mechanical_issues else None)
                 or ('Claim record checks failed: ' + '; '.join(scoped_issues[claim['id']]) if scoped_issues.get(claim['id']) else None)
                 or ('Material finding remains: ' + '; '.join(material) if material else None)
                 or ('Depends on withheld or unknown premise claims: ' + ', '.join(sorted(dependencies[claim['id']] - eligible_ids)) if dependencies[claim['id']] - eligible_ids else None)
                 or (check.get('reason') if check.get('assessment') != 'supported' else None)
+                or ('No completed audit checked this claim' if not check else None)
                 or 'The audit has incomplete evidence assessments or a stale verdict')
+            if failure:
+                reason = 'Verification stopped (' + failure + '). ' + reason
             withheld.append({'claim': deepcopy(claim), 'status': 'withheld',
                 'reason': reason, 'final_check': deepcopy(check),
                 'evidence': [deepcopy(e) for e in payload.get('evidence', []) if e['id'] in claim.get('evidence_ids', [])],
@@ -203,6 +250,7 @@ def finalize(payload, audit, history, withdrawn=(), *, failure=None):
             'withheld_share': len(withheld)/(len(accepted)+len(withheld)) if accepted or withheld else 0,
             'correction_rounds': sum(h.get('kind') == 'correction' for h in history),
             'audit_complete': audit.get('audit_complete', False), 'failure': failure,
+            **({'stopped': deepcopy(stopped)} if failure and stopped else {}),
             'run_issues': [issue for issue in (payload.get('mechanical_audit') or {}).get('issues', [])
                            if issue not in mechanical_issues and issue not in scoped],
             'run_findings': run_findings(payload, audit)})

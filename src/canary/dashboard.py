@@ -492,8 +492,11 @@ class Supervisor:
                     'Recheck every current claim and shared scientific record against original sources. '
                     'Never inspect correction-input.json, correction responses/reasoning or other round files.\n')
             shape = protocol.audit_schema()
+        # An invalid correction response goes back to the same session once, with every problem named.
+        from .correction_runtime import reviewer
+        review = reviewer(workspace, round_index) if role == 'correction' else None
         _, receipt = engine.scientific_session(workspace, role, model, effort, prompt, shape,
-            executable=context['CANARY_CODEX_EXECUTABLE'], audit_timeout=None,
+            executable=context['CANARY_CODEX_EXECUTABLE'], audit_timeout=None, review=review,
             execution=self.execution, run_key=key, round_index=round_index,
             resume_thread_id=resume.get('thread_id') if resume else None,
             expected_backend=resume.get('backend') if resume else None,
@@ -505,10 +508,12 @@ class Supervisor:
 
     def execute_tool(self, key, action, body):
         from .research_tools import execute, inline_source_read
+        from .coverage_export import run_phase
         with self.lock:
             row = runs.get(key, self.registry)
             if row is None: raise KeyError(key)
-            recorded = _load_json_file(Path(row['bundle'])/'run.json', {}).get('status')
+            # A session's progress export rewrites an auditing or correcting status as in_progress.
+            recorded = run_phase(_load_json_file(Path(row['bundle'])/'run.json', {}))
             if row.get('execution_closed'): row = dict(row, status='done')
             elif recorded not in runs._ACTIVE_STATUS: row = dict(row, status=recorded)
             if action == 'catalog' or action == 'source' and row.get('status') not in runs._ACTIVE_STATUS:
@@ -518,7 +523,9 @@ class Supervisor:
             if action in ('discover','acquire','finalize') and not (Path(row['bundle'])/'run.json').is_file():
                 raise ValueError('The run has not initialized its research workspace yet')
             if recorded in ('auditing', 'correcting') and action not in ('catalog', 'source'):
-                raise ValueError('Verification may read original sources, but cannot change research or acquisition inputs')
+                raise ValueError(f"{action} is closed during {'the audit' if recorded == 'auditing' else 'correction'}: "
+                    'verification reads only the sources research acquired, with catalog and source. '
+                    'Record a source you still need as a gap or limitation.')
             if inline_source_read(action, body):
                 # Keep the read and its reading receipt inside admission's lock.
                 # Finish/cancel cannot release working files beneath this reader.

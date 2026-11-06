@@ -60,6 +60,14 @@ class CapacityPause(TypedDict):
     native_error: NativeError
 
 
+class ResponseRetry(TypedDict):
+    role: str
+    problem: str
+    rejected_at: str
+    rejected_response_sha256: str
+    resumed: bool
+
+
 class ExecutionReceipt(TypedDict, total=False):
     backend: Literal['shared_codex_app_server', 'codex_exec']
     fallback_reason: str | None
@@ -74,6 +82,7 @@ class ExecutionReceipt(TypedDict, total=False):
     timed_out: bool
     native_error: NativeError | None
     capacity_pauses: list[CapacityPause]
+    response_retry: ResponseRetry | None
     turn_usage: list[dict]
     usage: dict
     thread_usage: dict

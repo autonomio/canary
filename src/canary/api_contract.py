@@ -135,6 +135,11 @@ def schemas():
         'context_label':S,'text_available':B,'text_complete':nullable(B),'offset_verified':B,'warning':S,
         'source_bytes_retained':B},
         ['source_id','reference','paragraphs','text_available','offset_verified','warning'],closed=False)
+    receipt = typed(ExecutionReceipt)
+    receipt['properties']['response_retry']['description'] = ('Correction receipts only. Null when the typed response was '
+        'accepted as returned. Otherwise the response failed the checks verification applies; problem names every failure, the '
+        'rejected response is kept as correction-rejected-response.json with this SHA-256, and the same session got one retry '
+        '(resumed is true once that turn started). A response still invalid after it fails the correction round.')
     named_findings = {name:generated['properties'][field]['items'] for name,field in (
         ('GeneratedClaim','claims'),('GeneratedEvidence','evidence'),('Gap','gaps'),('Residue','residue'),
         ('StudyResult','study_results'),('Contradiction','contradictions'),('NextQuestion','next_questions'))}
@@ -188,6 +193,12 @@ def schemas():
             'candidate_claims':I,'supported_claims':I,'withheld_claims':I,
             'withheld_share':{'type':'number','minimum':0,'maximum':1},'correction_rounds':I,
             'audit_complete':B,'failure':nullable(S),'run_issues':arr(S),
+            'stopped':dict(obj({'kind':{'enum':['audit','correction']},'round':I,'status':{'enum':['failed','cancelled']},
+                'audit_round':nullable(I),'changed_inputs':arr(S)},['kind','round','status','audit_round','changed_inputs']),
+                description='Present when verification stopped (failure is set): the phase and round that stopped, and the '
+                    'round of the last completed audit. Active claims are only those that audit passed, unchanged since; '
+                    'audit_round null means no audit completed, so every claim is withheld. changed_inputs lists protected '
+                    'inputs the stopped session rewrote, removed or added (workspace paths); any withholds every claim.'),
             'run_findings':dict(arr(obj({'id':S,'severity':S,'description':S,'claim_ids':arr(S),
                 'reference_ids':arr(S),'passage_ids':arr(S)},['severity','description'],closed=False)),
                 description='Material audit findings that name no current claim. They are disclosed for the run, '
@@ -215,7 +226,7 @@ def schemas():
         'InputReceipt':obj({'id':S,'bytes':I},['id','bytes']),
         'Log':obj({'runs':arr(ref('Run'))},['runs']),
         'LoginRequest':obj({'method':{'type':'string','enum':['browser','device'],'default':'browser'}}),
-        'ExecutionRequest':typed(ExecutionRequest),'ExecutionReceipt':typed(ExecutionReceipt),
+        'ExecutionRequest':typed(ExecutionRequest),'ExecutionReceipt':receipt,
         'NativeError':{**typed(NativeError),
             'description':'Terminal native Codex error of a scientific role (task_complete.error in its native session); a run reports its research role. code is codex_error_info verbatim; message is bounded and redacted. transient_provider_capacity (server_overloaded) is not a scientific refusal or a research error; other codes stay unclassified. same_run_retryable is true only for transient_provider_capacity: the role pauses within its run and resumes the same native session, model and account, up to a bound (CapacityPause). Otherwise a role runs once per run, and rerun starts a new run with the saved settings.'},
         'CapacityPause':{**typed(CapacityPause),
