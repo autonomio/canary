@@ -806,7 +806,7 @@ def test_actual_api_worker_correction_cannot_acquire_and_gets_one_retry_naming_i
         # The round still fails: the claim the audit passed stays supported; only the flagged one is withheld.
         failure='ValueError: '+problem+'W1-r001-figure9'
         assert (graph['verification']['failure'],correction['status'],audits)==(failure,'failed',1)
-        assert graph['verification']['stopped']=={'kind':'correction','round':1,'status':'failed','audit_round':0}
+        assert graph['verification']['stopped']=={'kind':'correction','round':1,'status':'failed','audit_round':0,'changed_inputs':[]}
         assert [c['id'] for c in graph['claims']]==['C2'] and [r['claim']['id'] for r in graph['withheld_claims']]==['C1']
         assert graph['withheld_claims'][0]['reason'].startswith('Verification stopped ('+failure+'). ')
         assert [c['statement'] for c in exported['claims']]==[graph['claims'][0]['text']]

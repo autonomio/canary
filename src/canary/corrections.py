@@ -158,12 +158,18 @@ def apply(payload, audit, response):
     return proposed, withdrawn
 
 
+def listed(paths, shown=5):
+    return ', '.join(paths[:shown]) + (f' and {len(paths) - shown} more' if len(paths) > shown else '')
+
+
 def stopped_text(verification):
     """How a stopped verification left the claims, as reports and exports state it."""
     stopped = verification.get('stopped')
     if not stopped:  # Finalized before verification.stopped was recorded, when a stop withheld every claim.
         return 'Verification stopped: ' + str(verification['failure']) + '. Every claim was withheld; working sources are kept.'
-    kept = ('No audit completed, so every claim was withheld.' if stopped['audit_round'] is None else
+    kept = ('It changed protected inputs (' + listed(stopped['changed_inputs']) + '), so every claim was withheld.'
+            if stopped.get('changed_inputs') else 'No audit completed, so every claim was withheld.'
+            if stopped['audit_round'] is None else
             f"Only claims audit round {stopped['audit_round']} passed, unchanged since, stay active; every other claim was withheld.")
     return (f"Verification stopped: {verification['failure']}. {stopped['kind'].capitalize()} round {stopped['round']} "
             f"did not finish. {kept} Working sources are kept.")
@@ -182,7 +188,8 @@ def finalize(payload, audit, history, withdrawn=(), *, failure=None, stopped=Non
     """Keep failed claims visible, while closing the active graph over supported claims.
 
     A stopped verification (failure, and where it stopped) keeps the claims the last completed audit passed,
-    unchanged since; nothing from the stopped session is accepted.
+    unchanged since; nothing from the stopped session is accepted. If that session changed protected inputs,
+    the audited sources are no longer intact and no claim stays active.
     """
     original = deepcopy(payload)
     checks = {c['claim_id']: c for c in audit.get('claim_checks', [])}
@@ -190,7 +197,8 @@ def finalize(payload, audit, history, withdrawn=(), *, failure=None, stopped=Non
     accepted, withheld = [], deepcopy(list(withdrawn))
     mechanical_issues = blocking_issues(payload)
     scoped_issues = claim_issues(payload)
-    eligible_ids = {c['id'] for c in payload.get('claims', []) if not mechanical_issues
+    changed = (stopped or {}).get('changed_inputs') if failure else None
+    eligible_ids = {c['id'] for c in payload.get('claims', []) if not mechanical_issues and not changed
         and c['id'] not in flagged and checks.get(c['id'], {}).get('assessment') == 'supported'
         and audit_validation.current(payload, c, checks[c['id']])}
     dependencies = {c['id']: set() for c in payload.get('claims', [])}
@@ -216,7 +224,8 @@ def finalize(payload, audit, history, withdrawn=(), *, failure=None, stopped=Non
         else:
             material = [f.get('description', '') for f in audit.get('findings', []) if f.get('severity') == 'material'
                 and claim['id'] in (f.get('claim_ids') or [])]
-            reason = (('Source binding checks failed: ' + '; '.join(mechanical_issues) if mechanical_issues else None)
+            reason = (('Protected inputs changed after the last completed audit: ' + listed(changed) if changed else None)
+                or ('Source binding checks failed: ' + '; '.join(mechanical_issues) if mechanical_issues else None)
                 or ('Claim record checks failed: ' + '; '.join(scoped_issues[claim['id']]) if scoped_issues.get(claim['id']) else None)
                 or ('Material finding remains: ' + '; '.join(material) if material else None)
                 or ('Depends on withheld or unknown premise claims: ' + ', '.join(sorted(dependencies[claim['id']] - eligible_ids)) if dependencies[claim['id']] - eligible_ids else None)

@@ -3274,7 +3274,8 @@
     // Payloads finalized before verification.stopped was recorded withheld every claim when verification stopped.
     const s=v.stopped;
     if(!s) return `Verification stopped: ${v.failure}. Affected claims were withheld; working sources are kept for inspection.`;
-    const kept=s.audit_round===null ? 'No audit completed, so every claim was withheld.' : `Only claims audit round ${s.audit_round} passed, unchanged since, stay active; every other claim was withheld.`;
+    const changed=s.changed_inputs || [], listed=changed.slice(0,5).join(', ')+(changed.length>5 ? ` and ${changed.length-5} more` : '');
+    const kept=changed.length ? `It changed protected inputs (${listed}), so every claim was withheld.` : s.audit_round===null ? 'No audit completed, so every claim was withheld.' : `Only claims audit round ${s.audit_round} passed, unchanged since, stay active; every other claim was withheld.`;
     return `Verification stopped: ${v.failure}. ${s.kind==='audit' ? 'Audit' : 'Correction'} round ${s.round} did not finish. ${kept} Working sources are kept for inspection.`;
   }
   function responseRetryHtml(g) {

@@ -194,10 +194,11 @@ def schemas():
             'withheld_share':{'type':'number','minimum':0,'maximum':1},'correction_rounds':I,
             'audit_complete':B,'failure':nullable(S),'run_issues':arr(S),
             'stopped':dict(obj({'kind':{'enum':['audit','correction']},'round':I,'status':{'enum':['failed','cancelled']},
-                'audit_round':nullable(I)},['kind','round','status','audit_round']),
+                'audit_round':nullable(I),'changed_inputs':arr(S)},['kind','round','status','audit_round','changed_inputs']),
                 description='Present when verification stopped (failure is set): the phase and round that stopped, and the '
                     'round of the last completed audit. Active claims are only those that audit passed, unchanged since; '
-                    'audit_round null means no audit completed, so every claim is withheld.'),
+                    'audit_round null means no audit completed, so every claim is withheld. changed_inputs lists protected '
+                    'inputs the stopped session rewrote, removed or added (workspace paths); any withholds every claim.'),
             'run_findings':dict(arr(obj({'id':S,'severity':S,'description':S,'claim_ids':arr(S),
                 'reference_ids':arr(S),'passage_ids':arr(S)},['severity','description'],closed=False)),
                 description='Material audit findings that name no current claim. They are disclosed for the run, '

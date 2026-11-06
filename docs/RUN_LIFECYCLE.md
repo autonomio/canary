@@ -72,6 +72,8 @@ final structured response reports `audit_status: failed` (`cancelled` when stopp
 service). The run is `partial` with `verification.failure` and `verification.stopped` set. No verdict
 from the stopped session is accepted: only claims an earlier completed audit passed, unchanged since,
 stay active. The same holds when a correction round fails; the claims the audit flagged stay withheld.
+A stopped session that changed protected inputs (`verification.stopped.changed_inputs`) leaves no
+claim active.
 
 ## Scientific tools
 

@@ -192,7 +192,7 @@ def two_claims(path, rounds=1):
     return payload, manifest, audit
 
 
-@pytest.mark.parametrize('failure', ['session_error', 'acquired_source', 'invalid_response', 'cancelled'])
+@pytest.mark.parametrize('failure', ['session_error', 'invalid_response', 'cancelled', 'restored_investigation'])
 def test_a_failed_correction_keeps_the_claims_the_audit_passed(tmp_path, monkeypatch, failure):
     # Issue #187: a failed correction round withheld every claim, including those the audit passed.
     payload, manifest, flagged = two_claims(tmp_path)
@@ -201,7 +201,7 @@ def test_a_failed_correction_keeps_the_claims_the_audit_passed(tmp_path, monkeyp
         if failure == 'cancelled': raise engine.RunCancelled('Synthetic cancellation')
         if failure == 'session_error': raise RuntimeError('Synthetic correction failure')
         returned = response(payload)
-        if failure == 'acquired_source': (workspace/'papers/W2.pdf').write_bytes(b'Synthetic acquired body')
+        if failure == 'restored_investigation': (workspace/'investigation.json').write_text('{}')
         else: returned['responses'][0]['passage_ids'] = ['W1-r001-table5']
         return returned, {}
     monkeypatch.setattr(engine, 'scientific_session', scientific)
@@ -210,12 +210,33 @@ def test_a_failed_correction_keeps_the_claims_the_audit_passed(tmp_path, monkeyp
         final = engine.read(tmp_path/'payload.json')
     else: final = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
     assert final['claims'] == [payload['claims'][1]] and [r['claim']['id'] for r in final['withheld_claims']] == ['C1']
-    assert final['verification']['stopped'] == {'kind': 'correction', 'round': 1, 'audit_round': 0,
+    assert final['verification']['stopped'] == {'kind': 'correction', 'round': 1, 'audit_round': 0, 'changed_inputs': [],
                                                 'status': 'cancelled' if failure == 'cancelled' else 'failed'}
     assert final['withheld_claims'][0]['reason'].startswith('Verification stopped (' + final['verification']['failure'] + '). ')
     assert corrections.stopped_text(final['verification']).endswith(
         '. Correction round 1 did not finish. Only claims audit round 0 passed, unchanged since, stay active; '
         'every other claim was withheld. Working sources are kept.')
+
+
+@pytest.mark.parametrize('change', ['rewrote_cited_passages', 'added_source', 'rewrote_then_failed'])
+def test_a_correction_that_changes_protected_inputs_leaves_no_claim_active(tmp_path, monkeypatch, change):
+    # An audit-passed claim stays active only while the sources and records its audit read are intact.
+    payload, manifest, flagged = two_claims(tmp_path)
+    path = {'rewrote_cited_passages': 'passages/W1.jsonl', 'added_source': 'papers/W2.pdf',
+            'rewrote_then_failed': 'download-receipts/W1.json'}[change]
+    def scientific(workspace, role, *args, **kwargs):
+        if role == 'audit': return flagged, {}
+        (workspace/path).write_text('Synthetic changed source.')
+        if change == 'rewrote_then_failed': raise RuntimeError('Synthetic correction failure')
+        return response(payload), {}
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    final = correction_runtime.verify(tmp_path, payload, manifest, 'tools', 'synthetic')
+    assert not final['claims'] and [r['claim']['id'] for r in final['withheld_claims']] == ['C1', 'C2']
+    assert final['verification']['stopped']['changed_inputs'] == [path]
+    assert final['withheld_claims'][1]['reason'] == ('Verification stopped (' + final['verification']['failure'] + '). '
+                                                     'Protected inputs changed after the last completed audit: ' + path)
+    assert corrections.stopped_text(final['verification']).endswith(
+        f'. Correction round 1 did not finish. It changed protected inputs ({path}), so every claim was withheld. Working sources are kept.')
 
 
 def test_a_rejected_correction_names_every_problem_with_its_ids(tmp_path):
