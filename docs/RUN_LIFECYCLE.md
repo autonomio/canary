@@ -73,7 +73,8 @@ service). The run is `partial` with `verification.failure` and `verification.sto
 from the stopped session is accepted: only claims an earlier completed audit passed, unchanged since,
 stay active. The same holds when a correction round fails; the claims the audit flagged stay withheld.
 A stopped session that changed protected inputs (`verification.stopped.changed_inputs`) leaves no
-claim active.
+claim active. The research's `coverage-map.json` is the exception: a session that changes it gets the
+research's version back, which does not stop the round, and the round's history records `restored_inputs`.
 
 ## Scientific tools
 

@@ -206,7 +206,13 @@ def schemas():
         'WithheldClaim':obj({'evidence':arr(O),'claim':ref('RecordedClaim'),'status':S,'reason':S,'final_check':O}, ['claim','status','reason'],closed=False),
         'ClaimRevision':obj({'round':I,'kind':{'enum':['research','audit','correction']},
             'investigation':O,'payload':O,'audit':O,'responses':arr(O),'receipt':O,
-            'status':S,'failure':S,'claim_ids':arr(S),'response_text':nullable(S)}, ['round','kind'],closed=False),
+            'status':S,'failure':S,'claim_ids':arr(S),'response_text':nullable(S),
+            'restored_inputs':dict(arr(obj({'path':S,'session_version':nullable(S)},['path','session_version'])),
+                description='Research records this session rewrote, removed or added that Canary put back before anything '
+                    "read them again, instead of counting them as changed inputs: coverage-map.json, which no claim, evidence "
+                    "record, source or count reads. session_version is where the session's file is kept with the working "
+                    'sources (rounds/NNN/{kind}-{path}); null when it removed the file or left a link. Absent when none.')},
+            ['round','kind'],closed=False),
         'ClaimReviewCheck':obj({'kind':{'enum':['missing_study_result','context_wording','possible_duplicate']},
             'claim_ids':arr(S),'blocking':B,'message':S}, ['kind','claim_ids','blocking','message']),
         'RecordedClaimCheck':obj({'claim_id':S,'assessment':S,'reason':S,'issue_types':arr(S),
