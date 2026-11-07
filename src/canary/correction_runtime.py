@@ -5,8 +5,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import uuid
 
 from . import audit_validation, corrections, coverage_protocol as protocol
+
+# The research's coverage bookkeeping. No claim, evidence record, source or count reads it, and a correction has no
+# typed field for it. A session that changes it, as the research thread a correction continues was told to keep it,
+# gets the research's version back instead of failing the round.
+RESTORED = ('coverage-map.json',)
 
 
 def protected(workspace):
@@ -70,9 +76,51 @@ def input_changes(workspace, before, number):
     return sorted(str(path.relative_to(workspace)) for path in changed)
 
 
-def changed_inputs(workspace, before, role, number):
+def research_records(workspace):
+    """The research's bytes of each restored record, None where it left none. A link or directory there stays only protected."""
+    paths = {name: workspace/name for name in RESTORED}
+    return {name: path.read_bytes() if path.exists() else None for name, path in paths.items()
+            if not path.is_symlink() and (path.is_file() or not path.exists())}
+
+
+def _replace(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
+    temporary.write_bytes(data)
+    temporary.replace(path)
+
+
+def restore_records(workspace, records, role, number):
+    """Put back each record the session rewrote, removed or added; its own file stays in its round.
+
+    A link is replaced, never followed. A directory is left for the protected-input check to report.
+    """
+    restored = []
+    for name, original in records.items():
+        path = workspace/name
+        link = path.is_symlink()
+        if not link and path.exists() and not path.is_file():
+            continue
+        current = None if link or not path.exists() else path.read_bytes()
+        if current == original and not link:
+            continue
+        kept = f'rounds/{number:03d}/{role}-{name}' if current is not None else None
+        if kept:
+            _replace(workspace/kept, current)
+        if original is None:
+            path.unlink()
+        else:
+            _replace(path, original)
+        restored.append({'path': name, 'session_version': kept})
+    return restored
+
+
+def changed_inputs(workspace, before, role, number, records):
+    """Protected inputs the session changed, once its working files are gone and research records are put back,
+    and the records put back."""
     remove_working_files(workspace, before, role, number)
-    return input_changes(workspace, before, number)
+    restored = restore_records(workspace, records, role, number)
+    return input_changes(workspace, before, number), restored
 
 
 def agent_payload(payload):
@@ -86,6 +134,7 @@ def verify(workspace, payload, manifest, command, executable):
     history, withdrawn = [], []
     audit = {'claim_checks': [], 'findings': [], 'audit_complete': False}
     original = (workspace / 'investigation.json').read_bytes()
+    records = research_records(workspace)
     directory = workspace / 'rounds' / '000'
     engine.immutable_bytes(directory / 'investigation.json', original)
     engine.immutable_bytes(directory / 'subject.json', (json.dumps(payload, ensure_ascii=False, indent=2)+'\n').encode())
@@ -98,6 +147,7 @@ def verify(workspace, payload, manifest, command, executable):
     manifest['research_finished_at'] = engine.now()
     failure = stopped = before = None
     changed, checked = [], True  # protected inputs the current session changed; checked once it has ended
+    restored_records = []  # research records the current session changed and Canary put back
     phase = ('audit', 0)
     attempt, receipt = None, {}
     try:
@@ -124,13 +174,13 @@ def verify(workspace, payload, manifest, command, executable):
                 from .source_adapters import GUIDANCE
                 prompt += GUIDANCE.format(sources=', '.join(manifest['additional_sources']))
             phase, before, checked = ('audit', round_index), protected(workspace), False
-            attempt, receipt = None, {}
+            attempt, receipt, restored_records = None, {}, []
             raw, receipt = engine.scientific_session(workspace, 'audit', protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT,
                 prompt, protocol.audit_schema(), executable=executable, round_index=round_index)
             attempt = raw
             engine.check_cancelled()
             engine.wait_for_tools(os.environ.get('RUN_KEY'))
-            changed, checked = changed_inputs(workspace, before, 'audit', round_index), True
+            (changed, restored_records), checked = changed_inputs(workspace, before, 'audit', round_index, records), True
             if changed:
                 raise ValueError('Read-only audit changed protected scientific inputs')
             passages = source_passages(workspace)
@@ -142,7 +192,8 @@ def verify(workspace, payload, manifest, command, executable):
             used.update(p for f in audit.get('findings', []) for p in f.get('passage_ids', []))
             used.update(p for r in payload.get('study_results', []) for f in r.get('fields', {}).values() if f for p in f.get('passage_ids', []))
             history.append({'round': round_index, 'kind': 'audit', 'raw_audit': raw, 'audit': audit,
-                'context_passages': [p for p in passages if p['id'] in used], 'receipt': receipt})
+                'context_passages': [p for p in passages if p['id'] in used], 'receipt': receipt,
+                **({'restored_inputs': restored_records} if restored_records else {})})
             engine.immutable_bytes(directory/'audit-bound.json', (json.dumps(audit, ensure_ascii=False, indent=2)+'\n').encode())
             flagged = corrections.targets(payload, audit)
             if not flagged or round_index == manifest['max_correction_rounds']:
@@ -156,20 +207,21 @@ def verify(workspace, payload, manifest, command, executable):
                 'claim_review_checks': payload.get('claim_review_checks', [])}
             engine.write(workspace/'rounds'/f'{next_round:03d}'/'correction-input.json', correction_input)
             phase, before, checked = ('correction', next_round), protected(workspace), False
-            attempt, receipt = None, {}
+            attempt, receipt, restored_records = None, {}, []
             response, receipt = engine.scientific_session(workspace, 'correction', protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT,
                 protocol.correction_prompt(manifest['question'], command, next_round), corrections.schema(),
                 executable=executable, round_index=next_round)
             attempt = response
             engine.check_cancelled()
             engine.wait_for_tools(os.environ.get('RUN_KEY'))
-            changed, checked = changed_inputs(workspace, before, 'correction', next_round), True
+            (changed, restored_records), checked = changed_inputs(workspace, before, 'correction', next_round, records), True
             if changed:
                 raise ValueError('Correction changed protected inputs instead of returning a typed revision')
             proposed, removed = corrections.apply(dict(payload, canonical_passage_ids=[p['id'] for p in passages]), audit, response)
             corrected = engine.bind_payload(workspace, investigation=proposed)
             history.append({'round': next_round, 'kind': 'correction', 'responses': response['responses'],
-                'investigation': proposed, 'payload': corrected, 'receipt': receipt})
+                'investigation': proposed, 'payload': corrected, 'receipt': receipt,
+                **({'restored_inputs': restored_records} if restored_records else {})})
             engine.immutable_bytes(workspace/'rounds'/f'{next_round:03d}'/'subject.json',
                 (json.dumps(corrected, ensure_ascii=False, indent=2)+'\n').encode())
             # Until a correction is wholly applied, payload stays the one the last audit checked.
@@ -186,6 +238,10 @@ def verify(workspace, payload, manifest, command, executable):
             engine.immutable_bytes(workspace/'investigation-unexpected-change.json', (workspace/'investigation.json').read_bytes())
             (workspace/'investigation.json').write_bytes(original)
         if not checked:  # The session stopped before Canary checked what it changed.
+            try:
+                restored_records = restore_records(workspace, records, kind, number)
+            except OSError:
+                pass  # A record Canary cannot put back stays a changed input.
             changed = input_changes(workspace, before, number)
         status = 'cancelled' if isinstance(error, engine.RunCancelled) or engine.cancellation_requested() else 'failed'
         # Active claims can only be those the last completed audit passed, unchanged since, with its inputs intact.
@@ -204,7 +260,8 @@ def verify(workspace, payload, manifest, command, executable):
             history.append({'round': number, 'kind': kind, 'status': status,
                 'failure': failure, 'claim_ids': [c['id'] for c in payload.get('claims', [])],
                 'receipt': engine.read(directory/(kind+'-receipt.json'), receipt), 'response_text': response_text,
-                'raw_audit' if kind == 'audit' else 'response': attempt})
+                'raw_audit' if kind == 'audit' else 'response': attempt,
+                **({'restored_inputs': restored_records} if restored_records else {})})
         if isinstance(error, engine.RunCancelled) or engine.cancellation_requested():
             final = corrections.finalize(payload, audit, history, withdrawn, failure=failure, stopped=stopped)
             engine.write(workspace/'payload.json', final)

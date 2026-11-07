@@ -822,6 +822,70 @@ if(graph.verification.failure){
 ''')
 
 
+@pytest.mark.parametrize('session_updates_map',[True,False],ids=['session_updates_map','canary_writers_only'])
+def test_actual_api_worker_restores_the_research_coverage_map_a_correction_rewrites(native,session_updates_map):
+    # Issue #189: a correction rewrote coverage-map.json, which the research thread it continues was told to keep,
+    # and the protected-input check withheld every claim of an audited run. Canary itself never writes that file.
+    import shlex
+    from test_corrections import two_claims,response,audit_for
+    from canary import audit_validation,bundle_encoding,compact_bundle,corrections
+    pool,home,root=native
+    fixture=root/'fixture';fixture.mkdir();payload,_,first=two_claims(fixture)
+    raw=json.loads((fixture/'investigation.json').read_text())
+    corrected=response(payload)
+    proposed,_=corrections.apply(payload,audit_validation.bind(payload,first),corrected)
+    revised=engine.bind_payload(fixture,investigation=proposed)
+    research_map={'A1':{'direct_source_ids':['W1'],'supporting_source_ids':[],'unresolved_needs':['A comparator.']}}
+    names=['question-plan.json','selection.json','reviewed-papers.json','papers/W1.txt','texts/W1.txt',
+        'passages/W1.jsonl','download-receipts/W1.json']
+    files=dict({n:(fixture/n).read_text() for n in names},**{'coverage-map.json':json.dumps(research_map,indent=2)})
+    # The session reads sources with the tools open during correction, while the progress export runs.
+    tool=shlex.quote(sys.executable)+' -m canary.tools_cli --run "$RUN_KEY" '
+    correction={'commands':[tool+'catalog',tool+'source W1 --match Synthetic'],'response':corrected}
+    if session_updates_map:
+        # As the research prompt asks: "Keep coverage-map.json by plan aspect ... and unresolved needs."
+        correction['files']={'coverage-map.json':json.dumps({'A1':dict(research_map['A1'],unresolved_needs=['Scope of revised C1.'])})}
+    engine.write(home/'scripted.json',{'research':[{'files':files,'response':raw}],
+        'audit':[{'response':first},{'response':audit_for(revised)}],'correction':[correction]})
+    server=dashboard.make_server(0,registry=root/'registry.json',root=root/'data')
+    supervisor=server.RequestHandlerClass.supervisor
+    supervisor.auth.close();supervisor.auth=pool.auth;supervisor.execution=pool;pool.can_start=supervisor._can_execute
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        with httpx.Client(base_url=f'http://127.0.0.1:{server.server_port}',timeout=20,trust_env=False) as client:
+            started=client.post('/api/runs',json={'spec':{'question':'Synthetic fixture question?',
+                'retrieval':{'target_papers':1},'audit':{'max_correction_rounds':1}}})
+            assert started.status_code==201,started.text
+            key=started.json()['key']
+            eventually(lambda:not client.get('/api/runs/'+key).json().get('live',True),timeout=25)
+            graph=client.get('/api/runs/'+key+'/bundle').json()['research']['answer']
+            exported=client.get('/api/runs/'+key+'/exports/resolvent').json()
+            # The hash-checked round record that canary bundle --round --phase and MCP canary_revision read.
+            revision=client.get('/api/runs/'+key+'/revisions/1/correction').json()
+    finally:
+        server.shutdown();server.server_close();thread.join(5)
+    assert [json.loads(line)['exit_code'] for line in (home/'commands.jsonl').read_text().splitlines()]==[0,0]
+    # Before: "Correction changed protected inputs instead of returning a typed revision", every claim withheld.
+    assert graph['verification']['failure'] is None,graph['verification'].get('stopped')
+    assert [c['id'] for c in graph['claims']]==['C1','C2'] and not graph['withheld_claims']
+    [correction_round]=[r for r in graph['claim_revisions'] if r['kind']=='correction']
+    # The corrected payload the second audit checked, and the final one, carry the map research recorded.
+    assert correction_round['payload']['coverage_map']==compact_bundle.payload(bundle_encoding.expand(exported))['coverage_map']==research_map
+    assert json.loads(revision['content']).get('restored_inputs')==correction_round.get('restored_inputs')
+    if session_updates_map:
+        assert correction_round['restored_inputs']==[{'path':'coverage-map.json','session_version':'rounds/001/correction-coverage-map.json'}]
+        jsonschema.validate(correction_round,{'$ref':'#/components/schemas/ClaimRevision','components':{'schemas':api_contract.schemas()}})
+        [turn]=[c['params'] for c in calls(home) if c['method']=='turn/start' and 'responses' in c['params']['outputSchema']['properties']]
+        assert 'Leave selection.json, reviewed-papers.json, coverage-map.json and scarcity.json as research recorded them;' in turn['input'][0]['text']
+    else:
+        assert not any('restored_inputs' in r for r in graph['claim_revisions'])
+    run_dashboard(root,graph,r'''
+const html=verificationHtml(graph);
+if(graph.claim_revisions.some(r=>r.restored_inputs)) assert.match(html,/Correction round 1 · The session changed coverage-map\.json\. Canary restored the research's version, which every audit reads; the session's version is kept as rounds\/001\/correction-coverage-map\.json with the working sources\./);
+else assert.doesNotMatch(html,/restored the research/);
+''')
+
+
 
 def test_failed_research_archival_can_resume_the_still_open_thread(native):
     pool,home,root=native
