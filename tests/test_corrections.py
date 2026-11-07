@@ -239,7 +239,8 @@ def test_a_correction_that_changes_protected_inputs_leaves_no_claim_active(tmp_p
         f'. Correction round 1 did not finish. It changed protected inputs ({path}), so every claim was withheld. Working sources are kept.')
 
 
-@pytest.mark.parametrize('change', ['rewrote', 'added', 'removed', 'linked', 'rewrote_then_failed', 'audit_rewrote'])
+@pytest.mark.parametrize('change', ['rewrote', 'added', 'removed', 'linked', 'rewrote_then_failed', 'audit_rewrote',
+                                    'audit_linked_unreadable'])
 def test_a_session_that_changes_the_research_coverage_map_gets_it_back(tmp_path, monkeypatch, change):
     # Issue #189: no claim, evidence record, source or count reads the coverage map, so a change to it is undone, not a failure.
     workspace, outside = tmp_path/'workspace', tmp_path/'outside.json'
@@ -248,13 +249,21 @@ def test_a_session_that_changes_the_research_coverage_map_gets_it_back(tmp_path,
     research, session = b'{"A1": {"unresolved_needs": ["A comparator."]}}\n', b'{"A1": {"unresolved_needs": []}}'
     if change != 'added': (workspace/'coverage-map.json').write_bytes(research)
     payload = engine.bind_payload(workspace)
-    role, number = ('audit', 0) if change == 'audit_rewrote' else ('correction', 1)
+    role, number = ('audit', 0) if change.startswith('audit') else ('correction', 1)
+    linked, unkept = 'linked' in change, 'linked' in change or change == 'removed'
+    if change == 'audit_linked_unreadable':
+        # A link to a file Canary cannot read: nothing may read through it before the map is put back.
+        read_bytes = Path.read_bytes
+        def unreadable(self):
+            if self.resolve() == outside.resolve(): raise PermissionError(13, 'Permission denied', str(self))
+            return read_bytes(self)
+        monkeypatch.setattr(Path, 'read_bytes', unreadable)
     def scientific(root, current, *args, **kwargs):
         index = kwargs['round_index']
         if (current, index) == (role, number):
             path = root/'coverage-map.json'
-            if change in ('removed', 'linked'): path.unlink()
-            if change == 'linked': path.symlink_to(outside)
+            if unkept: path.unlink()
+            if linked: path.symlink_to(outside)
             elif change != 'removed': path.write_bytes(session)
             if change == 'rewrote_then_failed': raise RuntimeError('Synthetic correction failure')
         if current == 'correction':
@@ -270,13 +279,12 @@ def test_a_session_that_changes_the_research_coverage_map_gets_it_back(tmp_path,
         assert [c['id'] for c in final['claims']] == ['C1', 'C2'] and final['claims'][0]['text'].startswith('Revised')
     kept = f'rounds/{number:03d}/{role}-coverage-map.json'
     [record] = [r for r in final['claim_revisions'] if (r['kind'], r['round']) == (role, number)]
-    assert record['restored_inputs'] == [{'path': 'coverage-map.json',
-                                          'session_version': None if change in ('removed', 'linked') else kept}]
+    assert record['restored_inputs'] == [{'path': 'coverage-map.json', 'session_version': None if unkept else kept}]
     if change == 'added':
         assert not (workspace/'coverage-map.json').exists() and final['coverage_map'] is None
     else:
         assert (workspace/'coverage-map.json').read_bytes() == research and final['coverage_map'] == json.loads(research)
-    if change in ('removed', 'linked'):
+    if unkept:
         assert not (workspace/kept).exists() and outside.read_text() == '{"outside": true}'
     else:
         assert (workspace/kept).read_bytes() == session

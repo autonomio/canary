@@ -58,8 +58,11 @@ def reviewer(workspace, number):
 def remove_working_files(workspace, before, role, number):
     """A session's own scripts and notes in its round are neither inputs nor results: they go, so no later session reads them."""
     directory = workspace/'rounds'/f'{number:03d}'
-    working = [path for path in protected(workspace).keys() - before.keys() - session_outputs(directory, role)
-               if directory in path.parents]
+    outputs = session_outputs(directory, role)
+    # Listed as protected() lists rounds, but nothing is read: a research record the session replaced with a link
+    # is put back only after this, so following that link here could fail the round.
+    working = [path for path in (workspace/'rounds').rglob('*') if path.is_file() and directory in path.parents
+               and path not in before and path not in outputs]
     if working:
         size = sum(path.lstat().st_size for path in working)
         for path in working:
