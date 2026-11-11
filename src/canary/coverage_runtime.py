@@ -658,6 +658,8 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
                        "fresh_download": not bool(local), "previous_run_body_used": False,
                        **({"adapter": "local_text", "local_source": work["local_text"]} if local else {})}
             try:
+                from .source_adapters import validate_record
+                validate_record(work)
                 if work.get('adapter') in ('clinicaltrials', 'epo', 'osf'):
                     from .source_adapters import Client
                     from .coverage_sources import _BorrowedPublicTransport
@@ -748,7 +750,11 @@ def bind_payload(workspace, *, investigation=None):
     if raw is None:
         raise ValueError("Research investigation.json is not available")
     payload = json.loads(json.dumps(raw))
-    references = {r["id"]: r for r in catalog(workspace)}
+    from .source_adapters import validate_record
+    references = {}
+    for reference in catalog(workspace):
+        validate_record(reference)
+        references[reference['id']] = reference
     passages, issues = {}, []
     texts = {identifier: (workspace / reference["text_file"]).read_text(encoding="utf-8")
              for identifier, reference in references.items()}

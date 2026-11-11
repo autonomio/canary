@@ -3459,7 +3459,8 @@
   }
   function localSourceHtml(ref) {
     const extra=ref?.paper?.extra;
-    if(extra?.source_kind) return `<p class="notice">${esc(extra.adapter)} · ${esc(extra.source_kind)} · ${esc(extra.source_metadata?.native_id || ref.id)}</p><p class="hint">Registry plans and patent disclosures retain their attribution; retrieval does not establish experimental validation.</p><details><summary>Source identity, version and scope</summary><pre>${esc(JSON.stringify(extra.source_metadata || {},null,2))}</pre><p>Snapshot SHA-256: <code>${esc(extra.body_sha256 || 'Unknown')}</code> · canonical text SHA-256: <code>${esc(extra.text_sha256 || 'Unknown')}</code></p></details>`;
+    const warnings=(extra?.source_record_issues || []).map(issue=>`<p role="alert">Invalid source record: ${esc(issue)}</p>`).join('');
+    if(extra?.source_kind || warnings) return `${warnings}<p class="notice">${esc(extra.adapter || 'Unknown adapter')} · ${esc(extra.source_kind || 'Unknown source kind')} · ${esc(extra.source_metadata?.native_id || ref.id)}</p><p class="hint">Registry plans and patent disclosures retain their attribution; retrieval does not establish experimental validation.</p><details><summary>Source identity, version and scope</summary><pre>${esc(JSON.stringify(extra.source_metadata || {},null,2))}</pre><p>Snapshot SHA-256: <code>${esc(extra.body_sha256 || 'Unknown')}</code> · canonical text SHA-256: <code>${esc(extra.text_sha256 || 'Unknown')}</code></p></details>`;
     if(extra?.adapter!=="local_text") return '';
     return `<p class="notice">Imported local text · ${esc(extra.local_source?.file || 'File identity unavailable')}. Completeness, tables, figures and publication version require verification.</p><p class="hint">Original SHA-256: <code>${esc(extra.body_sha256 || 'Unknown')}</code> · canonical text SHA-256: <code>${esc(extra.text_sha256 || 'Unknown')}</code></p>`;
   }
@@ -3728,7 +3729,7 @@
         return `<p class="context-paragraph ${p.selected ? "selected" : ""}" ${p.selected ? 'id="selected-source-passage"' : ""}>${content}</p>`;
       }).join("")}</div>`;
     }
-    return `<h2 tabindex="-1">${ctx?.scope==="excerpts" || ref?.source_retention==="excerpts_only" ? "Retained verbatim" : state.scope==="paper" ? "Complete paper" : "Source context"}</h2>${qaCitation(ref)}${qaSourceIntegrityHtml(g,state.sourceId)}${text}`;
+    return `<h2 tabindex="-1">${ctx?.scope==="excerpts" || ref?.source_retention==="excerpts_only" ? "Retained verbatim" : state.scope==="paper" ? (ref?.paper?.extra?.source_kind || ref?.paper?.extra?.source_record_issues?.length ? "Source record" : "Complete paper") : "Source context"}</h2>${qaCitation(ref)}${qaSourceIntegrityHtml(g,state.sourceId)}${text}`;
   }
   function paintInspector(focus=false,retainedScrolls=[]) {
     const pane=document.getElementById("evidence-inspector"), state=S.inspector, g=qaGraph(S.research[S.selected]);

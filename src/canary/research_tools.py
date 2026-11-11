@@ -92,6 +92,9 @@ def execute(row, action: str, body: ToolRequest, root: Path):
                              record_read=row.get('status') in runs._ACTIVE_STATUS and row.get('status') != 'cancelling')
     if 'investigation' in body and not isinstance(body['investigation'], dict):
         raise ValueError('investigation must contain the structured research output')
+    from .source_adapters import validate_record
+    for reference in engine.catalog(workspace):
+        validate_record(reference)
     if 'investigation' in body: engine.write(workspace/'investigation.json', body['investigation'])
     payload = engine.bind_payload(workspace)
     return {'accounting': payload['accounting'], 'mechanical_audit': payload['mechanical_audit']}

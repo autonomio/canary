@@ -1130,6 +1130,13 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
     if scope not in ("section", "paper"):
         raise ValueError("scope must be section or paper")
     reference, original, text_path, graph = source_artifacts(bundle, source_id)
+    from .source_adapters import LIMITATIONS, LABELS, record_issues
+    extra = reference.get('paper', {}).get('extra', {})
+    adapter = extra.get('adapter') if isinstance(extra.get('adapter'), str) else None
+    source_issues = record_issues(extra)
+    source_record = bool(extra.get('source_kind') or source_issues)
+    source_warning = ' '.join([*('Invalid source record: ' + issue for issue in source_issues),
+        LIMITATIONS.get(adapter, 'Source adapter is missing or unsupported; source-specific scope is unknown.')])
     payload = {"source_id": source_id, "reference": reference, "paragraphs": [], "page": None,
                "local_file_url": f"/api/runs/{quote(key, safe='')}/sources/{quote(source_id, safe='')}/file" if original else None,
                "original_url": reference.get("text_url") or reference.get("paper", {}).get("url"),
@@ -1153,15 +1160,13 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
                               key=lambda p: (p.get('start', 0), p.get('end', 0)))
                 if paragraph_id and selected is None:
                     raise ValueError('paragraph does not belong to this source')
-                extra = reference.get('paper', {}).get('extra', {})
-                context = 'Complete source' if extra.get('source_kind') else 'Full-paper'
+                context = 'Complete source' if source_record else 'Full-paper'
                 payload.update(scope='excerpts', context_label='Retained verbatim', text_complete=False,
                     text_available=bool(kept), source_bytes_retained=False,
                     paragraphs=[dict(p, selected=p.get('id') == paragraph_id) for p in kept],
                     warning=f'Only cited excerpts are retained. {context} context is available through the original source link; original bytes are not stored locally.')
-                if extra.get('source_kind'):
-                    from .source_adapters import LIMITATIONS
-                    payload['warning'] += ' ' + LIMITATIONS[extra['adapter']]
+                if source_record:
+                    payload['warning'] += ' ' + source_warning
                 return payload
             payload["warning"] = "Saved readable full-source text is missing; abstracts are not substituted."
             return payload
@@ -1230,11 +1235,9 @@ def source_context(bundle: str | Path, source_id: str, paragraph_id: str = "", s
                                            "selected": bool(selection and selection[0] <= start < stop <= selection[1])})
     if reference.get('paper', {}).get('extra', {}).get('adapter') == 'local_text':
         payload['warning'] = (payload['warning'] + ' Imported local text; publication completeness, tables and figures are not certified.').strip()
-    extra = reference.get('paper', {}).get('extra', {})
-    if extra.get('source_kind'):
-        from .source_adapters import LIMITATIONS, LABELS
-        payload['context_label'] = LABELS[extra['adapter']] + ' source record'
-        payload['warning'] = (payload['warning'] + ' ' + LIMITATIONS[extra['adapter']]).strip()
+    if source_record:
+        payload['context_label'] = LABELS.get(adapter, 'Unknown') + ' source record'
+        payload['warning'] = (payload['warning'] + ' ' + source_warning).strip()
     return payload
 
 
