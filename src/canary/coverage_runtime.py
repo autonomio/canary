@@ -750,7 +750,11 @@ def bind_payload(workspace, *, investigation=None):
     if raw is None:
         raise ValueError("Research investigation.json is not available")
     payload = json.loads(json.dumps(raw))
-    references = {r["id"]: r for r in catalog(workspace)}
+    from .source_adapters import validate_record
+    references = {}
+    for reference in catalog(workspace):
+        validate_record(reference)
+        references[reference['id']] = reference
     passages, issues = {}, []
     texts = {identifier: (workspace / reference["text_file"]).read_text(encoding="utf-8")
              for identifier, reference in references.items()}

@@ -64,9 +64,9 @@ same status. References carry `adapter`, `source_kind`, `source_metadata` and
 `record_url`; metadata retains native identifiers, trial/publication dates,
 related-publication IDs, patent family IDs or registration status, as supplied.
 
-Acquisition and finalization reject incomplete source records with the source ID
-and the missing or invalid fields. Agent-generated code verification outputs are
-not admissible sources. Existing malformed records remain exportable: the source
+Acquisition, automatic research completion and explicit finalization reject
+incomplete source records with the source ID and missing or invalid fields.
+Agent-generated code verification outputs are not admissible sources. Existing malformed records remain exportable: the source
 inspector, agent catalog and exported metadata expose `source_record_issues`, and
 the Markdown answer lists them under the reference. Missing record URLs remain
 unknown; no bibliographic URL is invented for these records.

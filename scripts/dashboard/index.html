@@ -3729,7 +3729,7 @@
         return `<p class="context-paragraph ${p.selected ? "selected" : ""}" ${p.selected ? 'id="selected-source-passage"' : ""}>${content}</p>`;
       }).join("")}</div>`;
     }
-    return `<h2 tabindex="-1">${ctx?.scope==="excerpts" || ref?.source_retention==="excerpts_only" ? "Retained verbatim" : state.scope==="paper" ? "Complete paper" : "Source context"}</h2>${qaCitation(ref)}${qaSourceIntegrityHtml(g,state.sourceId)}${text}`;
+    return `<h2 tabindex="-1">${ctx?.scope==="excerpts" || ref?.source_retention==="excerpts_only" ? "Retained verbatim" : state.scope==="paper" ? (ref?.paper?.extra?.source_kind || ref?.paper?.extra?.source_record_issues?.length ? "Source record" : "Complete paper") : "Source context"}</h2>${qaCitation(ref)}${qaSourceIntegrityHtml(g,state.sourceId)}${text}`;
   }
   function paintInspector(focus=false,retainedScrolls=[]) {
     const pane=document.getElementById("evidence-inspector"), state=S.inspector, g=qaGraph(S.research[S.selected]);

@@ -3,8 +3,9 @@ import json
 
 import pytest
 
-from canary import (bundle_connectors, coverage_export, coverage_protocol, coverage_runtime as engine,
-                    research_bundle, research_spec, research_tools, runs, source_adapters)
+from canary import (bundle_connectors, compact_bundle, correction_runtime, coverage_export,
+                    coverage_protocol, coverage_runtime as engine, research_bundle, research_spec,
+                    research_tools, runs, source_adapters)
 from test_api_contract import api, validate_response  # noqa: F401 (fixture)
 from test_coverage_evidence_ui import run_dashboard
 from test_research_bundle import seed
@@ -138,3 +139,106 @@ def test_http_reports_source_errors_and_accepts_a_corrected_record(api, tmp_path
     engine.write(workspace / 'download-receipts/W1.json', {'reference': valid})
     response = client.post('/api/runs/source-validation/tools/finalize', json={})
     assert response.status_code == 200, response.text
+
+
+def invalid_record(reference, defect):
+    record = source_record(reference)
+    if defect == 'missing_record_url':
+        record.pop('record_url')
+    else:
+        record.update(adapter='offline_code_execution', source_kind='local_verification_record')
+    return record
+
+
+@pytest.mark.parametrize('defect', ['missing_record_url', 'agent_generated'])
+@pytest.mark.parametrize('supplied_investigation', [False, True])
+def test_shared_binder_refuses_invalid_receipts_without_persisting(tmp_path, defect, supplied_investigation):
+    payload = seed(tmp_path)
+    engine.write(tmp_path / 'download-receipts/W1.json',
+                 {'reference': invalid_record(payload['references'][0], defect)})
+    before = (tmp_path / 'payload.json').read_bytes()
+    options = {'investigation': engine.read(tmp_path / 'investigation.json')} if supplied_investigation else {}
+    with pytest.raises(ValueError, match='Invalid source record W1'):
+        engine.bind_payload(tmp_path, **options)
+    assert (tmp_path / 'payload.json').read_bytes() == before
+    assert not (tmp_path / 'mechanical-audit.json').exists()
+
+
+@pytest.mark.parametrize('defect', ['missing_record_url', 'agent_generated'])
+def test_normal_research_completion_refuses_invalid_receipts(tmp_path, monkeypatch, defect):
+    monkeypatch.delenv('RUN_KEY', raising=False)
+    monkeypatch.delenv('CANARY_CANCEL_MARKER', raising=False)
+    workspace = tmp_path / 'research'
+    roles = []
+    def scientific(directory, role, *args, **kwargs):
+        roles.append(role)
+        payload = seed(directory)
+        (directory / 'payload.json').unlink()
+        engine.write(directory / 'download-receipts/W1.json',
+                     {'reference': invalid_record(payload['references'][0], defect)})
+        return {}, {}
+    def unexpected_verification(*args, **kwargs):
+        pytest.fail('Invalid sources must be refused before independent verification')
+    monkeypatch.setattr(engine, 'scientific_session', scientific)
+    monkeypatch.setattr(correction_runtime, 'verify', unexpected_verification)
+    with pytest.raises(ValueError, match='Invalid source record W1'):
+        engine.run('Synthetic fixture question?', workspace, minimum_papers=1, executable='synthetic')
+    assert roles == ['research']
+    assert not (workspace / 'payload.json').exists()
+    assert not (workspace / 'mechanical-audit.json').exists()
+    run = engine.read(workspace / 'run.json')
+    assert run['status'] == 'failed' and 'Invalid source record W1' in run['failure']
+
+
+@pytest.mark.parametrize('adapter', [None, 'offline_code_execution', []], ids=['missing', 'unsupported', 'invalid_type'])
+@pytest.mark.parametrize('retained', [False, True], ids=['working_text', 'retained_excerpts'])
+def test_source_inspector_opens_records_with_unknown_adapter_over_http(api, tmp_path, adapter, retained):
+    server, client, _ = api
+    workspace = tmp_path / 'source-inspection'
+    workspace.mkdir()
+    research_bundle.initialize(workspace, research_spec.compile_mapping({'question': 'Synthetic fixture question?'}))
+    payload = seed(workspace)
+    reference = source_record(payload['references'][0])
+    if adapter is None:
+        reference.pop('adapter')
+    else:
+        reference['adapter'] = adapter
+    payload['references'] = [reference]
+    engine.write(workspace / 'payload.json', payload)
+    engine.write(workspace / 'references.json', [reference])
+    view = coverage_export.export_bundle(workspace)
+    if retained:
+        (workspace / '.run-reservation').touch()
+        research_bundle.seal(workspace)
+        compact_bundle.retain(workspace)
+        view = compact_bundle.projection(workspace)
+    runs.register_start('source-inspection', 'Synthetic source inspection', '', kind='question',
+                        bundle=str(workspace), status='done', path=server.RequestHandlerClass.supervisor.registry)
+    response = client.get('/api/runs/source-inspection/sources/W1/context',
+                          params={'paragraph_id': 'W1-p0001', 'scope': 'paper'})
+    assert response.status_code == 200, response.text
+    context = response.json()
+    contract = client.get('/openapi.json').json()
+    validate_response(contract, '/api/runs/{key}/sources/{source_id}/context', 'get', 200, context)
+    quote = payload['evidence'][0]['verbatims'][0]['text']
+    assert context['text_available']
+    assert ''.join(row['text'] for row in context['paragraphs']) == quote
+    assert 'Invalid source record' in context['warning'] and 'adapter' in context['warning']
+    assert 'source-specific scope is unknown' in context['warning']
+    if retained:
+        assert context['scope'] == 'excerpts' and context['text_complete'] is False
+        assert context['source_bytes_retained'] is False
+    else:
+        assert context['context_label'] == 'Unknown source record'
+        assert context['offset_verified'] is True
+    run_dashboard(tmp_path, {'answer': view['answer'], 'context': context, 'quote': quote}, r"""
+S.selected='source-inspection';
+S.sourceContexts={};
+S.sourceContexts[contextKey('W1','W1-p0001','paper')]=graph.context;
+const html=sourceInspector(graph.answer,{sourceId:'W1',paragraphId:'W1-p0001',scope:'paper'});
+assert.ok(html.includes(graph.quote));
+assert.match(html,/Invalid source record/);
+assert.match(html,/source-specific scope is unknown/);
+assert.doesNotMatch(html,/Loading saved source|Saved full text is unavailable/);
+assert.ok(!html.includes('>Complete paper</h2>'));
+""")
