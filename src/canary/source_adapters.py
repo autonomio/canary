@@ -62,6 +62,46 @@ def validate_names(value):
     return list(value)
 
 
+def _is_record(record):
+    return (any(key in record for key in ('source_kind', 'source_metadata', 'record_url'))
+            or record.get('adapter') not in (None, 'local_text'))
+
+
+def record_issues(record):
+    """Stored records remain readable; new records must supply usable provenance."""
+    if not _is_record(record):
+        return []
+    issues = []
+    if record.get('adapter') not in NAMES:
+        issues.append('adapter must be clinicaltrials, epo or osf; agent-generated verification outputs are not admissible sources')
+    for field in ('source_kind', 'record_url'):
+        value = record.get(field)
+        if not isinstance(value, str) or not value.strip():
+            issues.append(field + ' must be a nonempty string')
+    adapter = record.get('adapter')
+    if adapter in NAMES and record.get('source_kind') != KINDS[adapter]:
+        issues.append('source_kind must be ' + KINDS[adapter] + ' for adapter ' + adapter)
+    if not isinstance(record.get('source_metadata'), dict):
+        issues.append('source_metadata must be an object')
+    return issues
+
+
+def validate_record(record):
+    issues = record_issues(record)
+    if issues:
+        raise ValueError('Invalid source record ' + str(record.get('id', '?')) + ': ' + '; '.join(issues))
+
+
+def record_metadata(record):
+    """Preserve recorded fields and expose gaps without inventing provenance."""
+    if not _is_record(record):
+        return {}
+    fields = {key: record[key] for key in ('adapter', 'source_kind', 'source_metadata', 'record_url', 'full_text_status')
+              if key in record}
+    issues = record_issues(record)
+    return dict(fields, **({'source_record_issues': issues} if issues else {}))
+
+
 def configured(root, sources):
     if 'epo' in sources:
         from .coverage_runtime import _operator_setting

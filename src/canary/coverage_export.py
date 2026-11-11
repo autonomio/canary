@@ -17,6 +17,7 @@ from pathlib import Path
 from .runs import answers_question, has_native_findings
 from .claim_freshness import unknown as unknown_freshness
 from .claim_uncertainty import review as uncertainty_review
+from .source_adapters import record_metadata
 
 EXECUTION_MODE = "coverage-guided full-paper research"
 
@@ -346,6 +347,8 @@ def render_markdown(graph: dict):
     for ref in _rows(graph.get("references")):
         paper = ref.get("paper", {})
         lines.append(f'{ref.get("id")} · {paper.get("title", "Unknown source")} · {paper.get("doi") or paper.get("url") or "See saved source graph"}')
+        lines.extend('Invalid source record ' + str(ref.get('id')) + ': ' + issue
+                     for issue in paper.get('extra', {}).get('source_record_issues', []))
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -790,11 +793,12 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
             if ref.get("text_sha256") and hashlib.sha256(text_path.read_bytes()).hexdigest() != ref["text_sha256"]:
                 graph["binding_issues"].append({"kind": "text_hash_mismatch", "reference_id": sid})
             _copy(text_path, bundle / local_text)
+        metadata = record_metadata(ref)
         paper = {"ref": sid, "title": ref.get("title", c.get("title", sid)), "doi": ref.get("doi", c.get("doi")),
                  "authors": ref.get("authors", []), "year": ref.get("year", c.get("year")),
-                 "url": ref.get('record_url') or ((ref.get("openalex_id") or ref.get("url")) if ref.get("adapter") == "local_text" else "https://openalex.org/" + sid), "abstract": c.get("abstract", ""),
+                 "url": (ref.get('record_url') or ref.get('url')) if metadata else ((ref.get("openalex_id") or ref.get("url")) if ref.get("adapter") == "local_text" else "https://openalex.org/" + sid), "abstract": c.get("abstract", ""),
                  "extra": {**({"adapter": "local_text", "local_source": ref.get("local_source"), "full_text_status": ref.get("full_text_status")} if ref.get("adapter") == "local_text" else {}),
-                           **({k: ref[k] for k in ('adapter', 'source_kind', 'source_metadata', 'record_url', 'full_text_status')} if ref.get('source_kind') else {}),
+                           **metadata,
                            **({"paper_metadata": ref["paper_metadata"]} if ref.get("paper_metadata") is not None else {}),
                            "local_file": local_file, "text_sha256": ref.get("text_sha256"), "body_sha256": ref.get("body_sha256")}}
         graph["references"].append({"id": sid, "kind": "fulltext", "paper": paper, "text_url": ref.get("url"),

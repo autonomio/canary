@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from . import research_bundle
 from .claim_freshness import unknown as unknown_freshness
 from .claim_uncertainty import review as uncertainty_review
+from .source_adapters import record_metadata
 
 # The receiving contract: its validator refuses a contribution file above MAX_FILE_BYTES (10 MiB),
 # and its research-state reader decodes canary.references version 1.
@@ -120,13 +121,14 @@ def resolvent(workspace):
                     'original_sha256': originals.get(reference.get('file')), 'text_sha256': originals.get(reference.get('text_file'))}
                 if reference['id'] in paper_metadata:
                     locator['paper_metadata_id'] = reference['id']
-                if reference.get('source_kind'):
-                    source_metadata[sid] = {k: reference[k] for k in ('adapter', 'source_kind', 'source_metadata', 'record_url')}
-                    locator.update(source_metadata[sid])
+                metadata = record_metadata(reference)
+                if metadata:
+                    source_metadata[sid] = metadata
+                    locator.update(metadata)
                 sources.append({'id': sid, 'kind': 'web' if reference.get('adapter') in ('clinicaltrials', 'osf') else 'publication',
                     'title': reference.get('title') or reference['id'],
                     'uri': reference.get('record_url') or reference.get('url') or reference.get('doi'),
-                    'date': reference.get('source_metadata', {}).get('record_date')
+                    'date': (reference['source_metadata'].get('record_date') if isinstance(reference.get('source_metadata'), dict) else None)
                             or paper_metadata.get(reference['id'], {}).get('attributes', {}).get('publication_date')
                             or (str(reference['year']) if reference.get('year') else None),
                     'locator': json.dumps(locator, sort_keys=True), 'excerpt': text, 'access': 'inspected'})

@@ -64,6 +64,13 @@ same status. References carry `adapter`, `source_kind`, `source_metadata` and
 `record_url`; metadata retains native identifiers, trial/publication dates,
 related-publication IDs, patent family IDs or registration status, as supplied.
 
+Acquisition and finalization reject incomplete source records with the source ID
+and the missing or invalid fields. Agent-generated code verification outputs are
+not admissible sources. Existing malformed records remain exportable: the source
+inspector, agent catalog and exported metadata expose `source_record_issues`, and
+the Markdown answer lists them under the reference. Missing record URLs remain
+unknown; no bibliographic URL is invented for these records.
+
 Registry JSON is deterministically formatted for reading. OSF and OPS snapshots
 retain the exact UTF-8 provider responses plus each response's URL and hash;
 canonical text has a separate hash. Immutable passage offsets address that exact

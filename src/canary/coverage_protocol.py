@@ -104,6 +104,7 @@ class AgentReference(_AgentReferenceCore, total=False):
     openalex_id: str | None
     imported_at: str
     source_bytes_retained: bool
+    source_record_issues: list[str]
 
 
 def agent_reference(reference: dict) -> AgentReference:
@@ -118,6 +119,13 @@ def agent_reference(reference: dict) -> AgentReference:
         attributes = metadata.get('attributes') or {}
         row.update({key: attributes.get(key) for key in AGENT_PAPER_METADATA_FIELDS})
     row.update({key: reference[key] for key in _AGENT_SOURCE_FIELDS if key in reference})
+    from .source_adapters import record_issues
+    issues = record_issues(reference)
+    if issues:
+        row['source_record_issues'] = issues
+        for key in ('adapter', 'source_kind', 'record_url', 'source_metadata'):
+            if key in row and not isinstance(row[key], dict if key == 'source_metadata' else str):
+                row.pop(key)
     return cast(AgentReference, row)
 
 
@@ -250,6 +258,7 @@ Every link needs its own source-bound reason, evidence, uncertainty and explicit
 Evidence that relies on other claims names their IDs in premise_claim_ids; use [] for direct source evidence. These are within-run IDs, never a consumer world model.
 Work backwards from fixed source passages to attributed claims. Verify methods/results and surrounding source context.
 Keep experiments, cohorts, versions, denominators, comparators and units distinct. Use code for arithmetic and navigation.
+Cite only acquired source documents; agent-generated verification outputs are not admissible sources. Never create source receipts for your own code or output files.
 Distinguish measured, fitted, simulated, associated and qualitative results. Nonsignificance is not equivalence.
 Unreported conditions remain unknown. Preserve adverse/null evidence and source contradictions without manufacturing resolution.
 Claim uncertainty low=1/moderate=2/high=3 is an ordinal model judgment, not a probability or reported source uncertainty.

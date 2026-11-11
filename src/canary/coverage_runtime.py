@@ -658,6 +658,8 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
                        "fresh_download": not bool(local), "previous_run_body_used": False,
                        **({"adapter": "local_text", "local_source": work["local_text"]} if local else {})}
             try:
+                from .source_adapters import validate_record
+                validate_record(work)
                 if work.get('adapter') in ('clinicaltrials', 'epo', 'osf'):
                     from .source_adapters import Client
                     from .coverage_sources import _BorrowedPublicTransport
