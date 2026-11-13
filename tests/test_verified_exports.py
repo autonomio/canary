@@ -107,20 +107,23 @@ def test_dependency_and_premise_closure_withholds_supported_dependents(tmp_path)
     assert 'Depends on withheld' in final['withheld_claims'][1]['reason']
 
 
-def test_v4_connectors_are_only_typed_within_run_links(tmp_path):
+@pytest.mark.parametrize('kind', ['dependency', 'coupling'])
+def test_v4_connectors_follow_resolvent_direction_contract(tmp_path, kind):
+    # Resolvent 36e46a2/docs/ONTOLOGY.md:135: from is the dependent, to its premise.
+    # Canary's internal C1 -> C2 dependency means C2 depends on C1.
     final,_=finish(tmp_path)
     payload=deepcopy(final['verification']['audit_basis'])
     payload.update(executive_summary=[],caveats=[],next_questions=[])
     payload['claims'].append(dict(deepcopy(payload['claims'][0]),id='C2'))
-    payload['claim_links']=[link('C1','C2','coupling')]
+    payload['claim_links']=[link('C1','C2',kind)]
     bound=audit_validation.bind(payload,audit_for(payload))
     final=corrections.finalize(payload,bound,[])
     engine.write(tmp_path/'payload.json',final);engine.write(tmp_path/'audit.json',bound)
     research_bundle.seal(tmp_path)
     exported=bundle_connectors.resolvent(tmp_path)
-    assert exported['connectors'][0]['from']=='c1'
-    assert exported['connectors'][0]['to']=='c2'
-    assert exported['connectors'][0]['type']=='coupling'
+    expected = ('c2', 'c1') if kind == 'dependency' else ('c1', 'c2')
+    assert (exported['connectors'][0]['from'], exported['connectors'][0]['to']) == expected
+    assert exported['connectors'][0]['type']==kind
     assert exported['connectors'][0]['evidence_ids']==['e1']
     schema=json.loads((Path(__file__).parent/'fixtures/resolvent-submission.schema.json').read_text())
     jsonschema.validate(exported,schema,format_checker=jsonschema.FormatChecker())
