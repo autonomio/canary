@@ -281,8 +281,12 @@ def verified_export(result, payload):
             statement_sha256=check['statement_sha256'], claim_snapshot_sha256=check['claim_snapshot_sha256'])
     connectors = []
     for index, item in enumerate(payload.get('claim_links', []), 1):
-        connectors.append({'id': 'x'+str(index), 'from': mapping['claims'][item['from_claim_id']],
-            'to': mapping['claims'][item['to_claim_id']], 'type': item['kind'], 'spec': item['spec'],
+        source, target = item['from_claim_id'], item['to_claim_id']
+        # Resolvent stores dependent -> premise; Canary records prerequisite -> dependent.
+        if item['kind'] == 'dependency':
+            source, target = target, source
+        connectors.append({'id': 'x'+str(index), 'from': mapping['claims'][source],
+            'to': mapping['claims'][target], 'type': item['kind'], 'spec': item['spec'],
             'reason': item['reason'], 'uncertainty': uncertainty(item['uncertainty'], item['evidence_ids']),
             'evidence_ids': [mapping['evidence'][i] for i in item['evidence_ids']]})
     def linked(record):
