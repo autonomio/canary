@@ -138,7 +138,9 @@ assert.match(coverageAuditHtml(research),/Independent audit · not run/);
 const elements={};
 global.document={activeElement:null,getElementById:id=>elements[id]||(elements[id]={textContent:'',innerHTML:'',querySelectorAll:()=>[],contains:()=>false})};
 assert.equal(graph.listed.research_summary.has_synthesis,true);  // the recorded summary text is not an answer
-S.runs=[graph.listed];renderLibrary();
+S.runs = [graph.listed];
+S.loaded = true;
+renderLibrary();
 const list=elements['research-list'].innerHTML;
 assert.ok(list.includes(esc('Clarifying question: '+row.clarification.question)));
 assert.match(list,/Needs clarification/);
@@ -172,7 +174,9 @@ assert.equal(statusInfo(graph.row)[0],'attention');
 assert.equal(graph.listed.research_summary.has_synthesis,true);
 const elements={};
 global.document={activeElement:null,getElementById:id=>elements[id]||(elements[id]={textContent:'',innerHTML:'',querySelectorAll:()=>[],contains:()=>false})};
-S.runs=[graph.listed];renderLibrary();
+S.runs = [graph.listed];
+S.loaded = true;
+renderLibrary();
 assert.doesNotMatch(elements['research-list'].innerHTML,/Answer available/);
 ''')
 
