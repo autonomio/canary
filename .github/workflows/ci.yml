@@ -21,6 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n scripts/*.sh && python3 -m py_compile scripts/*.py && python3 scripts/check_dashboard_js.py
+      - run: node --test tests/dashboard_questions.test.mjs
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"

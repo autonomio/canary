@@ -2262,6 +2262,7 @@
         return scrolls;
       }
       function renderLibrary() {
+        if (!S.loaded) return;
         document.getElementById("stat-total").textContent = fmt(S.runs.length);
         document.getElementById("stat-active").textContent = fmt(
           S.runs.filter(active).length,

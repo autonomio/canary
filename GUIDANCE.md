@@ -9,6 +9,23 @@ The agent reads [AGENTS.md](AGENTS.md), checks the current revision, runs the
 steps, and reports the commands and outcomes in chat. Apply the same workflow
 to the first contribution, following the code path that the request touches.
 
+## Dashboard-only quickstart
+
+Open the [dashboard HTML and JavaScript](scripts/dashboard/index.html).
+In the Questions view, `loadRuns()` fetches `/api/runs` and `renderLibrary()`
+updates the list. Run these commands from the checkout root with `python3`
+and Node available.
+
+```sh
+python3 scripts/check_dashboard_js.py
+node --test tests/dashboard_questions.test.mjs
+```
+
+The Questions fixture runs offline with Node alone. It delays a stubbed
+`/api/runs` response and checks loading, empty results, and recovery after
+Retry. Use the [dashboard preview](docs/DASHBOARD.md#quickstart) when you
+need to exercise the service or render the full dashboard in a browser.
+
 ## Set up the checkout
 
 From the root of an existing checkout, use uv to install into the checkout's
@@ -88,9 +105,9 @@ Stop the preview when done. [Dashboard quickstart](docs/DASHBOARD.md#quickstart)
 
 For an API change, trace the request from its clients through the handler and
 verify the relevant response in the dashboard, CLI, and agent tools. For
-dashboard changes, run `python3 scripts/check_dashboard_js.py` with Node
-available and exercise the affected view. Report the tested revision, the
-checks that ran, and any gaps. Use public or synthetic material for fixtures.
+dashboard changes, run the [syntax check](#dashboard-only-quickstart) and
+exercise the affected view. Report the tested revision, the checks that ran,
+and any gaps. Use public or synthetic material for fixtures.
 Live operation and its evidence are documented separately.
 [API-first map](docs/API_FIRST.md) · [Deployment evidence](docs/DEPLOYMENT_PROOF.md)
 
