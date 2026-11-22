@@ -1,13 +1,13 @@
 # Canary operator runbook
 
-CLI-first workflow from a clean checkout: setup, offline acceptance, trusted
-launch, preflight, finite runs, status, stop/resume, and controlled export.
-No machine-specific paths; every command runs from the repository root
-unless stated otherwise.
+Runbook for the retained contained-worker and Muse broker workflows.
+Commands run from the checkout root unless stated otherwise.
+For the current native research service, see the installation guide.
+[Native installation](INSTALL.md)
 
 ## 1. Supported environments
 
-| Environment | Offline suite | Acceptance | Containers | Live runs |
+| Environment | Offline suite | Acceptance | Containers | Live broker runs |
 |---|---|---|---|---|
 | macOS, Python 3.10–3.13, uv | yes | yes (containment skips without Docker) | only with Docker Desktop | no |
 | Linux, Python 3.10–3.13, uv, Docker 28+ | yes | yes | yes | broker only |
@@ -17,30 +17,24 @@ or GitHub credentials on any platform.
 
 ## 2. Setup from a clean clone
 
-```bash
-git clone https://github.com/mikkokotila/Canary.git
-cd Canary
-uv sync --locked
-uv run --no-sync pytest -q -m "not live"
-```
-
-The last command is the portable offline suite (no keys, no network). With
-Docker on Linux, also run `./scripts/container_verify.sh` (43 boundary
-checks, no leftovers afterwards).
+Set up the locked checkout-local environment and run the portable suite
+from the contributor guide. On Linux, `./scripts/container_verify.sh`
+exercises the broker and guest boundary with fixture credentials.
+[Checkout setup](../GUIDANCE.md#set-up-the-checkout)
 
 ## 3. Offline acceptance
 
 ```bash
-uv run --no-sync python scripts/run_acceptance.py --out acceptance/<date>
+canary_acceptance_dir=$(mktemp -d)
+uv run --no-sync python scripts/run_acceptance.py --out "$canary_acceptance_dir"
 ```
 
-Ten deterministic scenarios: cited review, synthetic-CSV analysis, a full
-research cycle, maintenance refusal on an uncontained host, hermetic
-revision-logic tests, crash/resume, budget exhaustion, provider restriction,
-container boundaries (skips honestly without Docker), and export + secret
-scan. Exit 0 means every scenario passed. Results land in `verdicts.jsonl`,
-`manifest.json`, and `ACCEPTANCE.md` next to per-scenario bundles. Live
-providers and trusted revision are explicitly NOT covered; see DECISION.md.
+The fixture scenarios cover verified bundles, cited reviews, CSV analysis,
+cycles and crash/resume, revision refusal and hermetic revision logic,
+budget and provider restrictions, containment, and export scanning.
+Exit 0 means there were no failures. A scenario can skip when its host
+requirements are unavailable. Read `verdicts.jsonl`, `manifest.json`, and
+`ACCEPTANCE.md` in the chosen directory for the result of each scenario.
 
 ## 4. Trusted launch (Linux + Docker)
 

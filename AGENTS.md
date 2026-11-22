@@ -1,6 +1,7 @@
 # Agent instructions
 
 Read AGENTS.md first whenever receiving a message or task.
+Use [GUIDANCE.md](GUIDANCE.md) for checkout setup and the first verification.
 
 Use a factual voice and lead with the result. Emphasize only the two or three words that carry the claim. Use the fewest words that coherently convey the matter; user-facing replies must not exceed 20 lines unless the user asks for more. Engineering updates should read like reports to a CTO. Cut social padding.
 

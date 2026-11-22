@@ -1,104 +1,67 @@
-# Runs dashboard
+# Research dashboard
 
-One table for every run: name it, watch it work, pause it, rerun it, read
-its raw log. Served locally by the runs daemon (`runsd`).
+The dashboard lists questions and shows progress, findings, and source
+evidence from the same HTTP service used by the CLI and MCP clients.
 
 ## Quickstart
 
-```bash
-bash scripts/dashboard_service.sh start
-# open http://127.0.0.1:8789/ in a browser
+For a credential-free preview, set up the checkout and run the service in
+its own shell from the checkout root. The preview uses temporary research
+and authentication directories and lets the operating system pick a port.
+[Checkout setup](../GUIDANCE.md#set-up-the-checkout)
+
+```sh
+canary_preview_dir=$(mktemp -d)
+CANARY_DATA_DIR="$canary_preview_dir/data" \
+  CODEX_HOME="$canary_preview_dir/auth" \
+  CANARY_RESEARCH_ROOTS= CANARY_RUNS_PORT=0 \
+  uv run --no-sync canary runs serve
 ```
 
-The daemon persists across reboots (LaunchAgent). Stop it with
-`bash scripts/dashboard_service.sh stop`. Logs: `runs/runsd.out.log`,
-`runs/runsd.err.log`.
+Open the printed URL. **Questions** should show zero runs. Open
+**Menu → Service** to see the storage directory, PDF extraction engine,
+connection status, and link to the API contract.
 
-## Naming runs
+In another shell at the checkout root, set `canary_preview_url` to that
+printed address without its trailing slash. Check the same service from the
+CLI and HTTP.
 
-Every run gets a name and a brief. Three ways, in order of preference:
+```sh
+curl -fsS "$canary_preview_url/api/status"
+CANARY_API_URL="$canary_preview_url" uv run --no-sync canary run docs/examples/research.yaml --dry-run
+curl -fsS "$canary_preview_url/api/runs"
+```
 
-1. Dashboard UI: `+ NEW RUN` form (name, brief, cycle fields —
-   question, maintenance, profile, max-papers/iterations, revise-rounds,
-   max-calls/tokens, wall-time-s — or a raw-args override).
-2. `canary runs start --name "..." --brief "..." -- <launcher args>`.
-3. Direct launcher use: `RUN_NAME="..." RUN_BRIEF="..." OUT=... \
-   bash scripts/container_run.sh ...`.
+The dry run prints the resolved settings and the run list stays empty.
+Stop the preview with Ctrl-C in its service session. For a persistent service
+and live questions, follow the installation and authentication guides.
+[Installation](INSTALL.md) · [Authentication](AUTH.md)
 
-Without a name the launcher falls back to the output directory key.
+## Read a research run
 
-## Main table
+Open a native research question to see **Answer**, **Papers**, and
+**Search net**. In **Answer**, follow a claim to its supporting evidence and
+saved source context. Candidate findings can be provisional during research
+or correction. Inspect audit results and **Run issue** when it appears for
+withheld claims, incomplete checks, and limits on coverage.
+[Findings and source reconstruction](API.md#findings-and-exact-source-reconstruction)
 
-One row per run: title, run id, started, ended, status, improvements
-count, loop-iteration count, research, log, rerun, pause.
-
-- Click the **title** for the full brief plus seed, profile, model, usage,
-  patch tally, container, bundle, and launch command.
-- Click **Δ** for every code change proposed: target, eval status, reason,
-  and PR link once the publish bridge (#66) files it.
-- Click **LOOP** for the loop's reformulations in order with statuses.
-- **RESEARCH** opens the full research record (`/api/runs/<key>/research`,
-  cached per panel, RELOAD refetches; live runs snapshot the worker's
-  partial bundle and refresh every few seconds): **SYNTHESIS** (headline answer,
-  limits, carry-forward questions), **PAPERS** (every retrieved ref with
-  title, year, source, abstract, open-access link — capped at 200 with
-  counts), **CLAIMS** (per-iteration questions, grounded claims with
-  support badges and evidence spans, validation, full review prose), and
-  **DECISIONS** (assessor docs plus the complete journal in order).
-- **LOG** opens the raw log: the merged journal+ops timeline, the
-  timestamped console capture, and the launcher transcript. Live runs
-  refresh every few seconds.
-
-## Pause and rerun
-
-**Pause** freezes a live worker container (`docker pause`); the run holds
-its budgets and resumes byte-identical on **Unpause**. Only live runs
-pause; anything else explains why it cannot.
-
-**Rerun** relaunches the run's recorded launch spec as a new named run
-(`<name> (rerun)`). Starts record the exact argv array, so arguments with
-spaces round-trip; legacy rows with only a command string re-split it on
-a best-effort basis. Adopted history without any spec says so instead of
-guessing. Recorded launch env (see below) is re-applied on rerun.
-
-## Launch env (advanced)
-
-Runs sometimes need operator variables such as `CANARY_STAGE`. Three
-equivalent ways; all are allowlisted to `CANARY_STAGE`,
-`CANARY_TIMEOUT_S`, `CANARY_WHEELS` (anything else is rejected):
-
-1. Dashboard UI: the optional `ENV` field (one `KEY=value` per line).
-2. `canary runs start`: picks up allowlisted keys from your shell.
-3. API: `POST /api/runs` accepts an `env` object.
-
-The daemon merges them into the launcher child's environment and records
-them on the row as `launch_env`. Daemon-managed vars (`OUT`, `RUN_*`,
-registry) are never passable. Default launches need none of this.
-
-## Other views
-
-- **Usage**: per-run model calls and tokens with totals.
-- **Findings**: currently open issues and PRs (via `gh`, cached a minute).
-- **Experiments**: acceptance verdict sets from `acceptance/` (Build 17
-  runbook evidence).
+The workspace menu opens the operational log and local footprint. The
+footprint describes the configured server-side directories and missing
+bundles. [Local footprint](LOCAL_FOOTPRINT.md)
 
 ## CLI mirror
 
-```bash
-canary runs list                    # registry table
-canary runs show <key>              # full record
-canary runs log <key> [--tail N]    # raw log to stdout
-canary runs adopt --bundle <dir>    # register an old bundle
-canary runs serve [--port P]        # run the daemon in the foreground
-```
+With a running service, `canary runs list` lists questions,
+`canary runs show RUN_KEY` reads the status, and
+`canary runs log RUN_KEY` reads the recorded execution log.
+`canary bundle RUN_KEY` reads the bundle. Run controls follow the recorded
+lifecycle and capabilities of each run. [Run lifecycle](RUN_LIFECYCLE.md)
 
-## Honest gaps
+## Retained container controls
 
-- Reasoning traces are not exposed by the provider; the log shows every
-  recorded event, model-call boundary, and console line instead.
-- PR linkage per improvement waits on the publish bridge (#66); entries
-  read "not filed" until then.
-- The daemon binds loopback only and has no auth: it trusts the owner
-  machine. Do not forward its port.
-- Registry (`runs/registry.json`) is local and gitignored. Runs outlive
-  daemon restarts; listings reconcile phantom "running" rows.
+Container runs can expose pause and resume in the dashboard. Their legacy
+launcher settings, receipts, and limits are covered by the operator runbook.
+On macOS, `bash scripts/dashboard_service.sh start` installs a persistent
+LaunchAgent and requires Docker. Use `bash scripts/dashboard_service.sh stop`
+to remove that agent. [Operator runbook](RUNBOOK.md)
