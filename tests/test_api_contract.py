@@ -106,9 +106,14 @@ def test_mcp_lists_live_schemas_and_navigates_claim_to_original_over_api(api):
                 compiled=await session.call_tool('canary_compile',{'spec':{'question':'Synthetic MCP fixture?'}})
                 assert not compiled.isError
                 assert compiled.structuredContent['resolved']['research']['effort']=='xhigh'
-                started=await session.call_tool('canary_ask',{'spec':{'question':'Synthetic MCP fixture?'}})
+                spec = {'question': 'Synthetic MCP fixture?', 'study_brief': 'Compare two procedures.',
+                        'retrieval': {'selection': 'citation_graph'}}
+                started = await session.call_tool('canary_ask', {'spec': spec})
                 assert not started.isError,started.content
                 key=started.structuredContent['key']
+                resolved = client.get(f'/api/runs/{key}/bundle').raise_for_status().json()['bundle']['specification']['resolved']
+                assert resolved['study_brief'] == spec['study_brief']
+                assert resolved['retrieval']['selection'] == 'citation_graph'
                 compact=await session.call_tool('canary_export',{'key':key,'connector':'resolvent'})
                 expanded=await session.call_tool('canary_export',{'key':key,'connector':'resolvent','representation':'expanded'})
                 assert not compact.isError and not expanded.isError

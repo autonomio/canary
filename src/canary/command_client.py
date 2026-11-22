@@ -25,9 +25,15 @@ def run(args, port):
             elif args.cmd == 'ask':
                 if args.out != './out/question':
                     raise ValueError('--out is replaced by API-owned storage; retrieve the returned run with canary bundle RUN_KEY')
-                value = request(client, 'POST', '/api/runs', json={'spec': {'question': args.question,
-                    'retrieval': {'target_papers': args.minimum_papers,
-                                  **({'additional_sources': list(dict.fromkeys(args.add_source))} if args.add_source else {})}}})
+                retrieval = {'target_papers': args.minimum_papers}
+                if args.add_source:
+                    retrieval['additional_sources'] = list(dict.fromkeys(args.add_source))
+                if args.citation_graph:
+                    retrieval['selection'] = 'citation_graph'
+                spec = {'question': args.question, 'retrieval': retrieval}
+                if args.study_brief is not None:
+                    spec['study_brief'] = args.study_brief
+                value = request(client, 'POST', '/api/runs', json={'spec': spec})
             elif args.cmd == 'runs':
                 verb = args.runs_cmd
                 key = quote(getattr(args, 'key', ''), safe='')

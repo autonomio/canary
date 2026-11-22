@@ -24,6 +24,18 @@ of findings; a `failed` run carries its recorded `failure` reason.
 The bundle includes original/resolved settings and limitations. See
 [run lifecycle](RUN_LIFECYCLE.md) and [bundle storage/ontology](RESEARCH_BUNDLE.md).
 
+A question declaration can also supply `spec.study_brief`, a text field for the study's
+design, comparators, outcomes and known references. Canary preserves it with the
+original declaration and uses it as research context for the submitted question.
+The dashboard, `canary run` and MCP submit the same field.
+
+For public literature runs, use `canary ask "Your question" --citation-graph`
+or set `retrieval.selection: citation_graph` in the declaration. The service
+ranks up to three additional candidates from the run's OpenAlex reference links
+and shared keyword searches. Acquisition requires a recorded decision for each
+lead. The dashboard and `research.coverage.citation_leads` show the citation
+paths and pending decisions. Supply `--study-brief` on `canary ask` to add context.
+
 ## Additional public sources
 
 Set `retrieval.additional_sources` to any combination of `clinicaltrials`, `epo`

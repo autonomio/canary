@@ -69,13 +69,17 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
             raise CompileError(path, 'Unknown fields are not accepted.')
         return value
 
-    block(draft, {'version', 'question', 'research', 'audit', 'retrieval', 'subagents', 'research_state', 'continue_research'}, 'spec')
+    block(draft, {'version', 'question', 'research', 'audit', 'retrieval', 'subagents', 'research_state', 'continue_research', 'study_brief'}, 'spec')
     version = draft.get('version', 1)
     if type(version) is not int or version != 1:
         raise CompileError('version', 'Only version 1 is supported.')
     question = draft.get('question')
     if not isinstance(question, str) or not question.strip() or len(question) > 20_000:
         raise CompileError('question', 'Expected a question of 1–20,000 characters.')
+    if 'study_brief' in draft:
+        brief = draft['study_brief']
+        if not isinstance(brief, str) or not brief.strip() or len(brief) > 20_000:
+            raise CompileError('study_brief', 'Expected a study brief of 1–20,000 characters.')
     try:
         state = validate_state(draft.get('research_state'), draft.get('continue_research', False))
     except ValueError as error:
@@ -93,16 +97,20 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
         ('research.effort', research.get('effort', protocol.RESEARCH_EFFORT), protocol.RESEARCH_EFFORT),
         ('audit.model', audit.get('model', protocol.AUDIT_MODEL), protocol.AUDIT_MODEL),
         ('audit.effort', audit.get('effort', protocol.AUDIT_EFFORT), protocol.AUDIT_EFFORT),
-        ('retrieval.selection', retrieval.get('selection', 'coverage'), 'coverage'),
         ('retrieval.access', retrieval.get('access', 'open_full_text'), 'open_full_text'),
     ):
         if value != expected:
             raise CompileError(path, f'This engine supports {expected}; no fallback is applied.')
+    selection = retrieval.get('selection', 'coverage')
+    if selection not in ('coverage', 'citation_graph'):
+        raise CompileError('retrieval.selection', 'Supported selection methods are coverage and citation_graph.')
     corpus = retrieval.get('corpus', 'fresh')
     if corpus not in ('fresh', 'local_text'):
         raise CompileError('retrieval.corpus', 'Supported corpora: fresh, local_text.')
     local = None
     if corpus == 'local_text':
+        if selection == 'citation_graph':
+            raise CompileError('retrieval.selection', 'Citation selection requires OpenAlex discovery.')
         if additional:
             raise CompileError('retrieval.additional_sources', 'Additional public sources require corpus: fresh.')
         local = block(retrieval.get('local_text'), {'directory', 'metadata'}, 'retrieval.local_text')
@@ -126,10 +134,12 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
     resolved = {'version': 1, 'question': question.strip(),
                 'research': {'model': protocol.RESEARCH_MODEL, 'effort': protocol.RESEARCH_EFFORT},
                 'audit': {'model': protocol.AUDIT_MODEL, 'effort': protocol.AUDIT_EFFORT, 'budget_seconds': None, 'max_correction_rounds': rounds},
-                'retrieval': {'selection': 'coverage', 'target_papers': target, 'corpus': corpus, 'access': 'open_full_text',
+                'retrieval': {'selection': selection, 'target_papers': target, 'corpus': corpus, 'access': 'open_full_text',
                               **({'local_text': dict(local)} if local is not None else {}),
                               **({'additional_sources': additional} if additional else {})},
                 'subagents': False}
+    if 'study_brief' in draft:
+        resolved['study_brief'] = draft['study_brief']
     if 'research_state' in draft:
         resolved['research_state'] = state
     if 'continue_research' in draft or state is not None:

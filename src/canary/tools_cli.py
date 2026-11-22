@@ -17,6 +17,8 @@ def main(argv=None):
     parser.add_argument('--port', type=int, default=int(os.environ.get('CANARY_RUNS_PORT', '8789')))
     commands = parser.add_subparsers(dest='action', required=True)
     p = commands.add_parser('discover');p.add_argument('--plan', required=True);p.add_argument('--pages', type=int, default=5)
+    p = commands.add_parser('citation-leads')
+    p.add_argument('--anchors', nargs='+', required=True)
     p = commands.add_parser('acquire');p.add_argument('--ids', nargs='+', required=True)
     p.add_argument('--workers', type=int, default=12);p.add_argument('--retry-failed', action='store_true')
     commands.add_parser('catalog')

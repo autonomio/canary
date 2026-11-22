@@ -476,7 +476,12 @@ class Supervisor:
             shape = schema()
         elif role == 'research':
             model, effort = protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT
-            prompt = protocol.research_prompt(question, command, manifest.get('minimum_papers', 50), local_text=local, additional_sources=additional, research_state=bool(manifest.get("research_state")), continue_research=manifest.get("research_state", {}).get("continue_research", False))
+            prompt = protocol.research_prompt(
+                question, command, manifest.get('minimum_papers', 50), local_text=local,
+                additional_sources=additional, research_state=bool(manifest.get("research_state")),
+                continue_research=manifest.get("research_state", {}).get("continue_research", False),
+                study_brief=bool(manifest.get("study_brief_supplied")),
+                citation_graph=bool(manifest.get("citation_graph_requested")))
             shape = protocol.investigation_schema()
         else:
             model, effort = protocol.AUDIT_MODEL, protocol.AUDIT_EFFORT
@@ -484,6 +489,10 @@ class Supervisor:
             if additional:
                 from .source_adapters import GUIDANCE
                 prompt += GUIDANCE.format(sources=', '.join(additional))
+            if manifest.get("study_brief_supplied"):
+                prompt += protocol.STUDY_BRIEF_SCOPE
+            if manifest.get("citation_graph_requested"):
+                prompt += protocol.CITATION_AUDIT_SCOPE
             if manifest.get("research_state"):
                 prompt += "\nRead research-state.json as supplied, unverified background. Check that inherited findings and reviews were not counted as fresh work; assess the stated continuation contribution.\n"
             if round_index is not None:
@@ -520,7 +529,7 @@ class Supervisor:
                 return execute(row, action, body, self.root)
             if row.get('status') not in runs._ACTIVE_STATUS or row.get('cancel_requested_at'):
                 raise ValueError('Run is stopped; committed sources remain readable')
-            if action in ('discover','acquire','finalize') and not (Path(row['bundle'])/'run.json').is_file():
+            if action in ('discover','acquire','finalize','citation-leads') and not (Path(row['bundle'])/'run.json').is_file():
                 raise ValueError('The run has not initialized its research workspace yet')
             if recorded in ('auditing', 'correcting') and action not in ('catalog', 'source'):
                 raise ValueError(f"{action} is closed during {'the audit' if recorded == 'auditing' else 'correction'}: "

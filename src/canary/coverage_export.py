@@ -52,7 +52,7 @@ def projection_inputs(workspace):
     """
     workspace = Path(workspace)
     names = ('payload.json', 'investigation.json', 'selection.json', 'reviewed-papers.json',
-             'question-plan.json', 'run-context.json', 'references.json', 'efficiency.json',
+             'question-plan.json', 'run-context.json', 'references.json', 'efficiency.json', 'citation-leads.json',
              'audit.json', 'search-progress.json', 'local-corpus.json', 'local-corpus-progress.json',
              'openalex-requests.json', 'openalex-request-log.json', 'candidates.jsonl',
              '.candidate-index.sqlite', '.candidate-index.sqlite-wal', 'research-receipt.json', 'audit-receipt.json')
@@ -829,6 +829,14 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                 "scarcity_statement": accounting.get("scarcity_statement"),
                 "scarcity_independently_certified": accounting.get("scarcity_independently_certified", False),
                 "counts_scope": "Reviewed papers require selected admission, core/supporting eligibility, read passages and a substantive review note. Related reports may share participants or studies; paper count is not independent study count."}
+    if run.get('citation_graph_requested'):
+        citation_leads = _load(bundle/'citation-leads.json', None)
+        coverage['citation_leads'] = citation_leads if isinstance(citation_leads, dict) else None
+        screened = {row.get('work_id') for row in _rows(selection.get('decisions'))
+                    if row.get('decision') in ('include', 'exclude', 'defer')}
+        coverage['unscreened_citation_leads'] = [
+            lead['work_id'] for lead in _rows((coverage['citation_leads'] or {}).get('leads')) if lead['work_id'] not in screened
+        ]
     if review_record_issues:
         coverage["review_record_issues"] = review_record_issues
     identity_exclusions = [{key: receipt.get(key) for key in ("work_id", "title", "reason")}
