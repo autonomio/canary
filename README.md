@@ -1,18 +1,26 @@
 # Canary
 
-Canary is an API-first research service for full-paper literature reviews.
-It records the search, reviewed sources, findings, and independent audit.
-The dashboard, CLI, and MCP tools use the same HTTP API, including the
-path from a finding to the exact source passage behind it.
+Canary conducts systematic literature reviews for researchers and agents.
+It starts from a question, sets inclusion criteria, and reads the selected
+papers in full. Findings link to exact passages that support, qualify, or
+contradict them. A separate agent audits the claims against those passages.
+
+The review records what remains open and what evidence could resolve it. It
+also preserves relevant observations outside its conclusions for later work.
+[Canary on Autonomio Solutions](https://autonom.io/solutions/#canary)
+
+The dashboard, CLI, and MCP tools use the same HTTP API to show the search,
+coverage, audit results, and original source context.
 
 ## Start here
 
+- **Running research.** Give an agent connected to Canary a question in
+  chat, or submit it from the dashboard, CLI, or HTTP API. The service uses
+  an authorized Codex account for live research.
+  [Installation](docs/INSTALL.md) · [Authentication](docs/AUTH.md)
 - **Working on Canary.** Give your coding agent the task in chat. The
   agent sets up the checkout, follows the credential-free preview, and
   reports what it verified. [Contributor guide](GUIDANCE.md)
-- **Running research.** Install the service, connect an authorized Codex
-  account, and start a question from the dashboard, CLI, or HTTP.
-  [Installation](docs/INSTALL.md) · [Authentication](docs/AUTH.md)
 - **Integrating an application or agent.** Use the live `/openapi.json`
   contract or the `canary mcp` stdio relay. [HTTP and MCP](docs/API.md)
 
@@ -29,6 +37,17 @@ The dashboard shows coverage, claim checks, source context, and run issues.
 [Research declarations](docs/RESEARCH_BUNDLE.md) ·
 [Optional sources](docs/OPTIONAL_SOURCES.md) · [Local text](docs/LOCAL_TEXT.md) ·
 [Dashboard](docs/DASHBOARD.md)
+
+## Continue the investigation
+
+A follow-up review can use saved research state to look for new evidence.
+Poise can build and test a software instrument to collect missing evidence.
+Galley can use a Canary review to refine a thesis or develop a manuscript.
+Canary exports a versioned contribution for Resolvent admission, where
+findings can be linked to methods and evidence in a shared world model.
+[Continue a review](docs/RESEARCH_BUNDLE.md#continue-from-supplied-research-state) ·
+[Resolvent handoff](docs/RESEARCH_BUNDLE.md#resolvent-pilot-and-further-consumers) ·
+[Research pipelines](https://autonom.io/solutions/)
 
 ## Development and evidence
 
