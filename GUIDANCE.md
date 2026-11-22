@@ -5,9 +5,10 @@ Start with a request in chat.
 > Set up Canary in a clean checkout. Verify that its dashboard loads and that
 > the example research declaration compiles. Tell me what you observed.
 
-The agent reads [AGENTS.md](AGENTS.md), checks the current revision, runs the
-steps, and reports the commands and outcomes in chat. Apply the same workflow
-to the first contribution, following the code path that the request touches.
+The agent reads [AGENTS.md](AGENTS.md) first. In an existing checkout, run
+`git fetch origin main` and start the task branch from `origin/main`. Use a
+separate worktree when the current checkout has local changes. Follow the
+agent instructions from the base revision and report the checks in chat.
 
 ## Dashboard-only quickstart
 
@@ -34,7 +35,6 @@ the [network preflight](#check-network-access) first.
 
 ```sh
 uv sync --locked --python 3.12
-uv run --no-sync pytest -q tests/test_api_contract.py
 ```
 
 If you need a checkout, run `git clone https://github.com/autonomio/canary.git`
@@ -44,10 +44,18 @@ If the agent sandbox blocks writes to the default uv cache, run
 `export UV_CACHE_DIR="$PWD/out/uv-cache"` from the checkout root and retry
 the sync. Keep that setting in later shells for this checkout.
 
-The contract tests use real HTTP and MCP clients against synthetic runs,
-including retrieval of the original source behind a claim. For the portable
-suite, run `uv run --no-sync pytest -q`. Pytest's default selection excludes
-live and Linux containment tests.
+### Check the API and its clients
+
+```sh
+uv run --no-sync pytest -q tests/test_api_contract.py
+```
+
+The tests start a loopback service with synthetic runs. Passing checks
+confirm that tested HTTP responses match OpenAPI, the CLI reads the same
+OpenAPI document, and MCP can follow a claim to its original source.
+
+For the portable suite, run `uv run --no-sync pytest -q`. Pytest's default
+selection excludes live and Linux containment tests.
 
 ### Check network access
 
@@ -96,20 +104,46 @@ Stop the preview when done. [Dashboard quickstart](docs/DASHBOARD.md#quickstart)
 
 ## Find the code for a change
 
-| Area | Entry point |
-| --- | --- |
-| Dashboard | [HTML and JavaScript](scripts/dashboard/index.html) |
-| CLI and agent tools | [CLI dispatch](src/canary/cli.py), [command client](src/canary/command_client.py), [MCP relay](src/canary/mcp_server.py) |
-| HTTP boundary | [Request handler](src/canary/dashboard.py), [OpenAPI contract](src/canary/api_contract.py) |
-| Research and evidence | [Declaration compiler](src/canary/research_spec.py), [research runtime](src/canary/coverage_runtime.py), [bundle export](src/canary/coverage_export.py) |
+| Area | Entry point | First check |
+| --- | --- | --- |
+| Dashboard | [HTML and JavaScript](scripts/dashboard/index.html) | [Dashboard checks](#dashboard-only-quickstart) verify syntax, loading, empty results, and Retry. |
+| CLI and agent tools | [CLI dispatch](src/canary/cli.py), [command client](src/canary/command_client.py), [MCP relay](src/canary/mcp_server.py) | [API contract tests](#check-the-api-and-its-clients) verify that the CLI shares the API's OpenAPI document and MCP retrieves source evidence. |
+| HTTP boundary | [Request handler](src/canary/dashboard.py), [OpenAPI contract](src/canary/api_contract.py) | [API contract tests](#check-the-api-and-its-clients) validate representative HTTP responses against OpenAPI. |
+| Research and evidence | [Declaration compiler](src/canary/research_spec.py), [research runtime](src/canary/coverage_runtime.py), [bundle export](src/canary/coverage_export.py) | [Bundle checks](#check-a-research-bundle) verify a synthetic run, its archive and export, and the settings used to repeat it. |
 
 For an API change, trace the request from its clients through the handler and
 verify the relevant response in the dashboard, CLI, and agent tools. For
 dashboard changes, run the [syntax check](#dashboard-only-quickstart) and
-exercise the affected view. Report the tested revision, the checks that ran,
-and any gaps. Use public or synthetic material for fixtures.
+exercise the affected view. Use public or synthetic material for fixtures.
 Live operation and its evidence are documented separately.
 [API-first map](docs/API_FIRST.md) · [Deployment evidence](docs/DEPLOYMENT_PROOF.md)
+
+### Check a research bundle
+
+Run a synthetic lifecycle test from the checkout root.
+
+```sh
+uv run --no-sync pytest -q \
+  tests/test_research_bundle.py::test_api_cli_compile_execute_read_archive_and_repeat_exact_settings
+```
+
+Expect `1 passed`. The dry run compiles without launching a worker, the
+synthetic run returns a readable archive and a Resolvent export, and a repeat
+run uses the saved settings.
+
+For export contract changes, also run the receiving test. Replace
+`/path/to/resolvent` with the absolute path to a local Resolvent clone that
+contains the pinned contract revision. Both checks use a loopback service.
+[Resolvent contract pin](docs/RESEARCH_BUNDLE.md#resolvent-pilot-and-further-consumers)
+
+```sh
+CANARY_RESOLVENT_RECEIVER="/path/to/resolvent" \
+  uv run --no-sync pytest -q \
+  tests/test_contribution_limit.py::test_pinned_receiver_admits_a_contribution_between_2_and_10_mib
+```
+
+Expect `1 passed`. A disposable receiver reads the research artifact, validates
+admission through its closure compiler, and recognizes the contribution on retry.
 
 ## Downstream compatibility
 
@@ -133,3 +167,13 @@ revision entry points refuse on every host. Exercise revision logic through
 the hermetic suite and keep the broker's model and accounting rules intact.
 [Operator runbook](docs/RUNBOOK.md) · [Trust boundary](docs/TRUST_BOUNDARY.md) ·
 [Token boundary](docs/TOKEN_BOUNDARY.md)
+
+## Before opening a pull request
+
+Record the tested revision, checks, and any gaps. If the change affects
+installed consumers, name the affected interface in the PR and cite a check
+that exercised it. Use the fresh-wheel check for packaging, the API contract
+tests for HTTP and CLI/MCP, or the bundle checks for exports.
+[Fresh-wheel check](.github/workflows/ci.yml) ·
+[API contract tests](#check-the-api-and-its-clients) ·
+[Bundle checks](#check-a-research-bundle)
