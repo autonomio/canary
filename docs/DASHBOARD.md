@@ -18,21 +18,35 @@ CANARY_DATA_DIR="$canary_preview_dir/data" \
   uv run --no-sync canary runs serve
 ```
 
-Open the printed URL. **Questions** should show zero runs. Open
-**Menu → Service** to see the storage directory, PDF extraction engine,
-connection status, and link to the API contract.
+With a browser, open the printed URL and wait for **Workspace connected** before
+reading the **Questions** count. Open **Menu → Service** to see the storage
+directory, PDF extraction engine, Codex status, and API contract link.
 
-In another shell at the checkout root, set `canary_preview_url` to that
-printed address without its trailing slash. Check the same service from the
-CLI and HTTP.
+In another shell at the checkout root, set `canary_preview_url` to the printed
+address without its trailing slash. Use this browser-free smoke check to
+fetch the dashboard and stylesheet, compile the example, and read the run list.
 
 ```sh
-curl -fsS "$canary_preview_url/api/status"
-CANARY_API_URL="$canary_preview_url" uv run --no-sync canary run docs/examples/research.yaml --dry-run
-curl -fsS "$canary_preview_url/api/runs"
+(
+  set -eu
+  curl -fsS -o /dev/null -w 'Dashboard HTTP %{http_code}\n' "$canary_preview_url/"
+  curl -fsS -o /dev/null -w 'Stylesheet HTTP %{http_code}\n' "$canary_preview_url/assets/research.css"
+  curl -fsS -w '\n' "$canary_preview_url/api/status"
+  curl -fsS -w '\n' "$canary_preview_url/api/runs"
+  CANARY_API_URL="$canary_preview_url" uv run --no-sync canary run docs/examples/research.yaml --dry-run
+  curl -fsS -w '\n' "$canary_preview_url/api/runs"
+)
 ```
 
-The dry run prints the resolved settings and the run list stays empty.
+A passing preview gives these results.
+
+| Check | Expected result |
+| --- | --- |
+| Browser | **Workspace connected** and zero questions. **Service** shows temporary storage and either **Codex signed out** or **Codex unavailable**. |
+| HTTP | Dashboard and stylesheet return `200`. Status reports `"service": "available"` and `"dashboard_enabled": true`. |
+| CLI | The example resolves an audit with `gpt-6.1-sol` at `xhigh`, `budget_seconds: null` for an unlimited audit, and `max_correction_rounds: 3`. |
+| Run list | `{"runs":[]}` before and after the dry run, confirming it created no run. |
+
 Stop the preview with Ctrl-C in its service session. For a persistent service
 and live questions, follow the installation and authentication guides.
 [Installation](INSTALL.md) · [Authentication](AUTH.md)
