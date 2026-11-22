@@ -11,6 +11,7 @@ class PaperAttributes(TypedDict):
     display_name: str | None
     publication_year: int | None
     publication_date: str | None
+    biblio: dict | None
     cited_by_count: int | None
     counts_by_year: list[dict] | None
     fwci: float | None

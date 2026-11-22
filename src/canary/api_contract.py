@@ -109,7 +109,8 @@ def schemas():
         'access':O,'profile':obj({'progress':obj({'updated_at':S,'findings_updated_at':nullable(S),
             'findings_refreshed':B,'final_refresh':B},closed=False)},closed=False),
         'coverage':obj({'candidate_metadata':ref('CandidateMetadata'), 'additional_sources':arr(ref('AdditionalSourceStatus')),
-            'search_progress':dict(O,description='Recorded discovery progress. New responses follow DiscoverResult; historical records remain unchanged.')},closed=False),
+            'search_progress':dict(O,description='Recorded discovery progress. New responses follow DiscoverResult; historical records remain unchanged.'),
+            'publication_identity_exclusions':arr(obj({'work_id':S,'title':nullable(S),'reason':S},['work_id','reason']))},closed=False),
         'paper_selection':O,'usage':O,'synthesis_md':nullable(S),
         'seed':S,'stopped':S,'model':nullable(S),'papers':arr(O),'iterations':arr(O),
         'startup_error':nullable(S),'retention':typed(BundleRetention)},closed=False)
@@ -257,6 +258,11 @@ def schemas():
             'status':{'enum':['complete','backoff','incomplete']},'pending_query_ids':arr(S)},closed=False),
         'DiscoverRequest':obj({'plan':ref('QuestionPlan'),'pages':dict(I,minimum=1,default=5)},['plan']),
         'AcquireRequest':obj({'ids':arr(S),'workers':dict(I,minimum=1,maximum=32,default=12),'retry_failed':B},['ids']),
+        'AcquireResult':obj({'attempted':I,'sources_available':I,'receipts':arr(obj({
+            'work_id':S,'title':nullable(S),
+            'status':dict(S,description='publication_identity_unverified means no acquired copy satisfied the bibliographic check.'),
+            'reason':S,'public_timeout_seen':B,'reference':ref('AgentReference')},['work_id','status'],closed=False))},
+            ['attempted','sources_available','receipts']),
         'ReadSourceRequest':obj({'reference_id':S,'match':nullable(S),'page':nullable(dict(I,minimum=1)),
                                  'context':dict(I,minimum=0,default=2),'limit':dict(I,minimum=1,default=8)},['reference_id']),
         'FinalizeRequest':obj({'investigation':ref('GeneratedInvestigation')})}
@@ -344,7 +350,7 @@ def document():
         source_content[media] = deepcopy(source_content['application/octet-stream'])
     op('finish_execution','post','/api/runs/{key}/execution/finish','Close scientific admission and stop writers before sealing','ExecutionFinished',body='ExecutionFinish',params=[key])
     op('execute_scientific','post','/api/runs/{key}/execution','Execute the active scientific role through the service-owned native runtime','ExecutionReceipt',body='ExecutionRequest',params=[key])
-    for action, body, response in (('discover','DiscoverRequest','DiscoverResult'),('acquire','AcquireRequest','Object'),
+    for action, body, response in (('discover','DiscoverRequest','DiscoverResult'),('acquire','AcquireRequest','AcquireResult'),
                                    ('catalog','Object',None),('source','ReadSourceRequest',None),('finalize','FinalizeRequest','Object')):
         op('tool_'+action,'post','/api/runs/{key}/tools/'+action,'Run-scoped deterministic '+action,response or 'Object',body=body,params=[key])
         if response is None:

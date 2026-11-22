@@ -1,6 +1,7 @@
 """Typed source-first coverage research contracts, independent of saved experiments."""
 from __future__ import annotations
 
+import re
 from typing import Literal, TypedDict, cast
 
 from .claim_freshness import schema as freshness_schema
@@ -285,6 +286,42 @@ New runs rescan the configured directory; repeating settings does not freeze ext
 """
 
 
+def _matches_number_spacing(reason, original):
+    """Match exact prose with only horizontal spaces beside numbers omitted."""
+    start = offset = 0
+    for gap in re.finditer(r'[ \t]+', original):
+        if not (original[max(0, gap.start() - 1):gap.start()].isdigit()
+                or original[gap.end():gap.end() + 1].isdigit()):
+            continue
+        part = original[start:gap.start()]
+        if not reason.startswith(part, offset):
+            return False
+        offset += len(part)
+        if reason.startswith(gap[0], offset):
+            offset += len(gap[0])
+        start = gap.end()
+    return reason[offset:] == original[start:]
+
+
+def restore_review_reason(review):
+    """Use the recorded note when it proves how a damaged reason was derived."""
+    reason, note = review.get('reason'), review.get('substantive_review_note')
+    if not isinstance(reason, str) or not reason or not isinstance(note, str) or not note or reason == note:
+        return review
+    end = next((m.start() + 1 for m in re.finditer(r'\.(?=\s+(\S)|\s*\Z)', note)
+                if m[1] is None or m[1].isupper()), len(note))
+    sentence = note[:end]
+    if reason == sentence:
+        return review
+    for original in (sentence, note):
+        if len(reason) < len(original) and _matches_number_spacing(reason, original):
+            return dict(review, reason=original, recorded_reason=reason)
+    decimal = re.search(r'\d\.(?=\d)', sentence)
+    if decimal and _matches_number_spacing(reason, sentence[:decimal.end()]):
+        return dict(review, reason=sentence, recorded_reason=reason)
+    return review
+
+
 def research_prompt(question, command, minimum_papers=50, *, local_text=False, additional_sources=(), research_state=False, continue_research=False):
     search = (LOCAL_TEXT_SCOPE if local_text else
         "Queries must use OpenAlex full-text-inclusive search=; abstract/title-only filters are prohibited. "
@@ -317,6 +354,9 @@ Every retrieved source still requires identity, completeness and question releva
 Count unique publications, not versions. Do not pad with generic context. Persist reviewed-papers.json after each completed source review:
 [{{work_id,eligibility:'core|supporting|preview|irrelevant|uncertain',reason,investigated_sections,passage_ids_read,incorporated_in_output,related_study_ids,substantive_review_note}}].
 Notes must reflect actual question-linked reading of methods/results or equivalent context, not templated status notes.
+Use a JSON serializer for all research records and preserve free text as drafted, including spaces beside numbers.
+If shortening a review note into a reason, keep the whole first sentence. A sentence-ending period is followed
+by whitespace and a capital or by the end of the note. Keep decimal points inside numbers.
 Update progress.jsonl with UTC milestones and admitted core/supporting counts. Keep coverage-map.json by plan aspect with direct/supporting source IDs and unresolved needs.
 If fewer than {minimum_papers} remain, edit question-plan-draft.json with targeted supplemental queries and repeat discover/acquire; preserve existing query IDs/searches and assign a new ID whenever changing a search string; record actual assessed exhaustion and access limits in scarcity.json.
 A timeout or inaccessible copy alone does not prove topic scarcity. The target is not {minimum_papers} independent trials: role/family accounting is essential.

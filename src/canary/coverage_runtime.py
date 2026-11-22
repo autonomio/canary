@@ -630,7 +630,7 @@ def catalog(workspace):
 
 def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extract=None, transport=None, root=None):
     """Only explicitly selected works, concurrent failures contained, receipts committed individually."""
-    from .coverage_sources import PaperCopy
+    from .coverage_sources import PaperCopy, PublicationIdentityError
     workspace = Path(workspace).resolve()
     ids = list(dict.fromkeys(ids))
     if not ids or any(not SOURCE_ID.fullmatch(identifier) for identifier in ids):
@@ -702,6 +702,9 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
                         reference.update({k: work[k] for k in ('adapter', 'source_kind', 'source_metadata', 'record_url')})
                         reference['full_text_status'] = 'record_requires_source_verification'
                     receipt.update(status="source_retrieved", reference=reference, url=url, bytes=len(raw))
+            except PublicationIdentityError as error:
+                receipt.update(status="publication_identity_unverified", reason=str(error),
+                               public_timeout_seen=error.public_timeout_seen)
             except Exception as error:
                 receipt.update(status="retrieval_or_extraction_failed", reason=type(error).__name__ + ": " + str(error))
             receipt.update(ended_at=now(), seconds=round(time.monotonic() - started, 3))
@@ -840,7 +843,7 @@ def bind_payload(workspace, *, investigation=None):
         require(question.get("gap_ids", []), {r["id"] for r in raw.get("gaps", [])}, "gap", question["id"])
         require(question.get("residue_ids", []), {r["id"] for r in raw.get("residue", [])}, "residue", question["id"])
     claim_blocking_issues = [issue for index, issue in enumerate(issues) if index not in scoped]
-    reviews = read(workspace / "reviewed-papers.json", [])
+    reviews = [protocol.restore_review_reason(row) for row in read(workspace / "reviewed-papers.json", [])]
     selected = set(read(workspace / "selection.json", {}).get("selected_for_review_ids", []))
     admitted, additional_admitted, seen_publications, seen_bodies = [], [], set(), set()
     for review in reviews:

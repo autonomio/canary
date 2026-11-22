@@ -100,24 +100,38 @@ def test_subscription_preview_is_not_a_full_html_paper():
         sources.article_text(raw, {"title": "Synthetic paper"})
 
 
-def test_raw_source_pdf_hint_must_match_the_selected_paper(monkeypatch):
+@pytest.mark.parametrize("location_field", ["raw_source_name", "pdf_url"])
+def test_same_title_thesis_cannot_stand_in_for_a_conference_paper(location_field):
     url = "https://example.org/author/paper.pdf"
-    work = {"display_name": "Synthetic paper", "primary_location": {"raw_source_name": url},
+    work = {"display_name": "Shared publication title", "type": "conference-paper",
+            "authorships": [{"author": {"display_name": "Ada Example"}}],
+            "primary_location": {location_field: url},
             "locations": [{"raw_source_name": "Journal with https://example.org/other.pdf"},
                           {"raw_source_name": "file:///private/paper.pdf"}]}
     assert sources.public_candidates(work) == [url]
-    seen = []
-    def download(client, requested, resolver, expected, **kwargs):
-        seen.append((requested, expected))
-        sources.public_url(requested, resolver)
-        return b"%PDF synthetic", "application/pdf", requested
-    monkeypatch.setattr(sources, "public_download", download)
-    monkeypatch.setattr(sources, "_pdf_text", lambda raw, **kwargs: ("Synthetic readable paper. " * 30, 1, ()))
-    monkeypatch.setattr(sources, "pdf_matches_work", lambda raw, expected, **kwargs: False)
-    assert sources.public_work_download(work, None, public_resolver)[0] is None
-    monkeypatch.setattr(sources, "pdf_matches_work", lambda raw, expected, **kwargs: True)
-    assert sources.public_work_download(work, None, public_resolver)[0][2] == url
-    assert seen == [(url, work), (url, work)]
+    thesis = _paper_pdf("Shared publication title\nAda Example\nMasters degree in engineering\nJuly 19, 2022\n"
+                        + "Synthetic thesis results. " * 35)
+    paper = _paper_pdf("Shared publication title\nAda Example\nResults\n" + "Synthetic conference results. " * 35)
+    with pytest.raises(sources.PublicationIdentityError, match="thesis for an article record"):
+        sources.public_work_download(work, httpx.MockTransport(lambda req: httpx.Response(200, content=thesis)), public_resolver)
+    result, timed_out = sources.public_work_download(
+        work, httpx.MockTransport(lambda req: httpx.Response(200, content=paper)), public_resolver)
+    assert result[:3] == (paper, "application/pdf", url)
+    assert timed_out is False
+
+
+def test_identified_pdf_checks_pagination_and_a_dated_thesis_cover():
+    title = "Shared publication title"
+    biblio = {"first_page": "1", "last_page": "6"}
+    longer = _paper_pdf(title + "\nResults\n" + "Synthetic results. " * 35, pages=22)
+    with pytest.raises(sources.PublicationIdentityError, match="22 pages.*records 6"):
+        sources._validate_paper_copy(longer, "application/pdf", {"title": title, "biblio": biblio})
+    # A catalog report may be a thesis. Its own cover should establish the year.
+    text = "[PDF page 1]\n\n" + title + "\nA thesis presented for the degree of master\n2019"
+    work = {"title": title, "type": "report", "publication_year": 2000}
+    with pytest.raises(sources.PublicationIdentityError, match="cover year 2019.*catalog year 2000"):
+        sources._pdf_identity(text, 138, work)
+    sources._pdf_identity(text, 138, dict(work, publication_year=2019))
 
 
 def test_usable_xml_winner_releases_pdf_losers_without_taking_conversion_capacity(monkeypatch):
@@ -155,15 +169,17 @@ def test_usable_xml_winner_releases_pdf_losers_without_taking_conversion_capacit
 
 def test_readable_but_wrong_identity_does_not_stop_the_valid_alternative(monkeypatch):
     wrong = _paper_pdf('An unrelated study\nMethods\n' + 'Synthetic measured results. ' * 30)
-    valid = b'<article><body><p>' + b'Synthetic measured results. ' * 30 + b'</p></body></article>'
+    valid = (b'<article><front><article-meta><title-group><article-title>The selected study</article-title>'
+             b'</title-group></article-meta></front><body><p>' + b'Synthetic measured results. ' * 30 + b'</p></body></article>')
     rejected = Event()
-    original = sources.pdf_matches_work
-    def identity(raw, expected, **kwargs):
-        result = original(raw, expected, **kwargs)
-        assert result is False
-        rejected.set()
-        return result
-    monkeypatch.setattr(sources, 'pdf_matches_work', identity)
+    original = sources._pdf_identity
+    def identity(text, pages, expected):
+        try:
+            original(text, pages, expected)
+        except sources.PublicationIdentityError:
+            rejected.set()
+            raise
+    monkeypatch.setattr(sources, '_pdf_identity', identity)
     def handler(request):
         if request.url.path == '/valid.xml':
             assert rejected.wait(5)
@@ -253,8 +269,8 @@ def test_readable_preview_cannot_win_race_over_complete_copy(monkeypatch, kind):
     preview_extracted, loser_started, release_loser = Event(), Event(), Event()
     extract_xml = sources._xml_text
 
-    def xml_text(raw):
-        text = extract_xml(raw)
+    def xml_text(raw, expected=None):
+        text = extract_xml(raw, expected)
         if raw == preview_xml:
             preview_extracted.set()
         return text
@@ -303,7 +319,7 @@ def test_html_block_and_table_boundaries_do_not_fuse_measurements():
     assert sources.article_text(raw) == "Results\n\nFirst result.\n\nSecond result.\n\n1.23 | 4.56\n\n7.89 | 10.11"
 
 
-def _paper_pdf(text=None):
+def _paper_pdf(text=None, *, pages=1):
     """An actual PDF fixture, with extractable text or a truly blank page."""
     writer = PdfWriter()
     page = writer.add_blank_page(width=612, height=792)
@@ -320,6 +336,8 @@ def _paper_pdf(text=None):
         stream = DecodedStreamObject()
         stream.set_data("\n".join(commands).encode("ascii"))
         page[NameObject("/Contents")] = writer._add_object(stream)
+    for _ in range(pages - 1):
+        writer.add_blank_page(width=612, height=792)
     pdf = io.BytesIO()
     writer.write(pdf)
     return pdf.getvalue()
@@ -335,7 +353,16 @@ def _complete_landing(pdf_link=True):
         '</p></article>').encode()
 
 
-@pytest.mark.parametrize("pdf_state", ["blank", "preview", "too_short"])
+def test_catalog_and_publisher_author_order_identify_the_same_article():
+    expected = {"title": "Synthetic context annotation study", "doi": "10.9999/contexts",
+                "authorships": [{"author": {"display_name": "Alice Smith"}}]}
+    article = b'<meta name="citation_author" content="Smith, Alice">' + _complete_landing()
+    assert "Observed 1.23 minutes" in sources.article_text(article, expected)
+    with pytest.raises(sources.PublicationIdentityError, match="authors do not match"):
+        sources.article_text(article.replace(b"Smith, Alice", b"Jones, Ava"), expected)
+
+
+@pytest.mark.parametrize("pdf_state", ["blank", "preview", "too_short", "other_publication"])
 def test_unusable_metadata_linked_pdf_keeps_complete_landing_html(monkeypatch, pdf_state):
     monkeypatch.setattr(sources, "_native_pdf_text", lambda raw, **kwargs: None)
     if pdf_state == "blank":
@@ -343,8 +370,10 @@ def test_unusable_metadata_linked_pdf_keeps_complete_landing_html(monkeypatch, p
     elif pdf_state == "preview":
         raw_pdf = _paper_pdf("Synthetic context annotation study\nThis is a preview of subscription content.\n" +
             "Only a limited excerpt of the study is available in this copy. " * 14)
-    else:
+    elif pdf_state == "too_short":
         raw_pdf = _paper_pdf("Synthetic context annotation study\nResults\nA brief excerpt, not a full paper.")
+    else:
+        raw_pdf = _paper_pdf("An unrelated study\nResults\n" + "Synthetic unrelated results. " * 30)
     landing = _complete_landing()
     requested = []
     def handler(request):

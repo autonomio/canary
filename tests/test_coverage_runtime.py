@@ -608,10 +608,11 @@ def test_public_acquisition_saves_the_validated_extraction_once(tmp_path, monkey
     runtime.write(tmp_path / 'works.json', [selected])
     text = 'Methods\n' + 'Measured synthetic results, with source boundaries retained. ' * 20
     if kind == 'application/pdf':
-        raw = _paper_pdf(text)
+        raw = _paper_pdf('Synthetic source W1\n' + text)
         name = '_pdf_text'
     elif kind == 'application/xml':
-        raw = ('<article><body><sec><title>Results</title><p>' + text + '</p></sec></body></article>').encode()
+        raw = ('<article><front><article-meta><title-group><article-title>Synthetic source W1</article-title>'
+               '</title-group></article-meta></front><body><sec><title>Results</title><p>' + text + '</p></sec></body></article>').encode()
         name = '_xml_text'
     else:
         raw = _complete_landing(pdf_link=False).replace(b'Synthetic context annotation study', b'Synthetic source W1')
@@ -636,6 +637,41 @@ def test_public_acquisition_saves_the_validated_extraction_once(tmp_path, monkey
     assert all(p['text'] == saved[p['start']:p['end']] for p in runtime.source(tmp_path, 'W1'))
 
 
+def test_publication_identity_exclusion_is_reported_without_saving_a_source(tmp_path, monkeypatch):
+    from canary import coverage_export, dashboard, research_tools
+    from test_coverage_evidence_ui import run_dashboard
+    from test_coverage_sources import _paper_pdf, public_resolver
+
+    setup_sources(tmp_path, ids=('W1',))
+    selected = dict(work('W1'), doi=None, type='conference-paper',
+                    primary_location={'is_oa': True, 'pdf_url': 'https://example.org/thesis.pdf'})
+    runtime.write(tmp_path / 'works.json', [selected])
+    runtime.write(tmp_path / 'run.json', {'status': 'researching'})
+    raw = _paper_pdf('Synthetic source W1\nA thesis submitted to a university\n' + 'Synthetic thesis results. ' * 35)
+    monkeypatch.setenv('CANARY_DATA_DIR', str(tmp_path / 'service'))
+    monkeypatch.setattr(runtime.socket, 'getaddrinfo', public_resolver)
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=raw))
+    monkeypatch.setattr(runtime, 'LoggedTransport', lambda workspace: transport)
+
+    result = research_tools.execute({'bundle': tmp_path, 'status': 'researching'}, 'acquire', {'ids': ['W1']}, tmp_path)
+    receipt, = result['receipts']
+    assert result['sources_available'] == 0
+    assert receipt['status'] == 'publication_identity_unverified' and 'reference' not in receipt
+    assert not any((tmp_path / folder).exists() for folder in ('papers', 'texts', 'passages'))
+    exported = coverage_export.export_bundle(tmp_path)
+    view = dashboard.question_research_bundle(tmp_path, exported['run'])
+    assert view['coverage']['publication_identity_exclusions'] == [
+        {'work_id': 'W1', 'title': 'Synthetic source W1', 'reason': receipt['reason']}
+    ]
+    assert view['coverage']['reviewed_papers'] == 0 and view['answer']['references'] == []
+    run_dashboard(tmp_path, view, r"""
+const html=coverageSelectionHtml(graph);
+assert.match(html,/Publication identity · 1 excluded/);
+assert.match(html,/W1<\/strong> · Synthetic source W1/);
+assert.match(html,/PDF identifies a thesis for an article record/);
+""")
+
+
 def test_binding_rejects_padding_foreign_spans_and_keeps_raw_research(tmp_path):
     setup_sources(tmp_path)
     def fetch(source, transport):
@@ -652,11 +688,13 @@ def test_binding_rejects_padding_foreign_spans_and_keeps_raw_research(tmp_path):
     runtime.write(tmp_path / "run.json", {"minimum_papers": 2})
     runtime.write(tmp_path / "selection.json", {"selected_for_review_ids": ["W1", "W2", "W3"]})
     runtime.write(tmp_path / "reviewed-papers.json", [
-        {"work_id": "W1", "eligibility": "core", "passage_ids_read": [w1], "investigated_sections": ["methods", "results"], "substantive_review_note": "Actual source-linked context", "related_study_ids": ["study1"]},
+        {"work_id": "W1", "eligibility": "core", "passage_ids_read": [w1], "investigated_sections": ["methods", "results"], "reason": "Measured at 25.", "substantive_review_note": "Measured at 25.6 kHz. Repeat run confirmed.", "related_study_ids": ["study1"]},
         {"work_id": "W2", "eligibility": "supporting", "passage_ids_read": [w1], "investigated_sections": ["results"], "substantive_review_note": "Incorrect foreign paper span"},
         {"work_id": "W3", "eligibility": "core", "passage_ids_read": [], "investigated_sections": [], "substantive_review_note": "Metadata only"}])
     payload = runtime.bind_payload(tmp_path)
     assert payload["accounting"]["substantively_reviewed_publications"] == 1
+    assert payload["reviewed_papers"][0]["reason"] == "Measured at 25.6 kHz."
+    assert payload["reviewed_papers"][0]["recorded_reason"] == "Measured at 25."
     assert payload["accounting"]["minimum_met"] is False
     assert any("another paper" in issue for issue in payload["mechanical_audit"]["issues"])
     assert payload["evidence"][0]["verbatims"][0]["id"] == w1
