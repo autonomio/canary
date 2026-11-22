@@ -353,6 +353,15 @@ def _complete_landing(pdf_link=True):
         '</p></article>').encode()
 
 
+def test_catalog_and_publisher_author_order_identify_the_same_article():
+    expected = {"title": "Synthetic context annotation study", "doi": "10.9999/contexts",
+                "authorships": [{"author": {"display_name": "Alice Smith"}}]}
+    article = b'<meta name="citation_author" content="Smith, Alice">' + _complete_landing()
+    assert "Observed 1.23 minutes" in sources.article_text(article, expected)
+    with pytest.raises(sources.PublicationIdentityError, match="authors do not match"):
+        sources.article_text(article.replace(b"Smith, Alice", b"Jones, Ava"), expected)
+
+
 @pytest.mark.parametrize("pdf_state", ["blank", "preview", "too_short", "other_publication"])
 def test_unusable_metadata_linked_pdf_keeps_complete_landing_html(monkeypatch, pdf_state):
     monkeypatch.setattr(sources, "_native_pdf_text", lambda raw, **kwargs: None)

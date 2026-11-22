@@ -336,7 +336,8 @@ def _name_words(text):
 
 
 def _author_keys(names):
-    return {words[-1] for name in names if (words := _name_words(name))}
+    # Publisher metadata often writes surnames first, separated by a comma.
+    return {words[-1] for name in names if (words := _name_words(name.partition(',')[0]))}
 
 
 def _catalog_authors(expected):
