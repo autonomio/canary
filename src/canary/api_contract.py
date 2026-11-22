@@ -10,7 +10,8 @@ from .research_spec import CompiledResearch
 from .research_bundle import ResearchBundle, BundleRetention
 from .service_status import ServiceStatus
 from .connection import ConnectionStatus
-from .candidate_index import CandidateMetadata
+from .candidate_index import CandidateMetadata, OPENALEX_ID
+from .citation_selection import CitationLeads
 from .bundle_encoding import ReferenceEncoding
 from .paper_metadata import PaperMetadata
 from .source_adapters import NAMES as ADDITIONAL_SOURCES, SourceStatus
@@ -59,7 +60,8 @@ def schemas():
     local_config = obj({'directory':dict(S,pattern='^/',maxLength=4096),
                         'metadata':dict(S,pattern='^/',maxLength=4096)}, ['directory'])
     additional = dict(arr({'type':'string','enum':list(ADDITIONAL_SOURCES)}),uniqueItems=True,maxItems=3,default=[])
-    retrieval = {'oneOf': [obj(dict(retrieval_fields, corpus=fixed('fresh'), additional_sources=additional)),
+    retrieval = {'oneOf': [obj(dict(retrieval_fields, corpus=fixed('fresh'), additional_sources=additional,
+                                    selection=dict(S,enum=['coverage','citation_graph'],default='coverage'))),
         obj(dict(retrieval_fields, corpus=fixed('local_text'), local_text=local_config,
                  additional_sources=dict(additional,maxItems=0)), ['corpus','local_text'])]}
     declaration = obj({'version':{'type':'integer','const':1},'question':dict(S,minLength=1,maxLength=20000),
@@ -68,6 +70,7 @@ def schemas():
                      'budget_seconds':{'type':'null','default':None,'description':'Audits have no duration limit.'},
                      'max_correction_rounds':dict(I,minimum=0,default=3)}),
         'retrieval':retrieval,
+        'study_brief':dict(S,minLength=1,maxLength=20000,description='Optional study design and scope for the submitted question.'),
         'research_state':nullable(dict(O,description='Supplied current research state, at most 10 MiB. Preserved as untrusted background, including paper references and review records.')),
         'continue_research':dict(B,default=False,description='Continue from supplied research_state; avoid reselecting previously reviewed publications. Existing paper target and scientific workflow are unchanged.'),
         'subagents':{'type':'boolean','const':False}}, ['question'])
@@ -109,6 +112,7 @@ def schemas():
         'access':O,'profile':obj({'progress':obj({'updated_at':S,'findings_updated_at':nullable(S),
             'findings_refreshed':B,'final_refresh':B},closed=False)},closed=False),
         'coverage':obj({'candidate_metadata':ref('CandidateMetadata'), 'additional_sources':arr(ref('AdditionalSourceStatus')),
+            'citation_leads':nullable(ref('CitationLeads')), 'unscreened_citation_leads':arr(S),
             'search_progress':dict(O,description='Recorded discovery progress. New responses follow DiscoverResult; historical records remain unchanged.'),
             'publication_identity_exclusions':arr(obj({'work_id':S,'title':nullable(S),'reason':S},['work_id','reason']))},closed=False),
         'paper_selection':O,'usage':O,'synthesis_md':nullable(S),
@@ -242,6 +246,9 @@ def schemas():
             'description':'The one question a person must answer before this question can be researched, and why. Answer it, then submit a revised question as a new run.'},
         'ExecutionFinish':typed(ExecutionFinish),'ExecutionFinished':typed(ExecutionFinished),
         'CandidateMetadata':typed(CandidateMetadata),
+        'CitationLeads':typed(CitationLeads),
+        'CitationLeadsRequest':obj({'anchors':dict(arr(dict(S,pattern=f'^{OPENALEX_ID}$')),
+                                                  minItems=1,maxItems=3,uniqueItems=True)}, ['anchors']),
         'AdditionalSourceStatus':typed(SourceStatus),
         'OpenAlexBackoff':typed(protocol.OpenAlexBackoff),
         'DiscoveryReadiness':{**typed(protocol.DiscoveryReadiness),
@@ -351,6 +358,7 @@ def document():
     op('finish_execution','post','/api/runs/{key}/execution/finish','Close scientific admission and stop writers before sealing','ExecutionFinished',body='ExecutionFinish',params=[key])
     op('execute_scientific','post','/api/runs/{key}/execution','Execute the active scientific role through the service-owned native runtime','ExecutionReceipt',body='ExecutionRequest',params=[key])
     for action, body, response in (('discover','DiscoverRequest','DiscoverResult'),('acquire','AcquireRequest','AcquireResult'),
+                                   ('citation-leads','CitationLeadsRequest','CitationLeads'),
                                    ('catalog','Object',None),('source','ReadSourceRequest',None),('finalize','FinalizeRequest','Object')):
         op('tool_'+action,'post','/api/runs/{key}/tools/'+action,'Run-scoped deterministic '+action,response or 'Object',body=body,params=[key])
         if response is None:

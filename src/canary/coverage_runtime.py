@@ -34,11 +34,10 @@ from .claim_uncertainty import unassessed as unassessed_uncertainty
 from . import coverage_protocol as protocol
 from .runtime_paths import data_root
 from .processes import RunCancelled, stop_tree, identity, tool_receipts
-from .candidate_index import CandidateIndex, abstract_text, SOURCE_ID
+from .candidate_index import CandidateIndex, abstract_text, SOURCE_ID, WORK_ID
 from .redact import redact_text
 from .paper_metadata import OPENALEX_SELECT, snapshot as paper_metadata_snapshot
 
-WORK_ID = re.compile(r"W[1-9][0-9]{0,19}\Z")
 _LOCK = threading.Lock()
 
 
@@ -1334,6 +1333,9 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
         raise ValueError("This workspace is already reserved for a research run; choose an empty workspace") from None
     if on_reserved is not None:
         on_reserved()
+    spec = read(workspace / "run-spec.json", {})
+    study_brief = bool(spec.get("study_brief"))
+    citation_graph = spec.get("retrieval", {}).get("selection") == "citation_graph"
     started, before = now(), time.monotonic()
     manifest = {"question": question, "kind": "question", "execution_mode": "coverage-guided full-paper research",
         "status": "researching", "started_at": started, "generated_at": started,
@@ -1346,6 +1348,10 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
         "accounting_scope": "Native CLI workload; legacy DeepSeek gateway token ledger remains a separate deployment."}
     if additional_sources:
         manifest['additional_sources'] = list(additional_sources)
+    if study_brief:
+        manifest['study_brief_supplied'] = True
+    if citation_graph:
+        manifest['citation_graph_requested'] = True
     if research_state is not None:
         write(workspace / "research-state.json", research_state)
         manifest["research_state"] = describe_state(research_state, continue_research)
@@ -1365,7 +1371,11 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
             manifest.update(status='researching')
             write(workspace / 'run.json', manifest)
         scientific_session(workspace, "research", protocol.RESEARCH_MODEL, protocol.RESEARCH_EFFORT,
-            protocol.research_prompt(question, command, minimum_papers, local_text=bool(local_text), additional_sources=additional_sources, research_state=research_state is not None, continue_research=continue_research), protocol.investigation_schema(), executable=executable)
+            protocol.research_prompt(question, command, minimum_papers, local_text=bool(local_text),
+                                     additional_sources=additional_sources, research_state=research_state is not None,
+                                     continue_research=continue_research, study_brief=study_brief,
+                                     citation_graph=citation_graph),
+            protocol.investigation_schema(), executable=executable)
         check_cancelled()
         wait_for_tools(run_key)
         clarification = protocol.clarification_request(read(workspace / "investigation.json"))

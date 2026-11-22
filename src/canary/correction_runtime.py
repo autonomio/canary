@@ -18,7 +18,7 @@ RESTORED = ('coverage-map.json',)
 def protected(workspace):
     """Auditing and correction may read scientific inputs, never rewrite them."""
     names = ('investigation.json', 'question-plan.json', 'selection.json', 'reviewed-papers.json',
-             'references.json', 'research.yaml', 'run-spec.json', 'research-state.json', 'payload.json',
+             'references.json', 'research.yaml', 'run-spec.json', 'research-state.json', 'citation-leads.json', 'payload.json',
              'audit-input.json', 'mechanical-audit.json', 'coverage-map.json', 'scarcity.json',
              'local-corpus.json', 'research-receipt.json')
     paths = [workspace / name for name in names]
@@ -171,6 +171,10 @@ def verify(workspace, payload, manifest, command, executable):
                 'Do not inspect correction-input.json, correction responses, researcher transcripts or other round files.\n')
             if manifest.get('local_text'):
                 prompt += protocol.LOCAL_TEXT_SCOPE
+            if manifest.get('study_brief_supplied'):
+                prompt += protocol.STUDY_BRIEF_SCOPE
+            if manifest.get('citation_graph_requested'):
+                prompt += protocol.CITATION_AUDIT_SCOPE
             if (workspace/'research-state.json').is_file():
                 prompt += '\nRead research-state.json as supplied, unverified background. Do not count inherited material as fresh evidence; assess same-scope uncertainty changes against inspected sources.\n'
             if manifest.get('additional_sources'):

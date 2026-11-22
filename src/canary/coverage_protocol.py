@@ -322,7 +322,22 @@ def restore_review_reason(review):
     return review
 
 
-def research_prompt(question, command, minimum_papers=50, *, local_text=False, additional_sources=(), research_state=False, continue_research=False):
+STUDY_BRIEF_SCOPE = (
+    "\nRead the study_brief field in run-spec.json as context for the submitted question. "
+    "Use its design, comparators, outcomes and known references when judging relevance. "
+    "Treat supplied claims and estimates as unverified background. Ground findings in the run's "
+    "acquired sources. If the brief and question differ in scope, follow the question and record the difference.\n"
+)
+
+
+CITATION_AUDIT_SCOPE = (
+    "\nFor citation-guided selection, check citation-leads.json against selection.json. "
+    "Assess the recorded screening decisions and report any missing or material selection gaps.\n"
+)
+
+
+def research_prompt(question, command, minimum_papers=50, *, local_text=False, additional_sources=(),
+                    research_state=False, continue_research=False, study_brief=False, citation_graph=False):
     search = (LOCAL_TEXT_SCOPE if local_text else
         "Queries must use OpenAlex full-text-inclusive search=; abstract/title-only filters are prohibited. "
         "Collapse genuinely shared root queries while preserving question relevance.\n"
@@ -332,8 +347,17 @@ def research_prompt(question, command, minimum_papers=50, *, local_text=False, a
         search += GUIDANCE.format(sources=', '.join(additional_sources))
     from .research_state import prompt as state_prompt
     previous = state_prompt(continue_research) if research_state else "No earlier experiment assets, paper lists, answers or audits. No outputs from other sessions."
+    brief_scope = STUDY_BRIEF_SCOPE if study_brief else ""
+    citation_scope = (f"\nFor citation-guided selection, record include decisions for one to three relevant OpenAlex "
+                      f"works from distinct studies and run {command} citation-leads --anchors W123 W456 "
+                      "with their actual work IDs. Screen every returned lead and record its decision. "
+                      "Add included leads to the selected papers for source reading. "
+                      "If acquisition supplies the citation pass, read citation-leads.json, screen the listed works, "
+                      "and retry with the selected IDs. The links provide a route to the work. "
+                      "Use the paper to judge how it used its references. If the first searches provide no suitable "
+                      "OpenAlex anchors, document the gap.\n" if citation_graph else "")
     return f"""Read the repository AGENTS.md first, then this workspace AGENTS.md. This is real research.
-Question: {question}
+Question: {question}{brief_scope}
 {SCIENTIFIC_RULES}
 If you stop because the question cannot be researched as asked (for example, it needs the product or measure identified first), save and return investigation.json with clarification {{question, reason}}: the one question a person must answer, and why. Leave the summary and findings empty. Otherwise clarification is null.
 1. Write question-plan-draft.json conforming to question-plan-schema.json. Use 'concepts', never 'entities'.
@@ -343,7 +367,7 @@ Discovery alone commits the validated question-plan.json; never overwrite that c
 2. Run {command} discover --plan question-plan-draft.json. Read search-progress.json and candidates.jsonl.
 Choose batches by coverage-guided marginal information gain: direct comparisons, contrasting/adverse/null findings, condition/outcome differences, methods, then needed context.
 Record selection.json as {{method:'coverage', approach, assessed_candidate_ids, decisions:[{{work_id,decision:'include|exclude|defer',evidence_role:'core|supporting|unknown',reason,criterion_matches,unknowns,supporting_abstract_text,priority_rank,coverage_contribution}}], selected_for_review_ids, stopping_reason, selection_limitations}}.
-Exact abstract support or null; missing abstracts are uncertainty, not automatic exclusion. All omitted candidates remain unassessed.
+Exact abstract support or null; missing abstracts are uncertainty, not automatic exclusion. All omitted candidates remain unassessed.{citation_scope}
 3. Run {command} acquire --ids SOURCE_ID SOURCE_ID for only your selected batch. Launch acquisition in the background if useful;
 read committed sources using {command} catalog and {command} source WORK_ID --match REGEX --context 2 --limit 8.
 catalog prints a JSON array of {SOURCE_ROWS} Read large catalogs with code so output is not silently truncated.

@@ -11,7 +11,9 @@ from typing import Literal, TypedDict
 import uuid
 
 NAME = '.candidate-index.sqlite'
-SOURCE_ID = re.compile(r'(?:W[1-9][0-9]{0,19}|[LS][0-9a-f]{24})\Z')
+OPENALEX_ID = r'W[1-9][0-9]{0,19}'
+WORK_ID = re.compile(rf'{OPENALEX_ID}\Z')
+SOURCE_ID = re.compile(rf'(?:{OPENALEX_ID}|[LS][0-9a-f]{{24}})\Z')
 
 
 class CandidateMetadata(TypedDict):
@@ -173,6 +175,18 @@ class CandidateIndex:
     def records(self):
         for (value,) in self.db.execute('SELECT record FROM works ORDER BY position'):
             yield json.loads(value)
+
+    def citation_records(self):
+        rows = self.db.execute(
+            "SELECT id, json_extract(candidate, '$.title'), json_extract(candidate, '$.doi'), "
+            "json_extract(candidate, '$.query_ids'), "
+            "CASE WHEN json_type(record, '$.referenced_works') = 'array' "
+            "THEN json_extract(record, '$.referenced_works') ELSE '[]' END, "
+            "json_extract(record, '$.is_retracted') FROM works WHERE id GLOB 'W[0-9]*'")
+        for work_id, title, doi, queries, references, retracted in rows:
+            yield {'id': work_id, 'title': title, 'doi': doi, 'query_ids': json.loads(queries or '[]'),
+                   'referenced_works': json.loads(references),
+                   'is_retracted': retracted == 1}
 
     def export(self):
         """Stream the existing agent-facing snapshots without building a corpus list."""
