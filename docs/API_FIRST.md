@@ -26,7 +26,7 @@ Keep the tested stateful research/audit harness and the existing typed scientifi
 
 Remote `main` at `3ac7e4f` has the coverage-guided Sol/Astra engine, deterministic acquisition, immutable source passages, typed findings and a working loopback HTTP dashboard. `POST /api/runs` already accepts a question; status, research, logs and source routes already exist. Preserve usable routes and data structures rather than renaming them for appearance.
 
-The initial bypasses included direct CLI research execution, direct scientific helper commands, local artifact reads by CLI commands and native Codex execution outside service ownership. That initial dashboard API lacked a published OpenAPI contract, native cancellation and general cross-origin browser access; the initial wheel omitted launch/helper scripts and assets. The delivered capabilities are recorded below. The primary README and example environment still await their separately deferred rewrite. See [the native runtime](COVERAGE_RUNTIME.md) and [current dashboard](DASHBOARD.md).
+The initial bypasses included direct CLI research execution, direct scientific helper commands, local artifact reads by CLI commands and native Codex execution outside service ownership. That initial dashboard API lacked a published OpenAPI contract, native cancellation and general cross-origin browser access; the initial wheel omitted launch/helper scripts and assets. The delivered capabilities are recorded below. See [the native runtime](COVERAGE_RUNTIME.md) and [current dashboard](DASHBOARD.md).
 
 ## Action inventory
 
@@ -53,8 +53,8 @@ The paths below reuse existing routes or name proposed additions. New paths rema
 The current owner-approved delivery uses one PR per step: (1) installable deployment,
 (2) remaining API/lifecycle migration, (3) OpenAPI and MCP interfaces, (4) clean-install
 live proof, (5) Resolvent receiving-side proof in a chosen instance, (6) login-free
-local-footprint dashboard (#125). Bundle embeddings (#126) and the final README
-rewrite follow later. The detailed capabilities below remain the acceptance map;
+local-footprint dashboard (#125). The README indexes the delivered interfaces.
+Bundle embeddings (#126) follow later. The capabilities below are the acceptance map;
 the two interface items are delivered together in this six-PR sequence.
 
 Complete each item’s API behavior, client integration and meaningful acceptance evidence together; do not defer the frontend or agent view to a later cleanup.
@@ -65,7 +65,7 @@ Complete each item’s API behavior, client integration and meaningful acceptanc
 4. [x] **Canonical contract.** [HTTP and agent interfaces](API.md) publishes `/openapi.json`, `canary api`, typed scientific schemas, examples and explicit private-host/browser-origin configuration. Contract tests navigate findings to the exact saved source using only HTTP responses.
 5. [x] **Agent tools.** `canary mcp` provides a stdio relay whose tools/schemas come from the live HTTP contract. It owns no engine, provider or artifact access. Real SDK client tests exercise compilation, submission, findings, source reconstruction and errors through the API.
 6. [x] **Fresh deployment proof.** From a clean install, start the service, authenticate, submit a fresh question, follow progress and retrieve its answer and exact cited source context. Exercise cancellation and restart behavior. [Actual deployment evidence](DEPLOYMENT_PROOF.md) records timing/tokens, restart, cancellation and HTTP source reconstruction. The scientific audit remained partial at its time budget; fixtures are separate from live evidence.
-7. [ ] **README last.** Follow [Vaquum/Limen's structure](https://github.com/Vaquum/Limen): purpose, choose your path, install, runnable examples and deeper reference links. Describe the now-working API, CLI, optional dashboard and agent paths; align `.env.example` and Docker instructions. Clearly label retained legacy behavior.
+7. [x] **Onboarding.** The README links the current service, dashboard, CLI and MCP entry points and identifies the retained broker configuration. The contributor guide walks an agent through an isolated preview and the HTTP contract tests. [README](../README.md) · [Contributor guide](../GUIDANCE.md)
 
 ## Completion evidence
 

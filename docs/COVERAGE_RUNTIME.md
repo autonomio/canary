@@ -8,13 +8,15 @@ Resolvent export keeps its minimum-medium evidence-independence safeguard and ma
 
 Freshness remains a **review horizon**. `scheduled` records a review date; `event_driven` records reassessment triggers; `historical` needs no scheduled expiry for a bounded observation; `unknown` records no defensible horizon. `as_of` is the source's date, not the agent's review timestamp. The audit flags unsupported freshness metadata and due horizons in its existing findings. A passed date does not invalidate a claim, decay uncertainty, launch research or change Resolvent valid time. Automated expiry actions are separate scope.
 
+Start the native service and connect an authorized Codex account before submitting a live question.
+[Installation](INSTALL.md) · [Authentication](AUTH.md)
+
 ```sh
-canary ask "Your question" --out out/questions/new-question
-# Dashboard launches the fixed script with OUT supplied by its supervisor:
-OUT=out/questions/new-question bash scripts/coverage_run.sh ask "Your question"
+canary ask "Your question"
 ```
 
-`canary ask` is the default question path and exports the source graph for the dashboard. Legacy review/cycle commands remain separate. When UI and engine use different checkouts, set `CANARY_QUESTION_ENGINE_ROOT` on the dashboard; clean checkouts use their own root.
+Use the returned key with `canary bundle RUN_KEY` or open the run in the
+dashboard. The API allocates the workspace and serves the source graph.
 
 The workspace must be new. The researcher writes a typed `question-plan.json`, runs full-text-inclusive OpenAlex discovery, screens titles/abstracts, chooses batches, and reads the acquired full sources in the same session. The plan uses **concepts**, not entities. Typed rich plans retain population, efficiency denominators, eligibility and coverage facets; no fields are discarded. OpenAlex `search=` includes indexed full text, titles and abstracts; it is not a body-only search and coverage depends on provider indexing.
 
@@ -30,7 +32,7 @@ The first copy to pass the existing readability, preview and required identity c
 
 The minimum target is **50 substantively reviewed question-relevant publications**. Core comparisons and supporting context are separate; source versions count once and linked experiment reports retain study-family IDs. An inaccessible copy, elapsed time or an unexamined source does not establish scarcity. When genuine scarcity prevents the target, the researcher records assessed exhaustion, follow-up searches and access limits. The report exposes this statement rather than certifying it automatically or padding the corpus.
 
-Standalone deterministic commands (no model call):
+These deterministic commands use the running service and a workspace on its host. [Scientific tools](RUN_LIFECYCLE.md#scientific-tools)
 
 ```sh
 .venv/bin/python scripts/run_coverage_research.py discover --workspace PATH --plan PATH/question-plan.json --pages 5
@@ -64,7 +66,12 @@ Raw `investigation.json` remains unchanged. With `audit.max_correction_rounds` (
 
 `research-receipt.json`, `audit-receipt.json` and `profile.json` preserve the actual scientific session IDs, CLI version, model/effort, start/end/duration and unique native per-response usage. Cached input and reasoning output are subsets, not added again; unavailable counts remain null. Child-session metadata is checked to verify the no-subagent rule. These receipts exclude the coordinating chat and unrelated account activity.
 
-This is a local **operator CLI** deployment using native Codex authentication and automatic execution approval review with the workspace-write sandbox. Acquisition uses self-contained `coverage_sources.py` public source helpers and selectively reads `OPENALEX_API_KEY` from the operator environment or `.env`; no provider key is handed to a scientific session. It is separate from the legacy DeepSeek container/service: it neither changes that service's model contract nor resets/bypasses its rolling ledger. No model/provider/effort fallback is implemented. The operator entry point requires the Canary checkout and authenticated native Codex CLI; acquisition and extraction have no boundary-service or saved-experiment imports. The restricted legacy worker remains a separate deployment.
+The native service uses authenticated Codex with workspace-write sandboxing
+and automatic execution approval review. The service reads `OPENALEX_API_KEY`
+from the operator environment or its data-root `.env` for public source
+acquisition. Scientific sessions use the service's tools. The wheel includes
+the native launcher and dashboard. The retained contained worker is covered
+by its operator runbook. [Installation](INSTALL.md) · [Operator runbook](RUNBOOK.md)
 
 Offline contracts use synthetic bodies and native receipt fixtures. They test batching, failure containment, canonical provenance and accounting, not scientific quality or live provider throughput. Real research is documented with its own fresh receipts and independent audit.
 
