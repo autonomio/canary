@@ -71,3 +71,10 @@ boundary documents the broker's fixed model and accounting rules.
 The pre-migration source and recovery archive are in Git at
 `pre-canary-20260926`. [Historical handoff](docs/HANDOFF.md) ·
 [Naming validation](docs/VALIDATION.md)
+
+## License
+
+Canary's software and project documentation are available under the MIT
+License. The bundled dashboard fonts use the SIL Open Font License 1.1.
+[MIT License](LICENSE) · [Inter notice](scripts/dashboard/assets/Inter-LICENSE.txt) ·
+[Finlandica notice](scripts/dashboard/assets/Finlandica-LICENSE.txt)
