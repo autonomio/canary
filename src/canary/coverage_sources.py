@@ -324,20 +324,65 @@ def _doi(value):
     return match[0].lower().rstrip(".") if match else ""
 
 
-def _identity(parser, expected):
+class PublicationIdentityError(ValueError):
+    def __init__(self, message, *, public_timeout_seen=False):
+        super().__init__(message)
+        self.public_timeout_seen = public_timeout_seen
+
+
+def _name_words(text):
+    plain = ''.join(char for char in unicodedata.normalize('NFKD', text) if not unicodedata.combining(char))
+    return re.findall(r'[^\W\d_]+', plain.casefold())
+
+
+def _author_keys(names):
+    return {words[-1] for name in names if (words := _name_words(name))}
+
+
+def _catalog_authors(expected):
+    names = ((entry.get('author') or {}).get('display_name') for entry in expected.get('authorships') or [])
+    return _author_keys(name for name in names if isinstance(name, str))
+
+
+def _catalog_title(expected):
+    return _normalize(expected.get('title') or expected.get('display_name') or '')
+
+
+def _dissertation_conflict(expected):
+    return expected.get('type') in {'article', 'conference-paper', 'proceedings-article'}
+
+
+def _check_identity(expected, kind, *, titles=(), dois=(), authors=(), years=(), required=True):
     expected = expected or {}
-    doi = _doi(expected.get("doi") or "")
-    actual_dois = [_doi(value) for name in ("citation_doi", "prism.doi", "dc.identifier")
-                   for value in parser.metadata.get(name, []) if _doi(value)]
-    if doi and actual_dois and doi not in actual_dois:
-        raise ValueError("HTML DOI does not match the requested paper")
-    title = expected.get("title") or expected.get("display_name") or ""
-    titles = [value for name in ("citation_title", "prism.title", "dc.title", "dcterms.title")
-              for value in parser.metadata.get(name, [])]
-    if not actual_dois and not titles:
-        titles = [_plain(node) for node in _walk(parser.root) if node.tag == "h1"]
-    if title and titles and _normalize(title) not in {_normalize(value) for value in titles}:
-        raise ValueError("HTML title does not match the requested paper")
+    doi, title = _doi(expected.get('doi') or ''), _catalog_title(expected)
+    titles = {_normalize(value) for value in titles} - {''}
+    dois = {_doi(value) for value in dois} - {''}
+    if doi and dois and doi not in dois:
+        raise PublicationIdentityError(f"{kind} DOI does not match the requested publication.")
+    if title and titles and title not in titles:
+        raise PublicationIdentityError(f"{kind} title does not match the requested publication.")
+    if required and (doi or title or expected.get('id')) and not (title in titles or doi in dois):
+        raise PublicationIdentityError(f"{kind} lacks a matching publication title or DOI.")
+    expected_authors, actual_authors = _catalog_authors(expected), _author_keys(authors)
+    if expected_authors and actual_authors and expected_authors.isdisjoint(actual_authors):
+        raise PublicationIdentityError(f"{kind} authors do not match the requested publication.")
+    year = str(expected.get('publication_year') or '')
+    declared = {match[0] for value in years if (match := re.match(r'(?:18|19|20)[0-9]{2}\b', value.strip()))}
+    if year and declared and year not in declared:
+        observed = ', '.join(sorted(declared))
+        raise PublicationIdentityError(f"{kind} publication year {observed} conflicts with the catalog year {year}.")
+
+
+def _identity(parser, expected, *, required=False):
+    meta = parser.metadata
+    titles = [value for name in ('citation_title', 'prism.title', 'dc.title', 'dcterms.title') for value in meta.get(name, [])]
+    dois = [value for name in ('citation_doi', 'prism.doi', 'dc.identifier') for value in meta.get(name, [])]
+    if not titles and not any(_doi(value) for value in dois):
+        titles = [_plain(node) for node in _walk(parser.root) if node.tag == 'h1']
+    _check_identity(expected, 'HTML', titles=titles, dois=dois, authors=meta.get('citation_author', []),
+                    years=meta.get('citation_publication_date', []), required=required)
+    if meta.get('citation_dissertation_institution') and _dissertation_conflict(expected or {}):
+        raise PublicationIdentityError("HTML identifies a dissertation for an article record.")
 
 
 def citation_pdf_urls(raw, expected=None):
@@ -354,7 +399,7 @@ def article_text(raw, expected=None):
     Abstract-only landing pages and access challenges never count as full text.
     """
     parser = _ArticleParser(raw)
-    _identity(parser, expected)
+    _identity(parser, expected, required=True)
     candidates = []
     for node in _walk(parser.root):
         markers = [_normalize(value) for name in ("id", "class", "itemprop")
@@ -453,27 +498,45 @@ def repository_pdf_urls(raw, expected):
     return list(dict.fromkeys(parser.links))
 
 
-def pdf_matches_work(raw, expected, *, cancelled=None):
-    """Check newly discovered PDFs against their actual first-page identity."""
-    with conversion_slot(cancelled):
-        return _pdf_matches_work(raw, expected)
+def _pdf_identity(text, pages, expected):
+    expected = expected or {}
+    title, doi = _catalog_title(expected), _doi(expected.get('doi') or '')
+    if not (title or doi or expected.get('id')):
+        return
+    page_parts = re.split(r'(?m)^\[PDF page [1-3]\]\n\n', text, maxsplit=3)
+    first_pages = page_parts[1:3] if len(page_parts) > 1 else page_parts
+    section = r'(?im)^[ \t]*(?:abstract|resumo|(?:1[.]?[ \t]+)?introduction)[ \t]*(?:[:.—–]|$)'
+    front = [re.split(section, page, maxsplit=1)[0][:3000] for page in first_pages]
+    dois = {_doi(match[0]) for page in front for match in re.finditer(
+        r'(?im)(?:^[ \t]*(?:https?://(?:dx\.)?doi\.org/)?|\bdoi[ \t]*:[ \t]*)10\.[0-9]{4,9}/[^\s<>"]+', page)}
+    if doi and dois and doi not in dois:
+        raise PublicationIdentityError("PDF DOI does not match the requested publication.")
+    if doi not in dois and not (title and any(title in _normalize(page) for page in front)):
+        raise PublicationIdentityError("PDF front matter lacks a matching publication title or DOI.")
 
+    # The reported degree cover shares the conference paper's title and first author.
+    cover = _normalize(front[0])
+    thesis = re.search(r'(?:thesis|dissertation)(?:submitted|presented)|submittedinpartialfulfil+ment|'
+                       r'mastersdegreein|masterofsciencedegree|dissertaçãodemestrado|tesededoutoramento', cover)
+    if thesis and _dissertation_conflict(expected):
+        raise PublicationIdentityError("PDF identifies a thesis for an article record.")
+    year = expected.get('publication_year')
+    if thesis and year and (dated := re.search(r'\b((?:18|19|20)[0-9]{2})\s*\Z', front[0])):
+        if int(dated[1]) != year:
+            raise PublicationIdentityError(f"PDF cover year {dated[1]} conflicts with the catalog year {year}.")
 
-def _pdf_matches_work(raw, expected):
-    from pypdf import PdfReader
-    try:
-        reader = PdfReader(io.BytesIO(raw))
-        text = "\n".join(page.extract_text() or "" for page in reader.pages[:2])
-        normalize = lambda value: re.sub(r"[\W_]+", "", unicodedata.normalize("NFKC", value).casefold())
-        title = normalize(expected.get("title") or expected.get("display_name") or "")
-        if not title or title not in normalize(text):
-            return False
-        doi = normalized_doi(expected.get("doi"))
-        actual_dois = {normalized_doi(match[0].rstrip("."))
-                      for match in re.finditer(r"10\.[0-9]{4,9}/[^\s<>\"]+", text, re.I)}
-        return not (doi and actual_dois and doi not in actual_dois)
-    except Exception:
-        return False
+    biblio = expected.get('biblio')
+    if isinstance(biblio, dict):
+        start, end = str(biblio.get('first_page')), str(biblio.get('last_page'))
+        if re.fullmatch(r'[0-9]{1,7}', start) and re.fullmatch(r'[0-9]{1,7}', end):
+            recorded = int(end) - int(start) + 1
+            # Accept ordinary page-layout differences between a manuscript and its typeset copy.
+            if recorded > 0 and abs(pages - recorded) >= 8 and max(pages, recorded) > 3 * min(pages, recorded):
+                raise PublicationIdentityError(f"PDF has {pages} pages and the catalog records {recorded} pages.")
+
+    authors = _catalog_authors(expected)
+    if authors and doi not in dois and authors.isdisjoint(_name_words('\n'.join(front))):
+        raise PublicationIdentityError("PDF front matter lacks a matching catalog author.")
 
 
 def _check_copy(cancelled):
@@ -488,7 +551,7 @@ def _validate_paper_copy(raw, kind, expected, *, cancelled=None):
         text, pages, blank = _pdf_text(raw, cancelled=cancelled)
         extraction = text, pages, list(blank), "pdf"
     elif kind in ("application/xml", "text/xml", "application/tei+xml"):
-        text = _xml_text(raw)
+        text = _xml_text(raw, expected)
         extraction = text, 0, [], "xml"
     elif kind == "text/html":
         text = article_text(raw, expected)
@@ -499,6 +562,8 @@ def _validate_paper_copy(raw, kind, expected, *, cancelled=None):
         raise ValueError("Paper copy is a subscription preview")
     if len(text.strip()) < 500:
         raise ValueError("Too little source text for paper investigation")
+    if kind == "application/pdf":
+        _pdf_identity(text, pages, expected)
     return extraction
 
 
@@ -527,6 +592,7 @@ def public_download(client, url, resolver, expected=None, discover_pdf=True, *, 
             kind = content_kind(raw)
             if kind is None:
                 linked_timeout = None
+                identity_problem = None
                 # Metadata-listed OA landing pages can expose a scholarly PDF
                 # link or the full article itself; an abstract is insufficient.
                 if discover_pdf:
@@ -535,9 +601,10 @@ def public_download(client, url, resolver, expected=None, discover_pdf=True, *, 
                     for link in dict.fromkeys([*explicit, *discovered]):
                         try:
                             result = public_download(client, urljoin(url, link), resolver, expected, False, cancelled=cancelled)
-                            if link not in explicit and (result[1] != "application/pdf" or not pdf_matches_work(result[0], expected, cancelled=cancelled)):
-                                continue
-                            return result
+                            if link in explicit or result[1] == "application/pdf":
+                                return result
+                        except PublicationIdentityError as exc:
+                            identity_problem = exc
                         except httpx.TimeoutException as exc:
                             linked_timeout = exc
                             continue
@@ -545,7 +612,11 @@ def public_download(client, url, resolver, expected=None, discover_pdf=True, *, 
                             continue
                 try:
                     extraction = _validate_paper_copy(raw, "text/html", expected, cancelled=cancelled)
-                except ValueError:
+                except ValueError as exc:
+                    if identity_problem is None and isinstance(exc, PublicationIdentityError):
+                        identity_problem = exc
+                    if identity_problem is not None:
+                        raise PublicationIdentityError(str(identity_problem), public_timeout_seen=linked_timeout is not None) from exc
                     if linked_timeout is not None:
                         raise linked_timeout
                     raise
@@ -586,11 +657,7 @@ def pmc_identifier(value, explicit=False):
 
 
 def raw_pdf_candidates(work):
-    """Legacy location hints authorize only literal HTTP(S) PDF candidates.
-
-    These are weaker than a pdf_url field, so public_work_download also verifies
-    the returned PDF's paper identity before accepting one.
-    """
+    """Legacy location hints authorize only literal HTTP(S) PDF candidates."""
     locations = [work.get("best_oa_location"), work.get("primary_location"), *(work.get("locations") or [])]
     urls = []
     for location in locations:
@@ -736,7 +803,7 @@ def public_work_download(work, transport, resolver):
             _check_copy(selected)
             with client() as public:
                 result = public_download(public, url, resolver, work, cancelled=selected)
-                if url in raw_hints and (result[1] != "application/pdf" or not pdf_matches_work(result[0], work, cancelled=selected)):
+                if url in raw_hints and result[1] != "application/pdf":
                     return None, False
             # Claim only after readability, preview and required identity checks,
             # and after the private client has closed successfully.
@@ -746,6 +813,8 @@ def public_work_download(work, transport, resolver):
             return result, False
         except CopySuperseded:
             return None, False
+        except PublicationIdentityError:
+            raise
         except httpx.TimeoutException:
             return None, True
         except (httpx.HTTPError, ValueError, OSError, AccessFailure):
@@ -760,6 +829,7 @@ def public_work_download(work, transport, resolver):
 
     pending, tried, urls = {}, set(), deque(public_candidates(work))
     timed_out = False
+    identity_problems = set()
 
     def fill():
         while urls and not selected.is_set() and sum(kind == "paper" for kind in pending.values()) < 3:
@@ -780,11 +850,18 @@ def public_work_download(work, transport, resolver):
                 if kind == "metadata":
                     urls.extend(future.result())
                 else:
-                    result, timeout = future.result()
+                    try:
+                        result, timeout = future.result()
+                    except PublicationIdentityError as exc:
+                        identity_problems.add(str(exc))
+                        timed_out |= exc.public_timeout_seen
+                        continue
                     timed_out |= timeout
                     if result is not None:
                         return result, timed_out
             fill()
+        if identity_problems:
+            raise PublicationIdentityError(" ".join(sorted(identity_problems)), public_timeout_seen=timed_out)
         return None, timed_out
     finally:
         selected.set()
@@ -856,12 +933,31 @@ def _pdf_text_in_slot(raw: bytes, slot_fd: int) -> tuple[str, int, tuple[int, ..
         raise AccessFailure("PDF text could not be extracted completely") from None
 
 
-def _xml_text(raw: bytes) -> str:
+def _xml_identity(article, namespace, expected):
+    namespaces = {'': namespace.removeprefix('{').removesuffix('}')} if namespace else {}
+
+    def values(node, path):
+        return [' '.join(''.join(element.itertext()).split()) for element in node.findall(path, namespaces)]
+
+    meta = article.find('front/article-meta', namespaces)
+    if meta is not None:
+        _check_identity(expected, 'XML', titles=values(meta, 'title-group/article-title'),
+                        dois=values(meta, "article-id[@pub-id-type='doi']"),
+                        authors=values(meta, "contrib-group/contrib[@contrib-type='author']/name/surname"),
+                        years=values(meta, 'pub-date/year'))
+    else:
+        _check_identity(expected, 'XML', titles=values(article, 'teiHeader/fileDesc/titleStmt/title'),
+                        dois=values(article, "teiHeader/fileDesc/publicationStmt/idno[@type='DOI']"))
+
+
+def _xml_text(raw: bytes, expected=None) -> str:
     try:
         root = ET.fromstring(raw)
         tag = lambda element: element.tag.rsplit("}", 1)[-1].lower()
         article = next((element for element in root.iter() if tag(element) in ("article", "tei")), root)
         namespace = article.tag.rsplit("}", 1)[0] + "}" if article.tag.startswith("{") else ""
+        if expected:
+            _xml_identity(article, namespace, expected)
         # JATS owns its body directly; TEI owns it through its document-level text.
         # A descendant SVG text element is a figure label, never the paper container.
         container = article.find(f"{namespace}text") if tag(article) == "tei" else article

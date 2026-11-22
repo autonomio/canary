@@ -29,6 +29,41 @@ def saved_bundle(path, investigation):
     return export_bundle(path)["answer"]
 
 
+def test_review_export_recovers_only_proven_text_and_preserves_authored_prose(tmp_path):
+    from canary import coverage_protocol, dashboard
+
+    saved_bundle(tmp_path, {"claims": []})
+    stopping = "(27 core,  27 supporting), exceeding the 50-publication target."
+    criteria = "Compare 0.7/1.0/1.3 s and preserve the 2022–2023 protocol."
+    selection = {"selected_for_review_ids": ["R1", "R2"], "stopping_reason": stopping,
+                 "selection_limitations": [criteria], "decisions": [{"work_id": "R1", "reason": criteria}]}
+    (tmp_path / "selection.json").write_text(json.dumps(selection))
+    repaired = ["Full 138-page 2019 thesis describes three 21-day phases.", "Mean latency was 242.5 ms in the 4G trials."]
+    original = ["Full138-page2019 thesis describes three21-day phases.", "Mean latency was 242."]
+    reviews = [{"work_id": work, "reason": damaged, "substantive_review_note": complete + " Further detail.",
+                "eligibility": "core", "passage_ids_read": [pid], "investigated_sections": ["methods"]}
+               for work, pid, complete, damaged in zip(("R1", "R2"), ("p1", "p3"), repaired, original)]
+    ledger = tmp_path / "reviewed-papers.json"
+    ledger.write_text(json.dumps(reviews))
+    unrelated = dict(reviews[0], reason="COVID19 methods included p53 and 2.5 mL.")
+    assert coverage_protocol.restore_review_reason(unrelated) == unrelated
+
+    exported = export_bundle(tmp_path)
+    view = dashboard.question_research_bundle(tmp_path, exported["run"])
+    assert json.loads(ledger.read_text()) == reviews
+    assert view["paper_selection"]["selection"] == selection
+    assert view["coverage"]["stopping_reason"] == stopping
+    assert [reference["review"]["reason"] for reference in view["answer"]["references"]] == repaired
+    assert [reference["review"]["recorded_reason"] for reference in view["answer"]["references"]] == original
+    run_dashboard(tmp_path, view, """
+const html=coverageSelectionHtml(graph);
+assert.match(html,/Full 138-page 2019 thesis describes three 21-day phases\\./);
+assert.match(html,/Mean latency was 242\\.5 ms in the 4G trials\\./);
+assert.match(html,/27 core,  27 supporting/);
+assert.match(html,/Original recorded reason/);
+""")
+
+
 def test_multi_passage_ids_cannot_capture_a_distinct_recorded_evidence_id(tmp_path):
     investigation = {"claims": [{"id": "C1", "text": "Multi-passage claim.", "evidence_ids": ["E1"]},
                                   {"id": "C2", "text": "Separate canonical packet claim.", "evidence_ids": ["E1.1"]},

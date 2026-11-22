@@ -385,7 +385,9 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         investigation = payload  # Final supported claims; original investigation is immutable history.
     selection = _load(research / "selection.json", payload.get("selection", {}))
     selection = selection if isinstance(selection, dict) else {}
-    reviewed = _rows(_load(research / "reviewed-papers.json", payload.get("reviewed_papers", [])))
+    from .coverage_protocol import restore_review_reason
+    reviewed = [restore_review_reason(row) for row in
+                _rows(_load(research / "reviewed-papers.json", payload.get("reviewed_papers", [])))]
     plan = _load(bundle / "question-plan.json", _load(source / "question-plan.json", payload.get("question_plan", {})))
     plan = plan if isinstance(plan, dict) else {}
     run = _load(bundle / "run.json", {})
@@ -829,6 +831,10 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                 "counts_scope": "Reviewed papers require selected admission, core/supporting eligibility, read passages and a substantive review note. Related reports may share participants or studies; paper count is not independent study count."}
     if review_record_issues:
         coverage["review_record_issues"] = review_record_issues
+    identity_exclusions = [{key: receipt.get(key) for key in ("work_id", "title", "reason")}
+                           for receipt in receipts if receipt.get("status") == "publication_identity_unverified"]
+    if identity_exclusions:
+        coverage["publication_identity_exclusions"] = identity_exclusions
     search_progress = _load(source / "search-progress.json", _load(bundle / "search-progress.json", None))
     if isinstance(search_progress, dict):
         coverage["search_progress"] = search_progress
