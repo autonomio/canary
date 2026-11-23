@@ -34,6 +34,9 @@ function openQuestions({ mobile = false, storage = new Map() } = {}) {
   );
   const list = elements.get("research-list");
   list.innerHTML = markup.match(/\bid="research-list"[^>]*>([\s\S]*?)<\/div>/)[1];
+  const question = elements.get("f-q");
+  const form = elements.get("research-form");
+  form.reset = () => { question.value = ""; };
   const handlers = new Map(), browser = new Map(), requests = [];
   const location = { hash: "", href: "http://localhost/" };
   vm.runInNewContext(source, {
@@ -55,17 +58,21 @@ function openQuestions({ mobile = false, storage = new Map() } = {}) {
     sessionStorage: {
       getItem: (key) => storage.get(key) ?? null,
       setItem: (key, value) => storage.set(key, value),
+      removeItem: (key) => storage.delete(key),
     },
     setInterval() {},
-    fetch(path) {
-      return new Promise((resolve) => requests.push({ path, resolve }));
+    setTimeout() {},
+    clearTimeout() {},
+    fetch(path, options) {
+      return new Promise((resolve) => requests.push({ path, method: options?.method || "GET", resolve }));
     },
   }, { filename: "scripts/dashboard/index.html" });
 
-  async function respond(status, body, path = "/api/runs") {
+  async function respond(status, body, path = "/api/runs", method = "GET") {
     const pending = requests.shift();
     assert.equal(pending?.path, path);
-    pending.resolve({ ok: status === 200, status, json: async () => body });
+    assert.equal(pending.method, method);
+    pending.resolve({ ok: status >= 200 && status < 300, status, json: async () => body });
     await new Promise(setImmediate);
   }
 
@@ -154,4 +161,49 @@ test("a fresh workspace URL can reopen the last question once its list is availa
   assert.equal(location.hash, "");
   await respond(200, { runs });
   assert.equal(location.hash, "#research/soil/overview");
+});
+
+test("New question overrides history restoration even while the first list request is pending", async () => {
+  const storage = new Map([["canary-open-question", "soil"]]);
+  const { respond, location, click, route, elements } = openQuestions({ storage });
+  click({ action: "new" });
+  route();
+  await respond(200, { runs });
+  assert.equal(location.hash, "#research");
+  assert.equal(elements.get("composer").hidden, false);
+  assert.equal(elements.get("f-q").focused, true);
+});
+
+test("New question retries a failed keyword usage lookup", async () => {
+  const { respond, elements, click } = openQuestions();
+  const endpoint = "/api/sources/openalex/status";
+  const focus = elements.get("f-q").listeners.get("focus");
+  await respond(200, { runs });
+  focus();
+  click({ action: "new" });
+  await respond(503, { error: "Fixture service unavailable" }, endpoint);
+  const usage = elements.get("question-usage");
+  assert.match(usage.innerHTML, /Keyword usage unavailable/);
+  click({ action: "new" });
+  await respond(200, { keyword_searches_today: 9 }, endpoint);
+  assert.match(usage.innerHTML, /9 Canary keyword requests today/);
+});
+
+test("editing the next draft during post-submit history refresh keeps the composer open", async () => {
+  const storage = new Map();
+  const { respond, elements, location } = openQuestions({ storage });
+  await respond(200, { runs });
+  const form = elements.get("research-form"), question = elements.get("f-q");
+  question.value = "What changes in lake water?";
+  form.listeners.get("input")({ target: question });
+  const submit = form.listeners.get("submit")({ preventDefault() {} });
+  await respond(201, { key: "lake" }, "/api/runs", "POST");
+  assert.equal(question.value, "");
+  question.value = "What changes in river water?";
+  form.listeners.get("input")({ target: question });
+  await respond(200, { runs });
+  await submit;
+  assert.equal(location.hash, "");
+  assert.equal(elements.get("composer").hidden, false);
+  assert.equal(JSON.parse(storage.get("canary-research-draft")).q, question.value);
 });

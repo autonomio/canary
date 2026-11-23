@@ -1240,6 +1240,7 @@
         issueStream: {},
         logStream: "timeline",
         busy: false,
+        draftRevision: 0,
       };
       const DEPTHS = {
         quick: { papers: 25, iters: 1, fulltext: 2 },
@@ -1786,7 +1787,7 @@
           renderLibrary();
           updateWorkspaceTitle();
           if (S.selected) renderDetail();
-          if (firstLoad && !location.hash && document.getElementById("questions-panel").hidden &&
+          if (firstLoad && !S.draftRevision && !location.hash && document.getElementById("questions-panel").hidden &&
               !document.getElementById("f-q").value.trim()) {
             let recent;
             try { recent = sessionStorage.getItem("canary-open-question"); } catch {}
@@ -2470,7 +2471,7 @@
         updateComposer();
       }
       function openComposer(question, spec) {
-        if (S.busy) return;
+        S.draftRevision++;
         if (question !== undefined) {
           document.getElementById("research-form").reset();
           document.getElementById("f-q").value = question;
@@ -2481,7 +2482,8 @@
         document.getElementById("form-error").hidden = true;
         updateComposer();
         setQuestionsPanel(false);
-        if (S.page !== "research" || S.selected) {
+        loadSourceUsage();
+        if (location.hash !== "#research") {
           S.focusQuestion = true;
           location.hash = "#research";
         } else document.getElementById("f-q").focus();
@@ -2493,10 +2495,10 @@
         const err = document.getElementById("form-error"),
           btn = document.getElementById("f-go");
         err.hidden = true;
-        const draft = formValues();
+        const revision = S.draftRevision, hash = location.hash;
         let payload;
         try {
-          payload = buildLaunch(draft);
+          payload = buildLaunch(formValues());
         } catch (e) {
           err.textContent = e.message;
           err.hidden = false;
@@ -2511,14 +2513,13 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
-          const draftUnchanged = JSON.stringify(formValues()) === JSON.stringify(draft);
-          if (draftUnchanged) {
+          if (S.draftRevision === revision) {
             document.getElementById("research-form").reset();
             try { sessionStorage.removeItem("canary-research-draft"); } catch {}
           }
           toast("Research started.");
           await loadRuns();
-          if (draftUnchanged && S.page === "research" && !S.selected) openResearch(d.key);
+          if (S.draftRevision === revision && location.hash === hash) openResearch(d.key);
         } catch (e) {
           err.textContent = `Could not start research: ${e.message}`;
           err.hidden = false;
@@ -3260,10 +3261,12 @@
   }
   async function loadSourceUsage() {
     const el=document.getElementById("question-usage");
-    if(!el) return;
+    if(!el || S.sourceUsageLoading) return;
+    S.sourceUsageLoading=true;
     el.innerHTML='<span class="hint">Reading today’s keyword usage…</span>';
     try {S.sourceUsage=await api("/api/sources/openalex/status");el.innerHTML=usageHtml(S.sourceUsage);}
     catch(e) {el.innerHTML=`<span class="hint">Keyword usage unavailable: ${esc(e.message)}</span>`;}
+    finally {S.sourceUsageLoading=false;}
   }
 
       function reviewMarkup(text) {
@@ -3354,7 +3357,7 @@
           S.filter = e.target.value;
           renderLibrary();
         });
-        document.getElementById("f-q").addEventListener("focus", loadSourceUsage, { once: true });
+        document.getElementById("f-q").addEventListener("focus", loadSourceUsage);
         document
           .getElementById("research-sort")
           .addEventListener("change", (e) => {
@@ -3367,6 +3370,7 @@
         document
           .getElementById("research-form")
           .addEventListener("input", (e) => {
+            S.draftRevision++;
             if (e.target.name === "depth") applyDepth(e.target.value);
             else if (
               ["f-papers", "f-iters", "f-fulltext"].includes(e.target.id)
