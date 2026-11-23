@@ -9,6 +9,7 @@ from .codex_auth import AuthStatus, AuthUsage, Login
 from .research_spec import CompiledResearch
 from .research_bundle import ResearchBundle, BundleRetention
 from .service_status import ServiceStatus
+from .keyword_search import KeywordSearch
 from .connection import ConnectionStatus
 from .candidate_index import CandidateMetadata, OPENALEX_ID
 from .citation_selection import CitationLeads
@@ -159,6 +160,9 @@ def schemas():
         'AuthUsage':{**typed(AuthUsage),
             'description':'Provider-reported rate-limit windows for the connected account, observed at observed_at and cached by the service for up to a minute. Windows carry used_percent and reset only when the provider supplies them; unavailable stays explicit and never blocks research.'},
         'ServiceStatus':typed(ServiceStatus),'ConnectionStatus':typed(ConnectionStatus),'Run':run,'Runs':obj({'runs':arr(ref('Run'))},['runs']),
+        'KeywordSearchRequest':obj({'query':dict(S,minLength=1,maxLength=2000),
+                                    'limit':dict(I,minimum=1,maximum=200,default=15)},['query']),
+        'KeywordSearch':typed(KeywordSearch),
         'Footprint':obj({'roots':arr(obj({'path':S,'exists':B},['path','exists'])),
             'registered_runs':nullable(I),'missing_bundles':nullable(I),'registry_error':nullable(S),'scope':S,
             'last_scan':nullable(obj({'started_at':S,'finished_at':S,'seconds':{'type':'number'},
@@ -343,6 +347,7 @@ def document():
     op('usage','get','/api/usage','Read recorded usage; missing values remain unknown',mcp=True)
     op('thread_usage','get','/api/usage/threads/{thread_id}','Read native usage in the service credential context',params=[('thread_id','path',S,True)],mcp=True)
     op('openalex_status','get','/api/sources/openalex/status','Read source search counts, known provider quota, and read-only discovery readiness for the actual allowance; no provider request is made','OpenAlexStatus',mcp=True)
+    op('keyword_search','post','/api/sources/openalex/search','Search one OpenAlex page using the shared provider allowance. Returns candidate metadata without research or inference.','KeywordSearch',body='KeywordSearchRequest',mcp=True)
     # Operator-only mutation: deliberately not an MCP tool, so research agents cannot release holds.
     op('openalex_recheck','post','/api/sources/openalex/recheck','Operator-requested bounded recheck of the actual allowance recorded hold; a successful fresh response releases only that allowance hold','OpenAlexRecheck',body='OpenAlexRecheckRequest')
     op('import_run','post','/api/runs/import','Register an explicit service-host bundle directory','Run',body='ImportRequest',status=201)

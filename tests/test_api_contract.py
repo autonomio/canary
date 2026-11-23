@@ -12,7 +12,7 @@ from jsonschema import Draft202012Validator
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from canary import api_client, api_contract, bundle_encoding, cli, coverage_export, dashboard, research_bundle, runs
+from canary import api_client, api_contract, bundle_encoding, cli, coverage_export, dashboard, keyword_search, research_bundle, runs
 from canary.mcp_server import tool_catalog
 from test_research_bundle import seed
 
@@ -41,6 +41,46 @@ def api(tmp_path,monkeypatch):
 def validate_response(contract,path,method,status,value):
     schema = contract['paths'][path][method]['responses'][str(status)]['content']['application/json']['schema']
     Draft202012Validator(dict(schema,components=contract['components'])).validate(value)
+
+
+def test_keyword_search_and_cli_use_one_page_and_honor_recorded_holds(api, monkeypatch):
+    server, client, _ = api
+    monkeypatch.delenv('OPENALEX_API_KEY', raising=False)
+    requests = []
+
+    def provider(request):
+        assert request.url.host == 'api.openalex.org'
+        requests.append(request.url.params['search'])
+        if len(requests) == 2:
+            return httpx.Response(429, headers={'Retry-After': '120'})
+        return httpx.Response(200, json={'meta': {'count': 2}, 'results': [
+            {'id': 'https://openalex.org/W1', 'title': 'First result', 'publication_year': 2025},
+            {'id': 'https://openalex.org/W2', 'title': 'Second result'},
+        ]})
+
+    search = keyword_search.search
+    with httpx.Client(transport=httpx.MockTransport(provider)) as provider_client:
+        monkeypatch.setattr(keyword_search, 'search', lambda root, body: search(root, body, client=provider_client))
+        path = '/api/sources/openalex/search'
+        contract = client.get('/openapi.json').json()
+        assert contract['paths'][path]['post']['x-canary-mcp']['readOnly'] is False
+        assert client.post(path, json={'query': '', 'limit': 15}).status_code == 400
+        assert client.post(path, json={'query': 'Lake', 'limit': 201}).status_code == 400
+        first = client.post(path, json={'query': 'Lake water', 'limit': 1})
+        assert first.status_code == 200, first.text
+        validate_response(contract, path, 'post', 200, first.json())
+        assert first.json()['matched'] == 2
+        assert [p['title'] for p in first.json()['results']] == ['First result']
+        paused = client.post(path, json={'query': 'River water'}).json()
+        validate_response(contract, path, 'post', 200, paused)
+        assert paused['status'] == 'paused' and paused['provider_status'] == 429
+        command = subprocess.run([sys.executable, '-m', 'canary.cli', 'sources', 'search',
+                                  'Forest soil', '--port', str(server.server_port)],
+                                 capture_output=True, text=True, timeout=15)
+        assert command.returncode == 0, command.stderr
+        assert json.loads(command.stdout)['status'] == 'paused'
+        assert requests == ['Lake water', 'River water']
+        assert client.get('/api/runs').json() == {'runs': []}
 
 
 def test_live_openapi_cli_and_responses_share_the_contract(api,capsys):

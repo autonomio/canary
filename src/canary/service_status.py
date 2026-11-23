@@ -1,5 +1,6 @@
 """Read-only runtime discovery, distinct from login and scientific readiness."""
 from pathlib import Path
+import os
 import shutil
 import subprocess
 from typing import TypedDict
@@ -20,6 +21,11 @@ class SourceReadStatus(TypedDict):
     complex_patterns: str
 
 
+class SourceConfiguration(TypedDict):
+    local_text: bool
+    epo: bool
+
+
 class ServiceStatus(TypedDict):
     service: str
     data_directory: str
@@ -27,11 +33,18 @@ class ServiceStatus(TypedDict):
     codex: dict
     pdf_extraction: PdfExtractionStatus
     source_reads: SourceReadStatus
+    source_configuration: SourceConfiguration
     execution: ExecutionStatus
     readiness_note: str
 
 
 def service_status(root: Path, dashboard_enabled: bool, *, execution=None) -> ServiceStatus:
+    from .source_adapters import epo_configured
+
+    try:
+        epo = epo_configured(root)
+    except (OSError, ValueError):
+        epo = False
     executable = shutil.which('codex')
     version = None
     if executable:
@@ -50,4 +63,6 @@ def service_status(root: Path, dashboard_enabled: bool, *, execution=None) -> Se
                                'concurrent_pdf_conversions': 1, 'capacity_scope': 'service_data_directory',
                                'skip_superseded_copies': True},
             'source_reads': {'simple_queries': 'api_process', 'complex_patterns': 'isolated_worker'},
+            'source_configuration': {'local_text': any(os.environ.get('CANARY_LOCAL_TEXT_ROOTS', '').split(os.pathsep)),
+                                     'epo': epo},
             'readiness_note': 'Runtime availability only. See /api/auth/status for login; model access and source availability are checked during research.'}

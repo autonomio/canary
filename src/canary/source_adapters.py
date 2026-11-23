@@ -102,11 +102,14 @@ def record_metadata(record):
     return dict(fields, **({'source_record_issues': issues} if issues else {}))
 
 
+def epo_configured(root):
+    from .coverage_runtime import _operator_setting
+    return all(_operator_setting(root, name) for name in ('EPO_OPS_KEY', 'EPO_OPS_SECRET'))
+
+
 def configured(root, sources):
-    if 'epo' in sources:
-        from .coverage_runtime import _operator_setting
-        if not all(_operator_setting(root, name) for name in ('EPO_OPS_KEY', 'EPO_OPS_SECRET')):
-            raise ValueError('EPO OPS requires EPO_OPS_KEY and EPO_OPS_SECRET in the service environment or data-directory .env')
+    if 'epo' in sources and not epo_configured(root):
+        raise ValueError('EPO OPS requires EPO_OPS_KEY and EPO_OPS_SECRET in the service environment or data-directory .env')
 
 
 def identifier(provider, native_id):
