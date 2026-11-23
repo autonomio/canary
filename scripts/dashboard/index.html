@@ -1697,9 +1697,11 @@
         const html = rows.map((r) => {
           const key = esc(r.key), title = esc(questionOf(r));
           const selected = r.key === S.selected ? ' aria-current="true"' : "";
+          const clarification = r.clarification?.question;
           return `<button type="button" class="question-row" data-open="${key}" data-focus="open-${key}"${selected} title="${title}">
             <span class="question-row-title">${title}</span>
             <span class="question-row-meta">${esc(statusInfo(r)[1])} · <time datetime="${esc(r.started_at)}">${dateText(r.started_at)}</time></span>
+            ${clarification ? `<span class="question-row-note">Clarifying question: ${esc(clarification)}</span>` : ""}
           </button>`;
         }).join("") || `<p class="questions-note">${S.runs.length ? "No matching questions." : "No questions yet."}</p>`;
         if (html !== S.listHtml) {
