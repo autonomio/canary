@@ -20,6 +20,9 @@ def run(args, port):
         with httpx.Client(base_url=endpoint(port), timeout=30, trust_env=False) as client:
             if args.cmd == 'api':
                 value = request(client,'GET','/openapi.json')
+            elif args.cmd == 'sources' and args.sources_cmd == 'search':
+                value = request(client, 'POST', '/api/sources/openalex/search', timeout=45,
+                                json={'query': args.query, 'limit': args.limit})
             elif args.cmd == 'sources':
                 value = request(client, 'POST', '/api/sources/openalex/recheck', json={})
             elif args.cmd == 'ask':

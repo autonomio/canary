@@ -88,6 +88,7 @@ async def serve(port):
             try:
                 kwargs = {'params':query}
                 if entry['method'] != 'get': kwargs['json'] = remaining
+                if entry['operation']['operationId'] == 'keyword_search': kwargs['timeout'] = 45
                 response = await api.request(entry['method'].upper(),path,**kwargs)
                 value = response.json()
                 if response.is_error:

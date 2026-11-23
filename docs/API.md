@@ -36,6 +36,11 @@ and shared keyword searches. Acquisition requires a recorded decision for each
 lead. The dashboard and `research.coverage.citation_leads` show the citation
 paths and pending decisions. Supply `--study-brief` on `canary ask` to add context.
 
+Use `POST /api/sources/openalex/search` with `{"query":"lake water quality","limit":15}`
+for one page of candidate metadata without starting research. It honors the service's
+recorded OpenAlex hold and returns the match count, upstream status and any retry
+deadline. The toolbar, `canary sources search`, and MCP use the same route.
+
 ## Additional public sources
 
 Set `retrieval.additional_sources` to any combination of `clinicaltrials`, `epo`

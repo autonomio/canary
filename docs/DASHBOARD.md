@@ -3,7 +3,19 @@
 Canary opens directly to a question or the last question you read in this tab.
 The toolbar opens the **Questions** panel, where you can search and filter past
 runs without leaving the current answer. **New question** returns to the inline
-draft. Expand **Research settings** to change how the question is researched.
+draft. **Research settings** opens the Sources and Scope steps. Choose OpenAlex
+or an allowed local text library, then set the paper target, independent audit
+correction limit, and any study brief or prior research. For public literature,
+you can enable citation-guided selection and additional record sources.
+
+**Review launch** asks the service to validate the declaration before you start.
+It shows the effective models, sources, limits, and what each step does. Load a
+Canary YAML declaration under Scope or paste or load research state JSON. Choose
+whether to reassess the question with that context or build on earlier research.
+
+Use **Search literature** in the toolbar to browse one page of OpenAlex
+candidates without starting a research run. This uses the same recorded search
+allowance. The results show publisher metadata and indexed abstracts where available.
 The dashboard, CLI, and MCP clients use the same HTTP service.
 
 ## Quickstart
