@@ -1015,7 +1015,7 @@
         font-size: 12px;
         font-weight: 500;
       }
-      .field input,
+      .field input:not([type="checkbox"]),
       .field textarea,
       .field select {
         width: 100%;
@@ -1454,7 +1454,7 @@
       <div class="workspace">
         <div id="connection-error" class="error-banner" role="alert" hidden>
           Cannot reach the research service. Showing the last available
-          data.<button class="btn small" data-action="refresh">Retry</button>
+          data. <button class="btn small" data-action="refresh">Retry</button>
         </div>
         <section id="library" aria-labelledby="library-title">
           <div class="heading-row">

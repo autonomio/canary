@@ -331,7 +331,7 @@ dialog::backdrop { background: rgb(0 0 0 / .48); }
 .close-btn { color: var(--blue); width: 34px; height: 34px; }
 .field { gap: 6px; margin-bottom: 14px; }
 .field > label, .field-label { font-size: 15px; }
-.field input, .field textarea, .field select {
+.field input:not([type="checkbox"]), .field textarea, .field select {
   background: var(--paper);
   color: var(--ink);
   border-color: var(--line);
@@ -343,7 +343,7 @@ dialog::backdrop { background: rgb(0 0 0 / .48); }
 .field-help { font-size: 13px; }
 .depth-option, .depth-option:has(input:checked) { border-color: var(--line); background: var(--paper); }
 .depth-option:has(input:checked) { border-color: var(--blue); }
-.depth-option input, .check-label input { accent-color: var(--blue); }
+.depth-option input, .check-label input, .field input[type="checkbox"] { accent-color: var(--blue); }
 .depth-option, .depth-option strong, .depth-options legend { font-size: 15px; }
 .depth-option span { font-size: 13px; }
 .advanced { margin-top: 14px; }
@@ -511,10 +511,10 @@ dialog::backdrop { background: rgb(0 0 0 / .48); }
 .freshness.review-due { font-weight: 600; color: var(--ink); }
 
 /* Keep interactive boundaries visible in both themes. */
-.search-box, .field :is(input, textarea, select), .depth-option, .sort select {
+.search-box, .field :is(input:not([type="checkbox"]), textarea, select), .depth-option, .sort select {
   border-color: var(--border);
   border-radius: var(--radius-control);
 }
-.search-box, .sort select, .field :is(input, textarea, select) { background: var(--bg); }
+.search-box, .sort select, .field :is(input:not([type="checkbox"]), textarea, select) { background: var(--bg); }
 .depth-option:has(input:checked) { border-color: var(--blue); }
 .error-banner, .form-error { color: var(--red); }
