@@ -136,6 +136,7 @@ test("selecting a question on mobile closes the panel and opens its evidence vie
   await respond(200, { runs });
   click({ action: "questions" });
   assert.equal(elements.get("main").inert, true);
+  assert.equal(elements.get("research-search").focused, undefined);
   click({ open: "lake" });
   assert.equal(location.hash, "#research/lake/overview");
   route();

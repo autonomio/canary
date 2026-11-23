@@ -948,7 +948,7 @@
         </details>
       </div>
       <div class="workspace-toolbar" role="group" aria-label="Research actions">
-        <button type="button" id="questions-toggle" class="workspace-icon" data-action="questions" aria-label="Toggle questions" aria-controls="questions-panel" aria-expanded="false" title="Toggle questions (/)">
+        <button type="button" id="questions-toggle" class="workspace-icon" data-action="questions" aria-label="Toggle questions" aria-controls="questions-panel" aria-expanded="false" title="Toggle questions">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M9 5v14"/></svg>
         </button>
         <button type="button" class="workspace-icon" data-action="new" aria-label="New question" title="New question (N)">
@@ -2540,7 +2540,7 @@
         if (action === "new") return openComposer();
         if (action === "questions") {
           const open = document.getElementById("questions-panel").hidden;
-          return setQuestionsPanel(open, { focus: open, returnFocus: !open });
+          return setQuestionsPanel(open, { returnFocus: !open });
         }
         if (action === "refresh") return loadRuns();
         if (action === "retry-operations") return loadOperations(S.page);
@@ -3178,7 +3178,7 @@
     pane.hidden=false;
     syncPanels();
     const scrollKey=JSON.stringify([S.selected,state.kind,state.sourceId,state.scope,state.paragraphId,state.evidenceId,state.claimId,state.studyResultId,state.fieldName]);
-    preserveRender(pane,`<div class="inspector-header"><nav class="inspector-breadcrumbs" aria-label="Evidence path">${state.claimId ? qaButton("data-qa-claim",state.claimId,state.claimId) : ""}${state.studyResultId ? qaButton('data-qa-study',state.studyResultId,`→ ${state.studyResultId}`) : ''}${state.paragraphId ? qaButton('data-qa-passage',state.paragraphId,'→ Passage') : ''}${state.evidenceId ? qaButton("data-qa-evidence",state.evidenceId,`→ ${state.evidenceId}`) : ""}${state.sourceId ? qaButton("data-qa-source",state.sourceId,"→ Source") : ""}${state.sourceId ? qaButton("data-qa-paper",state.sourceId,g.references?.find(r=>r.id===state.sourceId)?.source_retention==="excerpts_only" ? "→ Excerpts" : "→ Full paper") : ""}</nav><button type="button" class="close-btn" data-qa-close="true" aria-label="Close evidence inspector">×</button></div><div class="inspector-body" data-scroll="${esc(scrollKey)}">${content}</div>`,retainedScrolls);
+    preserveRender(pane,`<div class="inspector-header"><nav class="inspector-breadcrumbs" aria-label="Evidence path">${state.claimId ? qaButton("data-qa-claim",state.claimId,state.claimId) : ""}${state.studyResultId ? qaButton('data-qa-study',state.studyResultId,`→ ${state.studyResultId}`) : ''}${state.paragraphId ? qaButton('data-qa-passage',state.paragraphId,'→ Passage') : ''}${state.evidenceId ? qaButton("data-qa-evidence",state.evidenceId,`→ ${state.evidenceId}`) : ""}${state.sourceId ? qaButton("data-qa-source",state.sourceId,"→ Source") : ""}${state.sourceId ? qaButton("data-qa-paper",state.sourceId,g.references?.find(r=>r.id===state.sourceId)?.source_retention==="excerpts_only" ? "→ Excerpts" : "→ Full paper") : ""}</nav><button type="button" class="close-btn" data-qa-close="true" data-focus="evidence-close" aria-label="Close evidence inspector">×</button></div><div class="inspector-body" data-scroll="${esc(scrollKey)}">${content}</div>`,retainedScrolls);
     if(focus) {
       pane.querySelector("h2")?.focus({preventScroll:true});
 
@@ -3198,8 +3198,12 @@
     if (pane) pane.hidden = true;
     S.inspector=null;
     syncPanels();
-    S.inspectorFocus?.focus({preventScroll:true});
-    if(window.matchMedia("(max-width:960px)").matches) S.inspectorFocus?.scrollIntoView({block:"nearest"});
+    const mobile = window.matchMedia("(max-width:960px)").matches;
+    const target = mobile && !document.getElementById("questions-panel").hidden
+      ? document.getElementById("research-search")
+      : S.inspectorFocus?.isConnected ? S.inspectorFocus : document.getElementById("research-heading");
+    target?.focus({ preventScroll: true });
+    if (mobile) target?.scrollIntoView({ block: "nearest" });
   }
   async function inspectAnswer(kind,id,context={}) {
     const g=qaGraph(S.research[S.selected]);
