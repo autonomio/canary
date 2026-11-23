@@ -18,6 +18,7 @@
   --font-ui: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-display: "Zen Maru Gothic", var(--font-ui);
   --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --app-bar-height: 48px;
   --radius-control: 4px;
   --radius-panel: 8px;
   --shadow-panel: 0 12px 24px rgb(0 0 0 / .28), 0 4px 8px rgb(0 0 0 / .18);
@@ -71,7 +72,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 
 /* The workspace chrome uses Galley’s compact toolbar above the reading surface. */
 .sidebar {
-  top: 48px;
+  top: var(--app-bar-height);
   width: 176px;
   padding: 18px 12px 14px;
   background: var(--sidebar);
@@ -79,7 +80,7 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
 }
 .app-bar {
   position: sticky; top: 0; z-index: 35; display: flex; align-items: center; gap: 12px;
-  height: 48px; padding: 0 16px; border-bottom: 1px solid var(--line);
+  height: var(--app-bar-height); padding: 0 16px; border-bottom: 1px solid var(--line);
   background: var(--bg); color: var(--muted); font-size: 13px;
 }
 .brand {
@@ -292,8 +293,8 @@ th, td { padding: 8px; }
 .question-usage { color: var(--muted); font-size: 13px; line-height: 1.45; margin: 10px 0 14px; }
 .evidence-inspector {
   position: sticky;
-  top: 16px;
-  max-height: calc(100dvh - 32px);
+  top: calc(var(--app-bar-height) + 16px);
+  max-height: calc(100dvh - var(--app-bar-height) - 32px);
   min-width: 0;
   border-left: 1px solid var(--line);
   padding-left: 20px;
