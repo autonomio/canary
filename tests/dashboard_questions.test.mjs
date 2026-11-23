@@ -11,6 +11,7 @@ function element() {
   return {
     value: "",
     hidden: false,
+    dataset: {},
     classList: { add() {}, remove() {} },
     addEventListener() {},
     setAttribute() {},
@@ -37,7 +38,9 @@ function openQuestions() {
   const requests = [];
 
   vm.runInNewContext(source, {
+    URL,
     document: {
+      documentElement: element(),
       getElementById: (id) => elements.get(id),
       querySelector: (selector) => selector === ".topbar" ? topbar : null,
       querySelectorAll: () => [],
@@ -48,7 +51,7 @@ function openQuestions() {
       addEventListener() {},
       scrollTo() {},
     },
-    location: { hash: "" },
+    location: { hash: "", href: "http://localhost/" },
     sessionStorage: { getItem: () => null },
     setInterval() {},
     fetch(path) {

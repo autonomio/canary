@@ -3,42 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="dark light" />
     <title>Canary · Questions</title>
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext x='10' y='50' font-family='sans-serif' font-size='52' fill='%232A4A70'%3EC%3C/text%3E%3C/svg%3E"
     />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&amp;family=Zen+Maru+Gothic:wght@700&amp;display=swap" />
     <style>
-      @font-face {
-        font-family: Inter;
-        src: url("/assets/InterVariable.woff2") format("woff2");
-        font-style: normal;
-        font-weight: 100 900;
-        font-display: swap;
-      }
-      :root {
-        color-scheme: dark;
-        --bg: #191919;
-        --paper: #1c1c1c;
-        --sidebar: #151515;
-        --ink: #f5f5f5;
-        --muted: #a7a7a7;
-        --line: #363636;
-        --green: #f5f5f5;
-        --green-soft: #292929;
-        --red: #dedede;
-        --red-soft: #242424;
-        font-family:
-          Inter,
-          -apple-system,
-          BlinkMacSystemFont,
-          "Segoe UI",
-          sans-serif;
-        font-size: 14px;
-        line-height: 1.5;
-        color: var(--ink);
-      }
       * {
         box-sizing: border-box;
       }
@@ -71,7 +45,7 @@
       button:focus-visible,
       a:focus-visible,
       summary:focus-visible {
-        outline: 2px solid #f5f5f5;
+        outline: 2px solid var(--ink);
         outline-offset: 4px;
       }
       h1[tabindex="-1"]:focus {
@@ -80,7 +54,7 @@
       input:focus,
       textarea:focus,
       select:focus {
-        outline: 1px solid #d7d7d7;
+        outline: 1px solid var(--blue);
         outline-offset: 3px;
       }
       [hidden] {
@@ -192,7 +166,7 @@
       .nav-item.on {
         color: var(--ink);
         background: #232323;
-        border-left-color: #d7d7d7;
+        border-left-color: var(--blue);
       }
       .nav-item .count {
         margin-left: auto;
@@ -238,11 +212,11 @@
       .connection-dot {
         width: 4px;
         height: 4px;
-        background: #d7d7d7;
+        background: var(--blue);
       }
       .connection.offline .connection-dot {
         background: transparent;
-        outline: 1px solid #a7a7a7;
+        outline: 1px solid var(--muted);
       }
       main {
         margin-left: 184px;
@@ -264,7 +238,7 @@
       }
       kbd {
         font: inherit;
-        border: 1px solid #454545;
+        border: 1px solid var(--border);
         padding: 1px 5px;
         margin: 0 3px;
       }
@@ -283,7 +257,7 @@
         margin-bottom: 0;
       }
       .btn {
-        border: 1px solid #535353;
+        border: 1px solid var(--border);
         border-radius: 0;
         background: transparent;
         min-height: 44px;
@@ -300,16 +274,16 @@
       }
       .btn:hover {
         background: #2b2b2b;
-        border-color: #b1b1b1;
+        border-color: var(--muted);
       }
       .btn.primary {
-        background: #f5f5f5;
-        border-color: #f5f5f5;
-        color: #191919;
+        background: var(--ink);
+        border-color: var(--ink);
+        color: var(--bg);
       }
       .btn.primary:hover {
-        background: #d7d7d7;
-        border-color: #d7d7d7;
+        background: var(--blue);
+        border-color: var(--blue);
       }
       .btn.quiet {
         border-color: transparent;
@@ -354,7 +328,7 @@
         max-width: 480px;
         flex: 1;
         color: var(--muted);
-        border-bottom: 1px solid #535353;
+        border-bottom: 1px solid var(--border);
         padding: 8px 0;
         min-height: 40px;
       }
@@ -371,7 +345,7 @@
         color: var(--ink);
       }
       .search-box:focus-within {
-        border-bottom-color: #d7d7d7;
+        border-bottom-color: var(--blue);
       }
       .search-box input:focus {
         outline: 0;
@@ -384,10 +358,10 @@
         color: var(--muted);
       }
       select {
-        border: 1px solid #454545;
+        border: 1px solid var(--border);
         border-radius: 0;
         padding: 8px 10px;
-        background: #191919;
+        background: var(--bg);
         color: var(--ink);
         min-height: 40px;
       }
@@ -405,7 +379,7 @@
         text-transform: uppercase;
       }
       .research-list {
-        border-top: 1px solid #606060;
+        border-top: 1px solid var(--border);
       }
       .research-row {
         padding: 14px 0;
@@ -416,7 +390,7 @@
         position: relative;
       }
       .research-row:hover {
-        background: #1d1d1d;
+        background: var(--paper);
       }
       .row-heading {
         display: flex;
@@ -430,7 +404,7 @@
         color: var(--muted);
       }
       .badge {
-        border: 1px solid #484848;
+        border: 1px solid var(--border);
         padding: 1px 6px;
         font-size: 10px;
         font-weight: 500;
@@ -439,16 +413,16 @@
         align-items: center;
         gap: 5px;
         white-space: nowrap;
-        color: #c4c4c4;
+        color: var(--ink);
       }
       .badge.ready,
       .badge.active {
-        color: #eee;
-        border-color: #707070;
+        color: var(--strong);
+        border-color: var(--muted);
       }
       .badge.attention {
-        color: #ddd;
-        border-color: #595959;
+        color: var(--ink);
+        border-color: var(--border);
         border-style: dashed;
       }
       .attention-link {
@@ -457,8 +431,8 @@
         cursor: pointer;
       }
       .attention-link:hover {
-        background: #303030;
-        border-color: #d7d7d7;
+        background: var(--line);
+        border-color: var(--blue);
         text-decoration: underline;
         text-underline-offset: 3px;
       }
@@ -561,7 +535,7 @@
         color: var(--ink);
       }
       .read-arrow:hover {
-        background: #2c2c2c;
+        background: var(--line);
       }
       .footnote {
         font-size: 10px;
@@ -587,7 +561,7 @@
       }
       .empty-icon {
         color: var(--ink);
-        border-top: 1px solid #d7d7d7;
+        border-top: 1px solid var(--blue);
         width: 32px;
         padding-top: 15px;
       }
@@ -597,9 +571,9 @@
       }
       .error-banner {
         padding: 12px 16px;
-        background: #252525;
-        color: #dedede;
-        border: 1px dashed #777;
+        background: var(--paper);
+        color: var(--ink);
+        border: 1px dashed var(--muted);
         margin-bottom: 20px;
         font-size: 12px;
       }
@@ -666,7 +640,7 @@
       }
       .research-tabs button.on {
         color: var(--ink);
-        border-bottom-color: #f5f5f5;
+        border-bottom-color: var(--ink);
       }
       .reading-layout {
         display: grid;
@@ -715,20 +689,20 @@
         margin-bottom: 7px;
       }
       .prose blockquote {
-        border-left: 1px solid #898989;
+        border-left: 1px solid var(--muted);
         margin: 20px 0;
         padding-left: 20px;
         color: var(--muted);
       }
       .prose code {
         font-size: 13px;
-        background: #242424;
+        background: var(--paper);
         padding: 2px 4px;
       }
       .prose pre {
         white-space: pre-wrap;
         overflow-wrap: anywhere;
-        background: #222;
+        background: var(--paper);
         padding: 16px;
       }
       .source-context .context-paragraph {
@@ -748,11 +722,11 @@
         margin-bottom: 24px;
       }
       .notice {
-        border-left: 1px solid #9c9c9c;
-        background: #222;
+        border-left: 1px solid var(--muted);
+        background: var(--paper);
         padding: 12px 16px;
         font-size: 12px;
-        color: #c6c6c6;
+        color: var(--ink);
       }
       .reading-aside {
         border-left: 1px solid var(--line);
@@ -803,7 +777,7 @@
         line-height: 1.6;
       }
       .followup:hover {
-        color: #fff;
+        color: var(--strong);
         text-decoration: underline;
         text-underline-offset: 3px;
       }
@@ -840,7 +814,7 @@
       .source p {
         font-size: 16px;
         line-height: 1.6;
-        color: #c6c6c6;
+        color: var(--ink);
         margin: 12px 0;
       }
       .source-links {
@@ -864,10 +838,10 @@
       .claim blockquote {
         margin: 16px 0;
         padding: 4px 0 4px 16px;
-        border-left: 1px solid #6b6b6b;
+        border-left: 1px solid var(--muted);
         font-size: 14px;
         line-height: 1.7;
-        color: #bcbcbc;
+        color: var(--ink);
       }
       .claim .scope {
         font-size: 12px;
@@ -880,7 +854,7 @@
         color: var(--muted);
       }
       .trail-step {
-        border-left: 1px solid #535353;
+        border-left: 1px solid var(--border);
         padding: 0 0 26px 23px;
         margin-left: 4px;
         position: relative;
@@ -889,7 +863,7 @@
         content: "";
         width: 5px;
         height: 5px;
-        background: #d7d7d7;
+        background: var(--blue);
         position: absolute;
         left: -3px;
         top: 5px;
@@ -988,14 +962,14 @@
       }
       /* Compose once; execution settings stay behind deliberate disclosure. */
       dialog {
-        border: 1px solid #656565;
+        border: 1px solid var(--border);
         border-radius: 0;
         box-shadow: none;
         padding: 0;
         width: min(660px, calc(100vw - 32px));
         max-height: calc(100dvh - 48px);
         color: var(--ink);
-        background: #191919;
+        background: var(--bg);
       }
       dialog::backdrop {
         background: #090909cc;
@@ -1047,10 +1021,10 @@
         width: 100%;
         min-height: 44px;
         padding: 10px 12px;
-        border: 1px solid #535353;
+        border: 1px solid var(--border);
         border-radius: 0;
         color: var(--ink);
-        background: #151515;
+        background: var(--sidebar);
         font-size: 13px;
       }
       .field textarea {
@@ -1086,19 +1060,19 @@
         position: relative;
         cursor: pointer;
         display: block;
-        border: 1px solid #454545;
+        border: 1px solid var(--border);
         margin-right: -1px;
         padding: 14px 12px;
         font-size: 12px;
         line-height: 1.5;
       }
       .depth-option:has(input:checked) {
-        border-color: #d7d7d7;
+        border-color: var(--blue);
         z-index: 1;
-        background: #252525;
+        background: var(--paper);
       }
       .depth-option input {
-        accent-color: #fff;
+        accent-color: var(--strong);
         margin: 0 5px 0 0;
         vertical-align: middle;
       }
@@ -1138,7 +1112,7 @@
         margin-bottom: 10px;
       }
       .check-label input {
-        accent-color: #fff;
+        accent-color: var(--strong);
       }
       .composer-footer {
         position: sticky;
@@ -1147,9 +1121,9 @@
         justify-content: space-between;
         align-items: center;
         gap: 20px;
-        border-top: 1px solid #454545;
+        border-top: 1px solid var(--border);
         padding: 12px 24px;
-        background: #191919;
+        background: var(--bg);
       }
       .composer-footer .hint {
         font-size: 11px;
@@ -1157,9 +1131,9 @@
       }
       .form-error {
         font-size: 12px;
-        border-left: 2px solid #d7d7d7;
+        border-left: 2px solid var(--blue);
         padding: 12px 16px;
-        background: #292929;
+        background: var(--paper);
         margin-top: 16px;
       }
       .toast {
@@ -1168,16 +1142,16 @@
         right: 24px;
         max-width: min(440px, calc(100vw - 48px));
         padding: 16px 20px;
-        border: 1px solid #656565;
-        background: #f5f5f5;
-        color: #191919;
+        border: 1px solid var(--border);
+        background: var(--ink);
+        color: var(--bg);
         font-size: 12px;
         z-index: 50;
       }
       .toast.error {
-        border: 1px dashed #d7d7d7;
-        background: #252525;
-        color: #f5f5f5;
+        border: 1px dashed var(--blue);
+        background: var(--paper);
+        color: var(--ink);
       }
       @media (min-width: 1700px) {
         .workspace {
@@ -1394,18 +1368,19 @@
     <link rel="stylesheet" href="/assets/research.css" />
   </head>
   <body>
+    <header class="app-bar">
+      <a class="brand" href="#research">Canary</a>
+        <div id="connection" class="connection">
+          <span class="connection-dot"></span
+          ><span id="connection-label">Connecting to workspace</span>
+        </div>
+      <button type="button" class="theme-toggle" id="theme-toggle"></button>
+      <details class="workspace-menu" id="workspace-menu">
+        <summary aria-label="Menu" role="button" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></summary>
+        <nav aria-label="Workspace menu"><a href="#log">Log</a><details><summary>Service</summary><div id="codex-connection">Open menu to inspect connection</div><div id="service-status">Open menu to inspect runtime</div></details><details><summary>Local footprint</summary><div id="local-footprint"></div><button class="btn small" data-action="refresh-footprint">Refresh local index</button></details></nav>
+      </details>
+    </header>
     <aside class="sidebar" aria-label="Workspace navigation">
-      <a class="brand" href="#research"
-        ><svg
-          class="brand-mark"
-          viewBox="0 0 32 36"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path d="M2 20V8h12V0h14v23H15v12H2z" /></svg
-        >Canary</a
-      >
-      <p class="brand-sub">Research, in depth</p>
       <p class="eyebrow nav-label">Workspace</p>
       <nav class="side-nav" id="research-nav" aria-label="Research">
         <button class="nav-item on" data-filter="all">
@@ -1466,17 +1441,9 @@
             ><button class="nav-item" data-page="checks">System checks</button>
           </nav>
         </details>
-        <div id="connection" class="connection">
-          <span class="connection-dot"></span
-          ><span id="connection-label">Connecting to workspace</span>
-        </div>
       </div>
     </aside>
     <main id="main">
-      <details class="workspace-menu" id="workspace-menu">
-        <summary aria-label="Menu" role="button" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></summary>
-        <nav aria-label="Workspace menu"><a href="#log">Log</a><details><summary>Service</summary><div id="codex-connection">Open menu to inspect connection</div><div id="service-status">Open menu to inspect runtime</div></details><details><summary>Local footprint</summary><div id="local-footprint"></div><button class="btn small" data-action="refresh-footprint">Refresh local index</button></details></nav>
-      </details>
       <div class="topbar">
         <span id="breadcrumb">Workspace / Research</span
         ><span class="key-hint"
@@ -1796,6 +1763,7 @@
     <div class="toast" id="toast" role="status" hidden></div>
     <script>
       "use strict";
+
       const S = {
         runs: [],
         loaded: false,
@@ -3804,7 +3772,7 @@
   function syncInspectorLayout() {
     const mobile=!!S.inspector && window.matchMedia("(max-width:960px)").matches;
     document.body.classList.toggle("source-open",mobile);
-    document.querySelectorAll(".workspace-menu,.sidebar,.topbar,.answer-workspace>.heading-row,.answer-workspace>.detail-heading,.answer-workspace>.research-tabs,.answer-main,.answer-workspace>.technical").forEach(el=>el.inert=mobile);
+    document.querySelectorAll(".app-bar,.sidebar,.topbar,.answer-workspace>.heading-row,.answer-workspace>.detail-heading,.answer-workspace>.research-tabs,.answer-main,.answer-workspace>.technical").forEach(el=>el.inert=mobile);
   }
   function closeInspector() {
     const pane=document.getElementById("evidence-inspector");
@@ -3890,6 +3858,19 @@
         );
       }
       function boot() {
+        const themeToggle = document.getElementById("theme-toggle");
+        const themeURL = new URL(location.href);
+        const lightTheme = themeURL.searchParams.get("theme") === "light";
+        document.documentElement.dataset.theme = lightTheme ? "light" : "dark";
+        themeToggle.textContent = lightTheme ? "Dark" : "Light";
+        themeToggle.setAttribute("aria-label", "Switch to " + (lightTheme ? "dark" : "light") + " theme");
+        themeToggle.addEventListener("click", () => {
+          const next = new URL(location.href);
+          if (lightTheme) next.searchParams.delete("theme");
+          else next.searchParams.set("theme", "light");
+          location.assign(next);
+        });
+
         window.matchMedia("(max-width:960px)").addEventListener("change",syncInspectorLayout);
         try {
           const v = JSON.parse(
