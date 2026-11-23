@@ -446,7 +446,7 @@ th, td { padding: 8px; }
 .close-btn { color: var(--blue); width: 34px; height: 34px; }
 .field { gap: 6px; margin-bottom: 14px; }
 .field > label, .field-label { font-size: 15px; }
-.field input:not([type="checkbox"]), .field textarea, .field select {
+.field input:not([type="checkbox"], [type="radio"]), .field textarea, .field select {
   background: var(--paper);
   color: var(--ink);
   border-color: var(--line);

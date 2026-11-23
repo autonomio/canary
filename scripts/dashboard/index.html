@@ -706,7 +706,7 @@
         font-size: 12px;
         font-weight: 500;
       }
-      .field input:not([type="checkbox"]),
+      .field input:not([type="checkbox"], [type="radio"]),
       .field textarea,
       .field select {
         width: 100%;
@@ -2637,6 +2637,13 @@
         error.hidden = !message;
         error.textContent = message;
       }
+      function sourceConfigurationError(retrieval) {
+        if (retrieval?.corpus === "local_text" && S.sourceConfiguration?.local_text === false)
+          return "The service has no configured local text library. Choose public literature or configure an allowed directory.";
+        if (retrieval?.additional_sources?.includes("epo") && S.sourceConfiguration?.epo === false)
+          return "EPO OPS credentials are missing. Remove EPO OPS or configure its service credentials.";
+        return "";
+      }
       function showLaunchStep(step) {
         S.launchStep = step;
         S.launchPreview = null;
@@ -2683,12 +2690,12 @@
           const spec = payload.spec || (payload.kind === "question" ? { question: payload.question,
             ...(payload.research_state ? { research_state: payload.research_state, continue_research: payload.continue_research } : {}) } : null);
           if (spec) {
-            if (v.corpus === "local_text" && S.sourceConfiguration?.local_text === false)
-              throw new Error("The service has no configured local text library. Choose public literature or configure an allowed directory.");
-            if (v.additional_sources.includes("epo") && S.sourceConfiguration?.epo === false)
-              throw new Error("EPO OPS credentials are missing. Remove EPO OPS or configure its service credentials.");
+            const blocked = sourceConfigurationError(spec.retrieval);
+            if (blocked) throw new Error(blocked);
             const compiled = await api("/api/runs/compile", jsonPost({ spec }));
             if (S.launchPreview !== request || !document.getElementById("launch-dialog").open) return;
+            const latest = sourceConfigurationError(spec.retrieval);
+            if (latest) throw new Error(latest);
             plan.innerHTML = compiledLaunchHtml(compiled);
           } else {
             plan.innerHTML = `<p>Canary will explore follow-up questions using the cycle launcher and the limits set in Scope.</p>` +
@@ -2807,6 +2814,8 @@
         if (preview.revision !== S.draftRevision) return showLaunchStep(2);
         const dialog = document.getElementById("launch-dialog"), btn = document.getElementById("f-go"),
           start = document.getElementById("launch-next");
+        const blocked = sourceConfigurationError(preview.payload.spec?.retrieval);
+        if (blocked) { launchError(blocked); return; }
         const revision = S.draftRevision, hash = location.hash;
         launchError();
         S.busy = true;
@@ -3676,6 +3685,7 @@
           .addEventListener("submit", reviewResearch);
         const launchDialog = document.getElementById("launch-dialog");
         launchDialog.addEventListener("close", () => {
+          if (launchDialog.open) return;
           S.launchPreview = null;
           document.getElementById("launch-import-status").textContent = "";
         });
