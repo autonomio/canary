@@ -929,7 +929,8 @@ def test_saved_study_passage_navigation_opens_verbatim_without_reference_metadat
     run_dashboard(tmp_path, graph, r"""
 const before=JSON.stringify(graph),noop=()=>{},classes={add:noop,toggle:noop,remove:noop};
 const pane={hidden:true,innerHTML:'',querySelectorAll:()=>[],contains:()=>false,querySelector:()=>({focus:noop}),closest:()=>({classList:classes})};
-global.document={getElementById:id=>id==='evidence-inspector' ? pane : null,body:{classList:classes},querySelectorAll:()=>[],activeElement:null};
+const elements={main:{},'questions-panel':{hidden:true},'evidence-inspector':pane};
+global.document={getElementById:id=>elements[id]||null,body:{classList:classes},querySelectorAll:()=>[],activeElement:null};
 global.window={matchMedia:()=>({matches:false})};global.fetch=()=>{throw new Error('Saved passage navigation must not request absent source metadata');};
 S.selected='missing-source-navigation';S.research[S.selected]={answer:graph};
 (async()=>{
@@ -968,7 +969,8 @@ def test_audit_source_button_opens_saved_verbatim_without_citation_metadata(tmp_
     run_dashboard(tmp_path, graph, r"""
 const before=JSON.stringify(graph),noop=()=>{},classes={add:noop,toggle:noop,remove:noop};
 const pane={hidden:true,innerHTML:'',querySelectorAll:()=>[],contains:()=>false,querySelector:()=>({focus:noop}),closest:()=>({classList:classes})};
-global.document={getElementById:id=>id==='evidence-inspector' ? pane : null,body:{classList:classes},querySelectorAll:()=>[],activeElement:null};
+const elements={main:{},'questions-panel':{hidden:true},'evidence-inspector':pane};
+global.document={getElementById:id=>elements[id]||null,body:{classList:classes},querySelectorAll:()=>[],activeElement:null};
 global.window={matchMedia:()=>({matches:false})};global.fetch=()=>{throw new Error('Saved audit-passage navigation must not need a source request');};
 S.selected='audit-missing-citation';S.research[S.selected]={answer:graph};
 (async()=>{

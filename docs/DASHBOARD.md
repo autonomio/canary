@@ -1,7 +1,10 @@
 # Research dashboard
 
-The dashboard lists questions and shows progress, findings, and source
-evidence from the same HTTP service used by the CLI and MCP clients.
+Canary opens directly to a question or the last question you read in this tab.
+The toolbar opens the **Questions** panel, where you can search and filter past
+runs without leaving the current answer. **New question** returns to the inline
+draft. Expand **Research settings** to change how the question is researched.
+The dashboard, CLI, and MCP clients use the same HTTP service.
 
 ## Quickstart
 
@@ -19,7 +22,7 @@ CANARY_DATA_DIR="$canary_preview_dir/data" \
 ```
 
 With a browser, open the printed URL and wait for **Workspace connected** before
-reading the **Questions** count. Open **Menu → Service** to see the storage
+opening the **Questions** panel. Open **Menu → Service** to see the storage
 directory, PDF extraction engine, Codex status, and API contract link.
 
 In another shell at the checkout root, set `canary_preview_url` to the printed
@@ -42,7 +45,7 @@ A passing preview gives these results.
 
 | Check | Expected result |
 | --- | --- |
-| Browser | **Workspace connected** and zero questions. **Service** shows temporary storage and either **Codex signed out** or **Codex unavailable**. |
+| Browser | **Workspace connected** and **No questions yet** in the Questions panel. **Service** shows temporary storage and either **Codex signed out** or **Codex unavailable**. |
 | HTTP | Dashboard and stylesheet return `200`. Status reports `"service": "available"` and `"dashboard_enabled": true`. |
 | CLI | The example resolves an audit with `gpt-6.1-sol` at `xhigh`, `budget_seconds: null` for an unlimited audit, and `max_correction_rounds: 3`. |
 | Run list | `{"runs":[]}` before and after the dry run, confirming it created no run. |

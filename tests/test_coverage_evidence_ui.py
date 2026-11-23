@@ -351,7 +351,7 @@ class Element {
   focus() {document.activeElement=this;}
   scrollIntoView() {}
 }
-const root=new Element('body');root.innerHTML='<div class="topbar"></div><div id="detail"></div>';
+const root=new Element('body');root.innerHTML='<aside id="questions-panel" hidden></aside><main id="main"><div id="detail"></div></main>';
 global.document={body:root,activeElement:null,getElementById:id=>root.querySelector('#'+id),
   querySelector:s=>root.querySelector(s),querySelectorAll:s=>root.querySelectorAll(s)};
 global.window={matchMedia:()=>({matches:false})};
