@@ -1733,7 +1733,7 @@
         document.getElementById("workspace-menu").open = false;
         if (window.matchMedia("(max-width:960px)").matches &&
             !document.getElementById("questions-panel").hidden) setQuestionsPanel(false);
-        if ((S.selected !== key || S.tab !== tab) && S.inspector) closeInspector();
+        if (S.selected !== key && S.inspector) closeInspector();
         S.selected = key;
         S.tab = tab;
         S.detailSignature = "";
