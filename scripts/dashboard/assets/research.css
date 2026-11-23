@@ -1,48 +1,54 @@
-@font-face {
-  font-family: Finlandica;
-  src: url("./Finlandica-Regular.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
+/* The same canvas, type, and interaction palette used by Galley's workspace. */
 :root {
-  color-scheme: light;
-  --bg: #F7F7F2;
-  --paper: #F7F7F2;
-  --sidebar: #F7F7F2;
-  --ink: #252D33;
-  --muted: #626B72;
-  --line: #D4DADD;
-  --blue: #2A4A70;
-  --green: var(--ink);
-  --green-soft: var(--paper);
-  --red: var(--ink);
-  --red-soft: var(--paper);
-  font-family: Finlandica, "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
-  font-size: 17px;
-  font-weight: 400;
-  font-synthesis: none;
-  line-height: 1.5;
+  color-scheme: dark;
+  --bg: #161A20;
+  --paper: #1C2129;
+  --sidebar: var(--bg);
+  --ink: #DEE2E6;
+  --strong: #F7F8F9;
+  --muted: #8E959E;
+  --line: #2F353D;
+  --border: #5C636D;
+  --blue: #87B3E6;
+  --accent: #3A72B0;
+  --green: #8AC99B;
+  --red: #F2A19C;
+  --green-soft: color-mix(in srgb, #4A8E5E 22%, var(--paper));
+  --red-soft: color-mix(in srgb, #B85048 22%, var(--paper));
+  --font-ui: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Zen Maru Gothic", var(--font-ui);
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --app-bar-height: 48px;
+  --radius-control: 4px;
+  --radius-panel: 8px;
+  --shadow-panel: 0 12px 24px rgb(0 0 0 / .28), 0 4px 8px rgb(0 0 0 / .18);
+  font: 15px/1.55 var(--font-ui);
   color: var(--ink);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #FBFBFA;
+  --paper: #F2F2F0;
+  --ink: #23272D;
+  --strong: #111418;
+  --muted: #6E747B;
+  --line: #E2E3E1;
+  --border: #B9BCBF;
+  --blue: #2F64A3;
+  --accent: #2F64A3;
+  --green: #326840;
+  --red: #8D3832;
+  --shadow-panel: 0 12px 24px rgb(0 0 0 / .12), 0 4px 8px rgb(0 0 0 / .06);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-body { background: var(--paper); color: var(--ink); }
-body, button, input, textarea, select, pre, code, kbd {
-  font-family: Finlandica, "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
-  font-weight: 400;
-}
-button, input, textarea, select { font-size: 16px; }
-h1, h2, h3, h4, strong, b, th,
-.btn, .brand, .eyebrow, .badge, .field-label, .field > label,
-.depth-options legend, .depth-option strong, .aside-section h3,
-.prose strong, .source h3, .trail-step h3, .stat strong,
-.detail-heading h1, .composer-body h2, .operations-panel h2, .empty h2 {
-  font-weight: 400;
-}
-h1 { font-size: 28px; line-height: 1.25; letter-spacing: -.018em; margin-bottom: 5px; }
-h2 { font-size: 22px; line-height: 1.3; letter-spacing: -.018em; }
+body { background: var(--bg); color: var(--ink); }
+button, input, textarea, select { font: inherit; }
+pre, code, kbd, .logs { font-family: var(--font-mono); }
+h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 700; color: var(--strong); }
+strong, b, th { font-weight: 600; }
+h1 { font-size: 32px; line-height: 1.16; letter-spacing: -.018em; margin-bottom: 5px; }
+h2 { font-size: 24px; line-height: 1.3; letter-spacing: -.018em; }
 h3 { font-size: 18px; line-height: 1.4; }
 p { margin: 0 0 14px; }
 a { color: var(--blue); text-underline-offset: .24em; }
@@ -64,22 +70,30 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
   color: var(--muted);
 }
 
-/* A narrow navigation rail leaves the paper the working area. */
+/* The workspace chrome uses Galley’s compact toolbar above the reading surface. */
 .sidebar {
-  width: 160px;
+  top: var(--app-bar-height);
+  width: 176px;
   padding: 18px 12px 14px;
-  background: var(--paper);
+  background: var(--sidebar);
   border-color: var(--line);
 }
-.brand {
-  color: var(--blue);
-  font-size: 19px;
-  line-height: 1.2;
-  letter-spacing: .235em;
-  margin: 0 6px 26px;
+.app-bar {
+  position: sticky; top: 0; z-index: 35; display: flex; align-items: center; gap: 12px;
+  height: var(--app-bar-height); padding: 0 16px; border-bottom: 1px solid var(--line);
+  background: var(--bg); color: var(--muted); font-size: 13px;
 }
-.brand-mark, .brand-sub, .empty-icon, .nav-item svg,
-.operations summary svg, .btn svg, .row-meta svg { display: none; }
+.brand {
+  margin: 0; color: var(--strong); text-transform: none; text-decoration: none;
+  font: 700 15px/1.2 var(--font-display); letter-spacing: .02em;
+}
+.app-bar .connection { display: flex; margin: 0 0 0 auto; padding: 0; border: 0; }
+.theme-toggle {
+  border: 0; background: none; padding: 4px; color: var(--muted); font: inherit;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.theme-toggle:hover { color: var(--strong); }
+.empty-icon, .nav-item svg, .operations summary svg, .btn svg, .row-meta svg { display: none; }
 .nav-label { margin: 0 6px 8px; font-size: 13px; }
 .side-nav { gap: 2px; }
 .nav-item, .operations .nav-item {
@@ -88,20 +102,21 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
   color: var(--muted);
   font-size: 15px;
   background: transparent;
-  border-left-color: transparent;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-control);
   gap: 6px;
 }
 .nav-item:hover, .nav-item.on {
   color: var(--blue);
-  background: transparent;
+  background: var(--paper);
 }
 .nav-item.on { border-left-color: var(--blue); }
 .nav-item .count { font-size: 13px; color: var(--muted); }
 .operations summary { min-height: 34px; padding: 5px 6px; font-size: 15px; }
 .connection { margin: 10px 6px 0; padding-top: 10px; font-size: 13px; }
-.connection-dot { background: var(--muted); }
+.connection-dot { background: var(--green); }
 .connection.offline .connection-dot { background: transparent; outline-color: var(--muted); }
-main { margin-left: 160px; min-width: 0; }
+main { margin-left: 176px; min-width: 0; }
 .topbar { height: 40px; padding: 0 28px; font-size: 14px; gap: 12px; }
 .topbar .key-hint { font-size: 13px; }
 kbd { border-color: var(--line); }
@@ -109,27 +124,22 @@ kbd { border-color: var(--line); }
 .heading-row { gap: 16px; }
 .heading-row p { font-size: 15px; }
 
-/* Actions stay flat and textual; dividers carry the structure. */
+/* Controls sit on the same rounded surfaces as Galley’s toolbar and menus. */
 .btn, .btn.primary, .btn.quiet, .btn.small {
   min-height: 34px;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--blue);
-  font-size: 16px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 14px;
   gap: 6px;
   box-shadow: none;
 }
-.btn.primary { text-decoration: underline; text-underline-offset: .24em; }
-.btn:hover, .btn.primary:hover, .btn.quiet:hover, .btn.small:hover {
-  background: transparent;
-  color: var(--ink);
-  text-decoration: underline;
-  text-underline-offset: .24em;
-}
-.btn.small { font-size: 14px; }
-.back, .text-action, .read-arrow {
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:hover, .btn.quiet:hover, .btn.small:hover { border-color: var(--border); color: var(--strong); }
+.btn.primary:hover { background: color-mix(in srgb, var(--accent) 90%, #fff); color: #fff; }
+.text-action, .read-arrow {
   color: var(--blue);
   background: transparent;
   border: 0;
@@ -208,7 +218,7 @@ select, .sort select {
 }
 .prose code, .prose pre, .logs { background: var(--paper); color: var(--ink); }
 .prose code { font-size: 15px; padding: 0; }
-.prose pre, .logs { font-size: 14px; line-height: 1.5; font-family: Finlandica, "Arial Narrow", "Helvetica Neue", Arial, sans-serif; }
+.prose pre, .logs { font-size: 14px; line-height: 1.5; font-family: var(--font-mono); }
 .logs { padding: 12px; border-color: var(--line); }
 .reading-aside { padding-left: 20px; }
 .aside-section { padding-top: 14px; margin-bottom: 18px; }
@@ -283,8 +293,8 @@ th, td { padding: 8px; }
 .question-usage { color: var(--muted); font-size: 13px; line-height: 1.45; margin: 10px 0 14px; }
 .evidence-inspector {
   position: sticky;
-  top: 16px;
-  max-height: calc(100dvh - 32px);
+  top: calc(var(--app-bar-height) + 16px);
+  max-height: calc(100dvh - var(--app-bar-height) - 32px);
   min-width: 0;
   border-left: 1px solid var(--line);
   padding-left: 20px;
@@ -313,8 +323,8 @@ th, td { padding: 8px; }
 .citation { font-size: 14px; line-height: 1.45; margin-bottom: 12px; overflow-wrap: anywhere; }
 
 /* The native composer stays compact, with settings available in disclosure. */
-dialog { color: var(--ink); background: var(--paper); border-color: var(--line); box-shadow: none; }
-dialog::backdrop { background: var(--paper); opacity: .8; }
+dialog { color: var(--ink); background: var(--paper); border-color: var(--line); border-radius: var(--radius-panel); box-shadow: var(--shadow-panel); }
+dialog::backdrop { background: rgb(0 0 0 / .48); }
 .composer-head { padding: 8px 20px 0; }
 .composer-body { padding: 0 20px 10px; }
 .composer-body h2 { font-size: 26px; letter-spacing: -.018em; margin-bottom: 10px; }
@@ -322,7 +332,7 @@ dialog::backdrop { background: var(--paper); opacity: .8; }
 .close-btn { color: var(--blue); width: 34px; height: 34px; }
 .field { gap: 6px; margin-bottom: 14px; }
 .field > label, .field-label { font-size: 15px; }
-.field input, .field textarea, .field select {
+.field input:not([type="checkbox"]), .field textarea, .field select {
   background: var(--paper);
   color: var(--ink);
   border-color: var(--line);
@@ -334,7 +344,7 @@ dialog::backdrop { background: var(--paper); opacity: .8; }
 .field-help { font-size: 13px; }
 .depth-option, .depth-option:has(input:checked) { border-color: var(--line); background: var(--paper); }
 .depth-option:has(input:checked) { border-color: var(--blue); }
-.depth-option input, .check-label input { accent-color: var(--blue); }
+.depth-option input, .check-label input, .field input[type="checkbox"] { accent-color: var(--blue); }
 .depth-option, .depth-option strong, .depth-options legend { font-size: 15px; }
 .depth-option span { font-size: 13px; }
 .advanced { margin-top: 14px; }
@@ -350,7 +360,7 @@ dialog::backdrop { background: var(--paper); opacity: .8; }
 }
 @media (max-width: 1100px) {
   .sidebar { width: 160px; padding: 18px 12px 14px; }
-  main { margin-left: 160px; }
+  main { margin-left: 176px; }
   .workspace { padding: 20px; }
   .topbar { padding: 0 20px; }
   .has-inspector .answer-grid, .answer-grid.has-inspector { gap: 20px; }
@@ -365,8 +375,7 @@ dialog::backdrop { background: var(--paper); opacity: .8; }
 }
 @media (max-width: 760px) {
   .sidebar { position: static; width: auto; padding: 12px 18px 8px; gap: 8px; border-right: 0; border-bottom: 1px solid var(--line); }
-  .brand { font-size: 19px; margin: 0; }
-  .nav-label, .connection { display: none; }
+  .nav-label { display: none; }
   .side-nav { display: flex; flex-wrap: wrap; gap: 4px 12px; }
   .nav-item, .operations .nav-item { width: auto; padding: 4px 0; min-height: 30px; font-size: 15px; border-left: 0; }
   .nav-item.on { text-decoration: underline; text-underline-offset: .24em; }
@@ -468,11 +477,11 @@ dialog::backdrop { background: var(--paper); opacity: .8; }
 }
 
 /* Persistent workspace navigation; run metrics remain a compact ledger. */
-.workspace-menu { position: fixed; top: 6px; right: 20px; z-index: 35; color: var(--ink); }
-.workspace-menu > summary { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; cursor: pointer; list-style: none; background: var(--paper); }
+.workspace-menu { position: relative; color: var(--muted); }
+.workspace-menu > summary { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; cursor: pointer; list-style: none; background: transparent; border-radius: var(--radius-control); }
 .workspace-menu > summary::-webkit-details-marker { display: none; }
 .workspace-menu svg { display: block; width: 20px; height: 20px; }
-.workspace-menu nav { position: absolute; right: 0; width: min(360px, calc(100vw - 32px)); min-width: 120px; max-width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 60px); overflow: auto; overflow-wrap: anywhere; padding: 6px 12px; border: 1px solid var(--line); background: var(--paper); }
+.workspace-menu nav { position: absolute; right: 0; width: min(360px, calc(100vw - 32px)); min-width: 120px; max-width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 60px); overflow: auto; overflow-wrap: anywhere; padding: 6px 12px; border: 1px solid var(--line); border-radius: var(--radius-panel); background: var(--paper); box-shadow: var(--shadow-panel); }
 #codex-auth { width: 230px; border-top: 1px solid var(--line); margin-top: 4px; padding: 10px 0 4px; font-size: 12px; }
 #codex-auth strong { font-weight: 500; }
 #codex-auth p, #codex-auth small { display: block; margin: 6px 0; line-height: 1.4; }
@@ -481,8 +490,6 @@ dialog::backdrop { background: var(--paper); opacity: .8; }
 @media (min-width: 961px) {
   .inspector-header { padding-right: 48px; }
 }
-.topbar .key-hint { padding-right: 40px; }
-.answer-workspace > .heading-row { padding-right: 40px; }
 .run-log { width: 100%; font-variant-numeric: tabular-nums; }
 .run-log th, .run-log td { white-space: nowrap; vertical-align: top; padding: 7px 9px; font-size: 13px; text-align: right; }
 .run-log th:first-child, .run-log td:first-child { text-align: left; min-width: 190px; max-width: 280px; white-space: normal; overflow-wrap: anywhere; }
@@ -490,9 +497,7 @@ dialog::backdrop { background: var(--paper); opacity: .8; }
 .run-log tbody th { font-weight: 400; letter-spacing: 0; text-transform: none; }
 .run-log-status { display: block; color: var(--muted); margin-top: 2px; }
 @media (max-width: 760px) {
-  .workspace-menu { top: 6px; right: 12px; }
-  .sidebar .brand { padding-right: 38px; }
-  .answer-workspace > .heading-row { padding-right: 0; }
+  .app-bar { gap: 8px; padding-inline: 12px; }
 }
 
 /* Extracted experimental fields remain distinct from their exact source text. */
@@ -505,3 +510,12 @@ dialog::backdrop { background: var(--paper); opacity: .8; }
 
 .freshness { font-size: 11px; color: var(--muted); }
 .freshness.review-due { font-weight: 600; color: var(--ink); }
+
+/* Keep interactive boundaries visible in both themes. */
+.search-box, .field :is(input:not([type="checkbox"]), textarea, select), .depth-option, .sort select {
+  border-color: var(--border);
+  border-radius: var(--radius-control);
+}
+.search-box, .sort select, .field :is(input:not([type="checkbox"]), textarea, select) { background: var(--bg); }
+.depth-option:has(input:checked) { border-color: var(--blue); }
+.error-banner, .form-error { color: var(--red); }
