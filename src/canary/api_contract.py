@@ -3,7 +3,7 @@ from copy import deepcopy
 import types
 import typing
 
-from . import coverage_protocol as protocol
+from . import coverage_protocol as protocol, review_decisions
 from .claim_freshness import schema as freshness_schema
 from .codex_auth import AuthStatus, AuthUsage, Login
 from .research_spec import CompiledResearch
@@ -275,6 +275,7 @@ def schemas():
             'status':dict(S,description='publication_identity_unverified means no acquired copy satisfied the bibliographic check.'),
             'reason':S,'public_timeout_seen':B,'reference':ref('AgentReference')},['work_id','status'],closed=False))},
             ['attempted','sources_available','receipts']),
+        'ReviewDecision':review_decisions.schema(),
         'ReadSourceRequest':obj({'reference_id':S,'match':nullable(S),'page':nullable(dict(I,minimum=1)),
                                  'context':dict(I,minimum=0,default=2),'limit':dict(I,minimum=1,default=8)},['reference_id']),
         'FinalizeRequest':obj({'investigation':ref('GeneratedInvestigation')})}

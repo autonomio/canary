@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import sqlite3
 
-from . import compact_bundle, research_bundle
+from . import compact_bundle, research_bundle, review_decisions
 from .research_spec import digest
 
 NAME = 'review-decisions.sqlite3'
@@ -89,6 +89,9 @@ def edition(workspace, last_entry=None):
 
 
 def append(workspace, decision, *, replaces=None):
+    review_decisions.validate(decision)
+    if decision['status'] == 'modified' and replaces is None:
+        raise ValueError('A modified decision must name the entry it replaces')
     workspace = Path(workspace).resolve()
     with locked(workspace):
         bundle_id, checksum = _base(workspace)
