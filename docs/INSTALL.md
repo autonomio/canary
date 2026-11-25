@@ -6,7 +6,7 @@ sessions with no duration limits. Install Codex on the service host using the
 
 ```sh
 npm install -g @openai/codex@0.162.0
-python -m pip install /path/to/canary-0.1.0-py3-none-any.whl
+python -m pip install /path/to/canary-0.2.0-py3-none-any.whl
 ```
 
 Use Python 3.10+ on Linux or macOS. Install Poppler (`poppler-utils` on Debian/Ubuntu,

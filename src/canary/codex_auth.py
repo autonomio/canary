@@ -192,7 +192,7 @@ class CodexAuth:
 
         threading.Thread(target=read, daemon=True).start()
         try:
-            self._rpc('initialize', {'clientInfo': {'name': 'canary', 'version': '0.1.0'}})
+            self._rpc('initialize', {'clientInfo': {'name': 'canary', 'version': '0.2.0'}})
             self._write({'method': 'initialized'})
             config = self._rpc('config/read', {'includeLayers': False})
             self.store = credential_store(config.get('config', {}).get('cli_auth_credentials_store'))
