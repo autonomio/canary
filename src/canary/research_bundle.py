@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from typing import TypedDict
 
+from . import review_history
 from .research_spec import verify_compiled, digest
 from .runtime_paths import resource_root
 from .bundle_encoding import BundleEncoding
@@ -101,7 +102,9 @@ def _artifact_paths(workspace):
         for name in sorted(names):
             path = base / name
             if (name.startswith('.') or name in excluded_files or name.endswith(('.tmp', '.pyc'))
-                    or path == workspace / 'bundle.json' or path.is_symlink()):
+                    or path == workspace / 'bundle.json' or path.is_symlink()
+                    or (base == workspace and name in (review_history.NAME, review_history.NAME + '-journal',
+                                                       'review-decisions.json'))):
                 continue
             if path.is_file():
                 yield path
@@ -181,6 +184,11 @@ def read(workspace) -> ResearchBundle:
 
 def archive(workspace, target):
     workspace = Path(workspace)
+    with review_history.locked(workspace, shared=True):
+        _archive(workspace, target)
+
+
+def _archive(workspace, target):
     manifest = read(workspace)
     if manifest['state'] != 'finished':
         raise ValueError('Only a finished versioned bundle can be archived')
@@ -193,6 +201,7 @@ def archive(workspace, target):
             output.write(workspace / 'bundle.json', 'bundle.json')
         for entry in manifest['artifacts']:
             output.write(verified_artifact(workspace, entry), entry['path'])
+        review_history.archive(workspace, output, manifest)
 
 
 def verified_artifact(workspace, record):

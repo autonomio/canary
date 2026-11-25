@@ -91,10 +91,20 @@ def retain(workspace):
     Commit and verify the complete output before removing any working file.
     Historical directories and the native CLI's account/session store are untouched.
     """
-    from . import bundle_connectors, dashboard, runs
+    from . import review_history
     workspace = Path(workspace)
+    with review_history.locked(workspace):
+        return _retain(workspace)
+
+
+def _retain(workspace):
+    from . import bundle_connectors, dashboard, review_history, runs
     if exists(workspace):
-        return manifest(workspace)
+        retained = manifest(workspace)
+        if (workspace / '.run-reservation').is_file():
+            review_history.bind(workspace, retained['id'], (workspace / CHECKSUM).read_text().strip())
+            _release(workspace)
+        return retained
     run_path = workspace / 'run.json'
     if run_path.is_file() and json.loads(run_path.read_text()).get('verification_failure'):
         raise ValueError('Verification stopped; working sources must remain available')
@@ -132,16 +142,23 @@ def retain(workspace):
     temporary.replace(workspace / NAME)
     try:
         retained = manifest(workspace)  # Verify inputs and reconstruction before release.
+        review_history.bind(workspace, retained['id'], (workspace / CHECKSUM).read_text().strip())
     except Exception:
         # Leave the working bundle available for inspection and a corrected retry.
         (workspace / NAME).unlink()
         (workspace / CHECKSUM).unlink()
         raise
+    _release(workspace)
+    return retained
+
+
+def _release(workspace):
+    from . import review_history
     for path in workspace.iterdir():
-        if path.name in (NAME, CHECKSUM):
+        if path.name in (NAME, CHECKSUM, review_history.NAME, '.run-reservation'):
             continue
         if path.is_dir() and not path.is_symlink():
             shutil.rmtree(path)
         else:
             path.unlink()
-    return retained
+    (workspace / '.run-reservation').unlink()
