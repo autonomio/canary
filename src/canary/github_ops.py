@@ -13,6 +13,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 
@@ -129,18 +130,17 @@ class GitHub:
         )
 
     def _post(self, path: str, payload: dict) -> dict:
-        resp = self._client.post(path, json=payload)
+        return self._result(self._client.post(path, json=payload))
+
+    @staticmethod
+    def _result(resp: httpx.Response):
         if resp.status_code == 401:
             raise RuntimeError("GitHub token rejected (401) — check GITHUB_TOKEN scope/expiry")
         resp.raise_for_status()
         return resp.json()
 
     def _get(self, path: str) -> dict:
-        resp = self._client.get(path)
-        if resp.status_code == 401:
-            raise RuntimeError("GitHub token rejected (401) — check GITHUB_TOKEN scope/expiry")
-        resp.raise_for_status()
-        return resp.json()
+        return self._result(self._client.get(path))
 
     def create_issue(self, title: str, body: str) -> Issue:
         d = self._post(f"/repos/{self.repo}/issues", {"title": title, "body": body})
@@ -157,27 +157,54 @@ class GitHub:
         return self._get(f"/repos/{self.repo}/pulls/{number}")
 
     def reviews(self, number: int) -> list[dict]:
-        d = self._get(f"/repos/{self.repo}/pulls/{number}/reviews")
-        return d if isinstance(d, list) else []
+        reviews = []
+        page = 1
+        while True:
+            items = self._get(f"/repos/{self.repo}/pulls/{number}/reviews?per_page=100&page={page}")
+            if not isinstance(items, list):
+                return []
+            reviews.extend(items)
+            if len(items) < 100:
+                return reviews
+            page += 1
 
-    def independently_approved(self, number: int, author: str | None) -> bool:
-        """An APPROVED review from anyone but the PR author (Issue #62).
-
-        Same-identity approval is no check against intentional evasion, so
-        it never counts. Unknown author fails closed. Which separate
-        identity must approve is pinned owner-side by branch ruleset; this
-        gate guarantees independence, not identity.
-        """
-        if not author:
+    def independently_approved(self, number: int, author: str | None, head_sha: str | None = None) -> bool:
+        """Require current-head approval by a non-author with repository write access."""
+        if not isinstance(author, str) or not author:
             return False
         try:
-            reviews = self.reviews(number)
-        except Exception:
+            if head_sha is None:
+                head_sha = self.get_pr(number)["head"]["sha"]
+            if not isinstance(head_sha, str) or not head_sha:
+                return False
+            decisions = {}
+            # GitHub returns reviews in chronological order. Comments and drafts
+            # do not replace the reviewer's last approval or objection.
+            for review in self.reviews(number):
+                if not isinstance(review, dict):
+                    continue
+                user = review.get("user")
+                login = user.get("login") if isinstance(user, dict) else None
+                if not isinstance(login, str) or not login or login.casefold() == author.casefold():
+                    continue
+                state = review.get("state")
+                if state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+                    decisions[login.casefold()] = (login, state, review.get("commit_id"))
+            for login, state, commit in decisions.values():
+                if state != "APPROVED" or commit != head_sha:
+                    continue
+                reviewer = quote(login, safe="")
+                try:
+                    access = self._get(f"/repos/{self.repo}/collaborators/{reviewer}/permission")
+                except httpx.HTTPStatusError as error:
+                    if error.response.status_code != 404:
+                        raise
+                    continue
+                if isinstance(access, dict) and access.get("permission") in ("write", "maintain", "admin"):
+                    return True
+        except (httpx.HTTPError, RuntimeError, KeyError, TypeError, ValueError):
             return False
-        return any(r.get("state") == "APPROVED"
-                   and isinstance(r.get("user"), dict)
-                   and r["user"].get("login") not in (None, "", author)
-                   for r in reviews if isinstance(r, dict))
+        return False
 
     def check_runs(self, sha: str) -> list[dict]:
         d = self._get(f"/repos/{self.repo}/commits/{sha}/check-runs")
@@ -195,12 +222,15 @@ class GitHub:
         except Exception:
             return False
 
-    def merge(self, number: int) -> bool:
+    def merge(self, number: int, *, head_sha: str | None = None) -> bool:
+        payload = {"merge_method": "squash"}
+        if head_sha is not None:
+            payload["sha"] = head_sha
         try:
-            d = self._post(f"/repos/{self.repo}/pulls/{number}/merge", {"merge_method": "squash"})
+            d = self._result(self._client.put(f"/repos/{self.repo}/pulls/{number}/merge", json=payload))
             return bool(d.get("merged"))
         except httpx.HTTPStatusError as e:
-            if e.response is not None and e.response.status_code == 405:  # not mergeable yet
+            if e.response.status_code == 405 or (head_sha is not None and e.response.status_code == 409):
                 return False
             raise
 
@@ -210,12 +240,11 @@ class GitHub:
             resp.raise_for_status()
 
     def wait_and_merge(self, pr: Pull, timeout_s: float = 900, interval_s: float = 20) -> str:
-        """Enable auto-merge, then ensure merge happens. Returns 'merged' or raises.
+        """Merge a maintenance PR only after checks and independent approval.
 
-        Green checks alone never merge: an independent (non-author) approval
-        must also be present, else we keep waiting for one until the timeout.
+        Keep this decision in the publisher. GitHub's auto-merge queue cannot
+        enforce the publisher's review policy on downstream repositories.
         """
-        self.enable_automerge(pr.node_id)
         deadline = time.monotonic() + timeout_s
         unapproved = False
         while time.monotonic() < deadline:
@@ -224,23 +253,27 @@ class GitHub:
                 return "merged"
             if state.get("state") == "closed":
                 raise RuntimeError(f"PR #{pr.number} closed without merge")
-            runs = self.check_runs(state["head"]["sha"])
+            head_sha = state["head"]["sha"]
+            runs = self.check_runs(head_sha)
             if runs and all(r.get("status") == "completed" for r in runs):
                 bad = [r for r in runs if r.get("conclusion") not in ("success", "neutral", "skipped")]
                 if bad:
                     names = ", ".join(r.get("name", "?") for r in bad)
                     raise RuntimeError(f"PR #{pr.number} checks failed: {names}")
-                author = state.get("user") or {}
-                if not self.independently_approved(pr.number, author.get("login")):
+                author = state.get("user")
+                login = author.get("login") if isinstance(author, dict) else None
+                if not self.independently_approved(pr.number, login, head_sha):
                     unapproved = True
                     time.sleep(interval_s)
                     continue
-                if self.merge(pr.number):
+                unapproved = False
+                if self.merge(pr.number, head_sha=head_sha):
                     return "merged"
             time.sleep(interval_s)
         if unapproved:
             raise RuntimeError(
-                f"PR #{pr.number} has no independent approval (self-approval does not count)")
+                f"PR #{pr.number} has no independent approval for its current commit "
+                "from a reviewer with repository write access")
         raise RuntimeError(f"PR #{pr.number} did not merge within {timeout_s}s")
 
 

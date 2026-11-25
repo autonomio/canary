@@ -38,6 +38,10 @@ def repo(tmp_path):
     return r
 
 
+def approval(login, commit="abc123", state="APPROVED"):
+    return {"state": state, "user": {"login": login}, "commit_id": commit}
+
+
 class FakeGitHubAPI:
     """Stateful mock: records calls, scripted check progression."""
 
@@ -45,8 +49,10 @@ class FakeGitHubAPI:
         self.calls: list[tuple[str, str]] = []
         self.checks_script = list(checks_script)
         self.author = author
-        self.reviews = ([{"state": "APPROVED", "user": {"login": "reviewer-two"}}]
-                        if reviews is None else reviews)
+        self.reviews = [approval("reviewer-two")] if reviews is None else reviews
+        self.permissions = {"reviewer-two": "write", "read-only": "read"}
+        self.head_sha = "abc123"
+        self.next_head = None
         self.bodies: list[dict] = []
         self.pr_merged = False
 
@@ -64,10 +70,15 @@ class FakeGitHubAPI:
                 "head": {"sha": "abc123"}})
         if req.url.path.endswith("/pulls/9") and req.method == "GET":
             return httpx.Response(200, json={"merged": self.pr_merged, "state": "open",
-                                             "head": {"sha": "abc123"},
+                                             "head": {"sha": self.head_sha},
                                              "user": {"login": self.author}})
         if req.url.path.endswith("/reviews") and req.method == "GET":
-            return httpx.Response(200, json=self.reviews)
+            start = (int(req.url.params["page"]) - 1) * 100
+            return httpx.Response(200, json=self.reviews[start:start + 100])
+        if req.url.path.endswith("/permission") and req.method == "GET":
+            permission = self.permissions.get(req.url.path.split("/")[-2])
+            if permission is not None:
+                return httpx.Response(200, json={"permission": permission})
         if req.url.path.endswith("/check-runs"):
             verdict = self.checks_script[min(len([c for c in self.calls if c[1].endswith("/check-runs")]) - 1,
                                            len(self.checks_script) - 1)]
@@ -75,7 +86,12 @@ class FakeGitHubAPI:
                 return httpx.Response(200, json={"check_runs": [{"name": "ci", "status": "in_progress"}]})
             return httpx.Response(200, json={"check_runs": [
                 {"name": "ci", "status": "completed", "conclusion": verdict}]})
-        if req.url.path.endswith("/merge"):
+        if req.url.path.endswith("/merge") and req.method == "PUT":
+            if self.next_head:
+                self.head_sha = self.next_head
+                self.next_head = None
+            if body.get("sha") not in (None, self.head_sha):
+                return httpx.Response(409, json={"message": "Head changed"})
             self.pr_merged = True
             return httpx.Response(200, json={"merged": True})
         if req.url.path == "/graphql":
@@ -135,7 +151,10 @@ def test_pr_lifecycle_merges_when_green():
     pr = gh.create_pr("T", "B", head="auto/x")
     assert pr.number == 9 and pr.head_sha == "abc123"
     assert gh.wait_and_merge(pr, timeout_s=30, interval_s=0) == "merged"
-    assert any("graphql" in p for _, p in api.calls)  # auto-merge attempted first
+    assert ("POST", "/graphql") not in api.calls
+    merge = api.calls.index(("PUT", "/repos/o/n/pulls/9/merge"))
+    assert api.bodies[merge] == {"merge_method": "squash", "sha": "abc123"}
+    assert api.calls.index(("GET", "/repos/o/n/collaborators/reviewer-two/permission")) < merge
     gh.delete_branch("auto/x")
     assert ("DELETE", "/repos/o/n/git/refs/heads/auto/x") in api.calls
 
@@ -148,23 +167,44 @@ def test_wait_and_merge_rejects_red_checks():
         gh.wait_and_merge(pr, timeout_s=30, interval_s=0)
 
 
-def test_self_approval_does_not_merge():
-    api = FakeGitHubAPI(reviews=[{"state": "APPROVED",
-                                  "user": {"login": "canary-bot"}}])
+@pytest.mark.parametrize("reviews", [
+    [],
+    [approval("CANARY-BOT")],
+    [approval("read-only")],
+    [approval("outsider")],
+    [approval("reviewer-two", commit="old-head")],
+    [approval("reviewer-two"), approval("reviewer-two", state="DISMISSED")],
+    [approval("reviewer-two"), approval("reviewer-two", state="CHANGES_REQUESTED")],
+])
+def test_unqualified_approval_cannot_merge(reviews):
+    api = FakeGitHubAPI(reviews=reviews)
+    api.permissions["CANARY-BOT"] = "admin"
     gh = api.client()
     pr = gh.create_pr("T", "B", head="auto/x")
     with pytest.raises(RuntimeError, match="no independent approval"):
-        gh.wait_and_merge(pr, timeout_s=0.2, interval_s=0)
-    assert ("POST", "/repos/o/n/pulls/9/merge") not in api.calls
+        gh.wait_and_merge(pr, timeout_s=0.05, interval_s=0.005)
+    assert ("PUT", "/repos/o/n/pulls/9/merge") not in api.calls
+    assert ("POST", "/graphql") not in api.calls
 
 
-def test_missing_approval_waits_then_reports_gap():
-    api = FakeGitHubAPI(reviews=[])
+def test_head_change_during_merge_requires_new_approval():
+    api = FakeGitHubAPI()
+    api.next_head = "def456"
     gh = api.client()
     pr = gh.create_pr("T", "B", head="auto/x")
     with pytest.raises(RuntimeError, match="no independent approval"):
-        gh.wait_and_merge(pr, timeout_s=0.2, interval_s=0)
-    assert ("POST", "/repos/o/n/pulls/9/merge") not in api.calls
+        gh.wait_and_merge(pr, timeout_s=0.05, interval_s=0.005)
+    assert api.calls.count(("PUT", "/repos/o/n/pulls/9/merge")) == 1
+    assert not api.pr_merged
+
+
+def test_review_pagination_and_outsiders():
+    first_page = [approval("outsider")] + [approval("reviewer-two", state="COMMENTED")] * 99
+    api = FakeGitHubAPI(reviews=first_page + [approval("reviewer-two")])
+    gh = api.client()
+    assert gh.independently_approved(9, "canary-bot")
+    api.reviews.append(approval("reviewer-two", state="CHANGES_REQUESTED"))
+    assert not gh.independently_approved(9, "canary-bot")
 
 
 def test_independently_approved_shapes():
@@ -191,6 +231,8 @@ def test_enable_automerge_never_raises():
 
 def test_merge_not_yet_mergeable_returns_false():
     def handler(req: httpx.Request) -> httpx.Response:
+        assert req.method == "PUT"
+        assert json.loads(req.content) == {"merge_method": "squash"}
         return httpx.Response(405, json={})
 
     gh = ghmod.GitHub("t", "o/n", client=httpx.Client(base_url=ghmod.API, transport=httpx.MockTransport(handler)))
