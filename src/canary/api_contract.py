@@ -276,6 +276,14 @@ def schemas():
             'reason':S,'public_timeout_seen':B,'reference':ref('AgentReference')},['work_id','status'],closed=False))},
             ['attempted','sources_available','receipts']),
         'ReviewDecision':review_decisions.schema(),
+        'ReviewEntry':obj({'id':S,'previous':S,'request_id':S,'replaces':nullable(S),'recorded_at':S,'decision':ref('ReviewDecision')},
+                          ['id','previous','replaces','recorded_at','decision']),
+        'ReviewEdition':obj({'version':I,'bundle_id':S,'base_sha256':nullable(S),'last_entry':S,
+                             'entries':arr(ref('ReviewEntry'))}, ['version','bundle_id','base_sha256','last_entry','entries']),
+        'ReviewReceipt':obj({'last_entry':S}, ['last_entry']),
+        'ReviewDecisionRequest':obj({'decision':ref('ReviewDecision'),'replaces':nullable(S),
+            'request_id':{'type':'string','minLength':1,'maxLength':128,'not':{'pattern':r'\s'}},'expected_last_entry':dict(S,minLength=1)},
+            ['decision','request_id','expected_last_entry']),
         'ReadSourceRequest':obj({'reference_id':S,'match':nullable(S),'page':nullable(dict(I,minimum=1)),
                                  'context':dict(I,minimum=0,default=2),'limit':dict(I,minimum=1,default=8)},['reference_id']),
         'FinalizeRequest':obj({'investigation':ref('GeneratedInvestigation')})}
@@ -331,6 +339,14 @@ def document():
     op('revision','get','/api/runs/{key}/revisions/{round}/{kind}','Read a hash-checked original research, audit or correction record after source cleanup','RevisionArtifact',
         params=[key,('round','path',dict(I,minimum=0),True),('kind','path',{'enum':['research','audit','correction']},True)],mcp=True)
     op('bundle','get','/api/runs/{key}/bundle','Read bundle settings, artifact hashes and findings','BundleResponse',params=[key],mcp=True)
+    decisions = '/api/runs/{key}/review-decisions'
+    op('review_edition','get',decisions,'Read the latest or a named review edition','ReviewEdition',
+       params=[key,('last_entry','query',S,False)],mcp=True)
+    op('record_review_decision','post',decisions,'Record or correct a review decision','ReviewReceipt',
+       params=[key],body='ReviewDecisionRequest',mcp=True)
+    result['paths'][decisions]['post']['responses']['409'] = {
+        'description':'The edition, correction or request ID conflicts with a saved decision',
+        'content':{'application/json':{'schema':ref('Error')}}}
     op('archive','get','/api/runs/{key}/bundle/archive','Download a finished bundle with exact saved materials',params=[key],media='application/zip')
     op('artifact','get','/api/runs/{key}/bundle/artifacts/{artifact_path}','Download one hash-checked inventoried artifact',params=[key,('artifact_path','path',S,True)],media='application/octet-stream')
     op('export','get','/api/runs/{key}/exports/{connector}',

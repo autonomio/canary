@@ -45,7 +45,7 @@ function openQuestions({ mobile = false, storage = new Map() } = {}) {
   const handlers = new Map(), browser = new Map(), requests = [];
   const location = { hash: "", href: "http://localhost/" };
   vm.runInNewContext(source, {
-    URL,
+    URL, Option: class { constructor(label, value) { this.label = label; this.value = value; } },
     document: {
       body: element(),
       documentElement: element(),
@@ -309,4 +309,40 @@ test("YAML import fills the same draft controls without submitting a run", async
   assert.equal(elements.get("f-target").value, 40);
   assert.equal(elements.get("f-corrections").value, 1);
   assert.equal(requests.length, 0);
+});
+
+test("review decisions show their evidence and download the selected edition", async () => {
+  const { elements, respond, click, route, requests } = openQuestions();
+  await respond(200, { runs });
+  click({ open: "lake" });
+  route();
+  while (requests.length) {
+    const path = requests[0].path;
+    await respond(200, path.endsWith("/bundle") ? {bundle: {state:"running"}, research: {kind:"question"}} : {}, path);
+  }
+  const dialog = elements.get("review-dialog"), select = elements.get("review-edition");
+  dialog.showModal = () => { dialog.open = true; };
+  select.replaceChildren = () => {};
+  elements.get("review-entries").replaceChildren = () => {};
+  click({ action: "review-decisions" });
+  const endpoint = "/api/runs/lake/review-decisions";
+  const record = {id:"one", recorded_at:"2026-01-01", decision:{subject:"Report A", judgement:"include",
+    status:"accepted", reason:"Methods meet criteria", evidence:["Methods <2>"],
+    proposed_by:null, decided_by:{kind:"person",name:"S. Lee",role:"screener"}, checked_by:null}};
+  await respond(200, {last_entry:"one",entries:[record]}, endpoint);
+  assert.match(elements.get("review-entries").innerHTML, /Methods &lt;2&gt;/);
+  assert.match(elements.get("review-entries").innerHTML, /S. Lee · screener \(self-declared\)/);
+  assert.equal(elements.get("review-download").href, endpoint + "?last_entry=one");
+  select.value = "initial";
+  select.listeners.get("change")();
+  await respond(200, {last_entry:"initial",entries:[]}, endpoint + "?last_entry=initial");
+  assert.match(elements.get("review-entries").innerHTML, /No decisions/);
+  const input = elements.get("review-input");
+  const request = {request_id:"correct", expected_last_entry:"one", decision:record.decision, replaces:"one"};
+  input.files = [{text: async () => JSON.stringify(request)}];
+  input.listeners.get("change")();
+  await new Promise(setImmediate);
+  const sent = await respond(409, {error:"Another edition was saved"}, endpoint, "POST");
+  assert.deepEqual(sent, request);
+  assert.equal(elements.get("review-status").textContent, "Another edition was saved");
 });

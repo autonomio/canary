@@ -59,6 +59,59 @@ records. The service requires an explicit `CANARY_LOCAL_TEXT_ROOTS` allowlist.
 See [local input, provenance and retrieval limits](LOCAL_TEXT.md). The live
 OpenAPI declaration and MCP submission schema publish these fields.
 
+## Review decisions
+
+To see why a paper was excluded, open **Research bundle → Review decisions**.
+Each entry gives the reason and cites the evidence. It shows who proposed,
+made or checked the decision and whether a person or software did the work.
+Reviewers supply their own names and roles.
+
+Each new decision or correction creates an edition. Choose an earlier edition
+to see what the record said at the time. You can download any edition as JSON.
+
+| Action | Command |
+| --- | --- |
+| Read the latest edition | `canary decisions RUN_KEY` |
+| Read an earlier edition | `canary decisions RUN_KEY --edition ENTRY_ID` |
+| Submit a decision or correction | `canary decisions RUN_KEY --submit FILE` |
+
+The dashboard accepts the same JSON file. In this example, a review requires
+a measure of tensile strength. Report 17 measures stiffness alone, so the
+reviewer excludes it.
+
+```json
+{
+  "request_id": "screen-report-17",
+  "expected_last_entry": "initial",
+  "replaces": null,
+  "decision": {
+    "subject": "Report 17",
+    "judgement": "exclude",
+    "status": "accepted",
+    "reason": "The review requires tensile strength. This paper reports stiffness alone.",
+    "evidence": ["Report 17, Methods, paragraph 2"],
+    "proposed_by": null,
+    "decided_by": {"kind": "person", "name": "A. Lee", "role": "screener", "identity": "self_declared"},
+    "checked_by": null
+  }
+}
+```
+
+Canary returns the new entry’s ID in `last_entry`. Pass that value to
+`--edition` to reopen the edition. If you lose the response, send the same
+request again to recover the ID.
+
+For each new request, choose a new `request_id` and copy the latest edition’s
+`last_entry` into `expected_last_entry`. To correct an earlier decision, put
+that decision’s ID in `replaces`. The original stays on record. If Canary
+returns HTTP 409, read the latest edition and check your request against it.
+
+Both HTTP actions use `/api/runs/{key}/review-decisions`. GET reads the latest
+edition, or an earlier one if you pass `last_entry`. POST accepts the JSON
+shown above. The corresponding MCP tools are `canary_review_edition` and
+`canary_record_review_decision`. For the original research and audit rounds,
+use `GET /api/runs/{key}/revisions/{round}/{kind}`.
+
 ## Findings and exact source reconstruction
 
 `research.answer` is the researcher-facing graph. Follow these IDs:

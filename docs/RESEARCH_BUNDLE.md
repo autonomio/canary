@@ -50,8 +50,9 @@ New API-owned research uses a temporary working directory. On completion the
 worker commits and verifies `resolvent.json`, then releases papers, complete
 extracted texts, intermediate records and scientific console/event files. The
 service also releases that request's staging input, launcher log and tool files.
-The retained output is one standalone Resolvent-compatible JSON contribution and
-a SHA-256 sidecar. Registry rows retain small operational summaries for polling
+Canary keeps the Resolvent contribution and its SHA-256 checksum. If the run
+has review decisions, Canary also keeps their history in a separate file.
+Registry rows retain small operational summaries for polling
 and the log; native Codex account/session storage remains vendor-managed.
 
 New contributions remove duplicate Canary values with `method_metadata.canary_encoding`
@@ -116,6 +117,15 @@ cannot be reconstructed from the compact bundle alone; open the original source
 URL for broader context. The context API returns `scope: excerpts`,
 `text_complete: false`, and no local original URL. It does not present retained
 quotes as a complete paper or reverify their offsets against absent full text.
+
+Canary writes each review decision to `review-decisions.sqlite3`. When it clears
+the working files, it records the checksum of the stored `resolvent.json` in the
+decision history. Later corrections point back to the entries they amend. The
+bundle ID and the last entry ID together identify an edition.
+
+The Canary archive includes the database and a copy you can read as JSON
+(`review-decisions.json`). You can download the history even when the research
+exceeds Resolvent’s 10 MiB export limit. [How to read or correct a decision](API.md#review-decisions).
 
 The retained bundle is checked before any working files are released. A failed
 commit/export preserves the workspace. Only newly reserved API workers enter this

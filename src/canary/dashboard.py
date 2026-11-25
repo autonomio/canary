@@ -1431,6 +1431,33 @@ class Handler(BaseHTTPRequestHandler):
             if path: path.unlink(missing_ok=True)
             self._send(400, {'error':str(error),'code':'invalid_input'})
 
+    def _review_decisions(self, path, *, edition=None, body=None):
+        from . import review_history
+        row = runs.get(unquote(path.split('/')[3]), self.supervisor.registry)
+        if not row or not row.get('bundle') or not Path(row['bundle']).is_dir():
+            self._send(404, {'error': 'Unknown research bundle'})
+            return
+        if body is not None:
+            fields = {'request_id', 'expected_last_entry', 'decision'}
+            if not fields <= body.keys() or body.keys() - fields - {'replaces'}:
+                raise ValueError('Expected a request ID, last entry and recorded decision')
+            try:
+                last_entry = review_history.append(row['bundle'], **body)
+            except review_history.ReviewConflict as error:
+                self._send(409, {'error': str(error), 'code': 'review_conflict'})
+                return
+            except OSError:
+                self._send(500, {'error': 'Could not save the review decision'})
+                return
+            self._send(200, {'last_entry': last_entry})
+            return
+        try:
+            record = review_history.edition(row['bundle'], edition)
+        except KeyError:
+            self._send(404, {'error': 'Unknown review edition'})
+            return
+        self._send(200, record, headers={'Cache-Control': 'no-store'})
+
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
@@ -1485,6 +1512,8 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             self._send(200, content, kind,
                                        {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
+            elif re.fullmatch(r"/api/runs/[^/]+/review-decisions", parsed.path):
+                self._review_decisions(parsed.path, edition=query.get('last_entry', [None])[0])
             elif re.fullmatch(r"/api/runs/[^/]+/revisions/[0-9]+/(research|audit|correction)", parsed.path):
                 parts = parsed.path.split('/')
                 row = runs.get(unquote(parts[3]), self.supervisor.registry)
@@ -1603,6 +1632,8 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path == '/api/sources/openalex/search':
                 from .keyword_search import search
                 self._send(200, search(self.supervisor.root, body), headers={'Cache-Control': 'no-store'})
+            elif re.fullmatch(r'/api/runs/[^/]+/review-decisions', parsed.path):
+                self._review_decisions(parsed.path, body=body)
             elif parsed.path == '/api/runs/import':
                 if set(body) - {'server_path','name','brief'} or not isinstance(body.get('server_path'), str):
                     raise ValueError('Expected a server-side bundle path')

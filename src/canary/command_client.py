@@ -25,6 +25,13 @@ def run(args, port):
                                 json={'query': args.query, 'limit': args.limit})
             elif args.cmd == 'sources':
                 value = request(client, 'POST', '/api/sources/openalex/recheck', json={})
+            elif args.cmd == 'decisions':
+                path = '/api/runs/' + quote(args.key, safe='') + '/review-decisions'
+                if args.submit:
+                    body = json.loads(Path(args.submit).read_text(encoding='utf-8'))
+                    value = request(client, 'POST', path, json=body)
+                else:
+                    value = request(client, 'GET', path, params={'last_entry':args.edition} if args.edition else None)
             elif args.cmd == 'ask':
                 if args.out != './out/question':
                     raise ValueError('--out is replaced by API-owned storage; retrieve the returned run with canary bundle RUN_KEY')
