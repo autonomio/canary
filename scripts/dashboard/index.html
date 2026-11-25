@@ -3609,16 +3609,19 @@
       function reviewEntries(entries) {
         if (!entries.length) return "<p>No decisions in this edition.</p>";
         const subjects = new Map();
+        const replacements = new Map(entries.filter(entry => entry.replaces).map(entry => [entry.replaces, entry.id]));
         return entries.map(({id, subject_id, recorded_at, replaces, decision: d}) => {
           const subject = subject_id || d.subject_id || subjects.get(replaces) || id;
           subjects.set(id, subject);
+          const replacement = replacements.get(id);
           return `<details>
-          <summary>${esc(d.subject)} · ${esc(d.judgement)} (${esc(d.status)})</summary>
+          <summary>${replacement ? "Replaced · " : ""}${esc(d.subject)} · ${esc(d.judgement)} (${esc(d.status)})</summary>
           <p>${esc(d.reason)}</p><ul>${d.evidence.map(item => `<li>${esc(item)}</li>`).join("")}</ul>
           <dl><dt>Proposed by</dt><dd>${esc(reviewActor(d.proposed_by))}</dd>
           <dt>Decided by</dt><dd>${esc(reviewActor(d.decided_by))}</dd><dt>Checked by</dt><dd>${esc(reviewActor(d.checked_by))}</dd>
           <dt>Subject ID</dt><dd><code>${esc(subject)}</code></dd>
           <dt>Recorded</dt><dd>${esc(recorded_at)}</dd><dt>Entry</dt><dd><code>${esc(id)}</code></dd>
+          ${replacement ? `<dt>Replaced by</dt><dd><code>${esc(replacement)}</code></dd>` : ""}
           ${replaces ? `<dt>Corrects</dt><dd><code>${esc(replaces)}</code></dd>` : ""}</dl></details>`;
         }).join("");
       }
