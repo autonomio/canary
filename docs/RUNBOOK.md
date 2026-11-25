@@ -146,6 +146,30 @@ Never import an export that fails either step.
   `canary publish`; workers refuse to hold it (`verify_token_scope.sh`
   proves repo-only scope).
 
+### Maintenance PR review
+
+The maintainer publisher opens an `auto/revise-*` PR against `main` and waits
+for completed checks and a current-commit approval from a different GitHub
+account with repository write access. It submits the reviewed commit SHA with
+the squash request. If review is missing, the issue and journal record the
+reason and the PR stays open. The publisher uses its existing token and
+GitHub's repository permissions for reviewer eligibility.
+
+On `autonomio/canary`, classic branch protection on `main` also requires one
+approval, dismisses stale approvals, and requires up-to-date checks, including
+for admins. The separate PR-only ruleset applies to the target branch.
+Verify both controls with read-only requests:
+
+```sh
+gh api repos/autonomio/canary/branches/main/protection
+gh api repos/autonomio/canary/rules/branches/main
+```
+
+The publisher gate applies to Canary's maintenance merge request. A GitHub
+merge initiated separately follows the destination repository's own protections.
+A repository write role establishes review eligibility. Independent control of
+those accounts remains the repository owner's responsibility.
+
 ## 11. Data-exposure policy
 
 - Initial checks use only public or synthetic data.
