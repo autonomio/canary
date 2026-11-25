@@ -63,12 +63,13 @@ def manifest(workspace):
 
 def projection(workspace):
     from .coverage_export import render_markdown
+    from .coverage_protocol import published_question_plan
     contribution = read(workspace, expanded=True)
     saved = contribution['method_metadata']['canary_view']
     raw = payload(contribution)
     graph, run = saved['answer'], saved['run']
     report = render_markdown(graph)
-    return dict(saved, kind='question', query_net=raw.get('question_plan', {}),
+    return dict(saved, kind='question', query_net=published_question_plan(raw.get('question_plan', {})),
         coverage=graph.get('coverage', {}),
         paper_selection={'selection': raw.get('selection', {}), 'reviewed_papers': raw.get('reviewed_papers', [])},
         access={'accepted': [], 'excluded': [], 'scope_note': LIMITATION},

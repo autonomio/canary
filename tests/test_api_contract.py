@@ -1,10 +1,12 @@
 """Verify the live contract and a real stdio MCP relay, with synthetic science."""
 import asyncio
+import io
 import json
 from pathlib import Path
 import sys
 import subprocess
 import threading
+import zipfile
 
 import httpx
 import pytest
@@ -12,8 +14,10 @@ from jsonschema import Draft202012Validator
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from canary import api_client, api_contract, bundle_encoding, cli, coverage_export, dashboard, keyword_search, research_bundle, runs
+from canary import (api_client, api_contract, bundle_encoding, cli, compact_bundle, coverage_export,
+                    coverage_protocol, coverage_runtime, dashboard, keyword_search, research_bundle, runs)
 from canary.mcp_server import tool_catalog
+from test_coverage_evidence_ui import run_dashboard
 from test_research_bundle import seed
 
 
@@ -124,6 +128,87 @@ def test_live_openapi_cli_and_responses_share_the_contract(api,capsys):
         response=client.get(path.replace('{key}','synthetic'))
         assert response.status_code==200,response.text
         validate_response(contract,path,'get',200,response.json())
+
+
+@pytest.mark.parametrize('legacy', [True, False], ids=['legacy', 'new'])
+def test_published_eligibility_stays_separate_from_screening(api, capsys, legacy):
+    server, client, root = api
+    question = 'Synthetic protocol?'
+    assert client.post('/api/runs', json={'spec': {'question': question}}).status_code == 201
+    workspace = root / 'synthetic'
+    criteria = {'core': 'Measured timings. Theses and technical publications may qualify.',
+                'supporting': 'Methods studies may qualify; measurements are optional.',
+                'exclusion': 'Unrelated publications.',
+                'full_paper_checks': ['Verify the reported endpoint.']}
+    instruction = 'Label publication type and overlap.'
+    plan = {'question': question, 'concepts': [{'name': 'activation timing', 'synonyms': [],
+                                              'search_role': 'outcome'}],
+            'outcomes': [], 'comparators': [], 'conditions': [], 'coverage_aspects': [],
+            'queries': [{'id': 'Q1', 'search': 'activation timing', 'coverage_aspect_ids': [],
+                         'purpose': '', 'collapse_reason': ''}], 'scope_note': '',
+            'eligibility': criteria.copy()}
+    if legacy:
+        plan['eligibility']['core'] = criteria['core'].removesuffix('.') + '; label publication type and overlap.'
+    else:
+        plan['screening_instructions'] = [instruction, 'Record <unknown> when overlap cannot be established.']
+    expected = dict(plan, eligibility=criteria,
+                    screening_instructions=plan.get('screening_instructions', [instruction]))
+    contract = client.get('/openapi.json').json()
+    Draft202012Validator(contract['components']['schemas']['QuestionPlan']).validate(plan)
+    assert coverage_runtime.validate_plan(plan) == plan
+    if not legacy:
+        Draft202012Validator(coverage_protocol.question_plan_schema()).validate(plan)
+        with pytest.raises(ValueError, match='array of strings'):
+            coverage_runtime.validate_plan(dict(plan, screening_instructions=instruction))
+    raw_plan = workspace / 'question-plan.json'
+    research_bundle.write_json(raw_plan, plan)
+    original = raw_plan.read_bytes()
+    payload_file = workspace / 'payload.json'
+    payload = json.loads(payload_file.read_text())
+    research_bundle.write_json(payload_file, dict(payload, question_plan=plan))
+    result_path = '/api/runs/synthetic/bundle'
+    query_net = workspace / 'query-net.json'
+    if legacy:
+        # Simulate a previously exported bundle before any re-export.
+        research_bundle.write_json(query_net, plan)
+        research_bundle.seal(workspace)
+        assert client.get(result_path).raise_for_status().json()['research']['query_net'] == expected
+        assert json.loads(query_net.read_text()) == plan
+    coverage_export.export_bundle(workspace)
+    research_bundle.seal(workspace)
+    result = client.get(result_path).raise_for_status().json()
+    validate_response(contract, '/api/runs/{key}/bundle', 'get', 200, result)
+    assert result['research']['query_net'] == expected == json.loads(query_net.read_text())
+    assert raw_plan.read_bytes() == original
+    archive = client.get(result_path + '/archive').raise_for_status()
+    with zipfile.ZipFile(io.BytesIO(archive.content)) as saved:
+        assert saved.read('question-plan.json') == original
+        assert json.loads(saved.read('query-net.json')) == expected
+    assert cli.main(['bundle', 'synthetic', '--port', str(server.server_port)]) == 0
+    assert json.loads(capsys.readouterr().out)['research']['query_net'] == expected
+
+    contribution_path = '/api/runs/synthetic/exports/resolvent'
+    contribution = client.get(contribution_path).raise_for_status().json()
+    assert compact_bundle.payload(contribution)['question_plan'] == plan
+    (workspace / '.run-reservation').touch()
+    compact_bundle.retain(workspace)
+    retained = client.get(result_path).raise_for_status().json()
+    validate_response(contract, '/api/runs/{key}/bundle', 'get', 200, retained)
+    assert retained['research']['query_net'] == expected
+    retained_export = client.get(contribution_path).raise_for_status().json()
+    assert compact_bundle.payload(retained_export)['question_plan'] == plan
+    run_dashboard(root, result['research'], r"""
+const html=coverageSelectionHtml(graph);
+const criteria=html.match(/<summary>Selection criteria and coverage<\/summary>(.*?)<\/details>/s)[1];
+assert.match(criteria,/Theses and technical publications may qualify\./);
+assert.match(criteria,/Methods studies may qualify; measurements are optional\./);
+assert.doesNotMatch(criteria,/publication type and overlap|Verify the reported endpoint/i);
+assert.match(html,/<summary>Screening instructions<\/summary><ul><li>Label publication type and overlap\.<\/li>/);
+assert.match(html,/<summary>Full-paper checks<\/summary><ul><li>Verify the reported endpoint\.<\/li>/);
+if(graph.query_net.screening_instructions.length>1) assert.match(html,/Record &lt;unknown&gt;/);
+const unannotated=coverageSelectionHtml({query_net:{eligibility:{core:'Measured timings.'}}});
+assert.doesNotMatch(unannotated,/Screening instructions|Full-paper checks/);
+""")
 
 
 def test_mcp_lists_live_schemas_and_navigates_claim_to_original_over_api(api):

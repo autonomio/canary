@@ -385,7 +385,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         investigation = payload  # Final supported claims; original investigation is immutable history.
     selection = _load(research / "selection.json", payload.get("selection", {}))
     selection = selection if isinstance(selection, dict) else {}
-    from .coverage_protocol import restore_review_reason
+    from .coverage_protocol import published_question_plan, restore_review_reason
     reviewed = [restore_review_reason(row) for row in
                 _rows(_load(research / "reviewed-papers.json", payload.get("reviewed_papers", [])))]
     plan = _load(bundle / "question-plan.json", _load(source / "question-plan.json", payload.get("question_plan", {})))
@@ -946,7 +946,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
     _save_markdown(bundle / "answer.md", graph)
     _save(bundle / "answer.json", graph)
     _save(bundle / "access.json", access)
-    _save(bundle / "query-net.json", plan)
+    _save(bundle / "query-net.json", published_question_plan(plan))
     _save(bundle / "coverage.json", coverage)
     _save(bundle / "paper-selection.json", {"selection": selection, "reviewed_papers": reviewed})
     _save(bundle / "peer-review.json", {"audit": audit_case, "scope_note": audit.get("scope_note", ""), "raw_audit": audit})
