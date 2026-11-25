@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import fcntl
 import json
 import os
+import re
 from pathlib import Path
 import sqlite3
 
@@ -13,6 +14,10 @@ from .research_spec import digest
 NAME = 'review-decisions.sqlite3'
 INITIAL = 'initial'
 VERSION = 1
+
+
+class ReviewConflict(ValueError):
+    pass
 
 
 @contextmanager
@@ -88,8 +93,14 @@ def edition(workspace, last_entry=None):
             return _edition(db, bundle_id, checksum, last_entry)
 
 
-def append(workspace, decision, *, replaces=None):
+def append(workspace, decision, *, request_id, expected_last_entry, replaces=None):
     review_decisions.validate(decision)
+    if not isinstance(request_id, str) or not re.fullmatch(r'\S{1,128}', request_id):
+        raise ValueError('Expected a request ID of 1 to 128 non-whitespace characters')
+    if not isinstance(expected_last_entry, str) or not expected_last_entry:
+        raise ValueError('Expected the last entry of the edition being amended')
+    if replaces is not None and not isinstance(replaces, str):
+        raise ValueError('Expected an entry ID to replace')
     if decision['status'] == 'modified' and replaces is None:
         raise ValueError('A modified decision must name the entry it replaces')
     workspace = Path(workspace).resolve()
@@ -108,9 +119,25 @@ def append(workspace, decision, *, replaces=None):
                     db.execute('CREATE TABLE entries(id TEXT PRIMARY KEY, body TEXT NOT NULL)')
                     db.execute('INSERT INTO history VALUES (?, ?, ?, ?)', (VERSION, bundle_id, checksum, INITIAL))
                 previous = _header(db, bundle_id, checksum)
+                db.execute("CREATE UNIQUE INDEX IF NOT EXISTS review_requests ON entries(json_extract(body, '$.request_id'))")
+                db.execute("CREATE INDEX IF NOT EXISTS review_replaces ON entries(json_extract(body, '$.replaces'))")
+                saved = db.execute("SELECT id, body FROM entries WHERE json_extract(body, '$.request_id') = ?",
+                                   (request_id,)).fetchone()
+                if saved:
+                    entry = json.loads(saved[1])
+                    if digest([bundle_id, entry]) != saved[0]:
+                        raise ValueError('Review decision changed since it was recorded')
+                    if (entry['decision'], entry['replaces'], entry['previous']) != (decision, replaces, expected_last_entry):
+                        raise ReviewConflict('This request ID already belongs to a different submission')
+                    return saved[0]
+                if expected_last_entry != previous:
+                    raise ReviewConflict('A newer review edition exists. Read it before submitting this decision.')
+                if replaces and db.execute("SELECT 1 FROM entries WHERE json_extract(body, '$.replaces') = ?",
+                                           (replaces,)).fetchone():
+                    raise ReviewConflict('This decision has already been corrected')
                 if replaces is not None and not db.execute('SELECT 1 FROM entries WHERE id = ?', (replaces,)).fetchone():
                     raise ValueError('Unknown review decision to replace')
-                entry = dict(previous=previous, replaces=replaces, recorded_at=datetime.now(timezone.utc).isoformat(),
+                entry = dict(previous=previous, request_id=request_id, replaces=replaces, recorded_at=datetime.now(timezone.utc).isoformat(),
                              decision=decision)
                 identifier = digest([bundle_id, entry])
                 db.execute('INSERT INTO entries VALUES (?, ?)', (identifier, json.dumps(entry, ensure_ascii=False)))

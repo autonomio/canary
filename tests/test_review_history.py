@@ -2,6 +2,7 @@ import io
 import json
 import sqlite3
 import zipfile
+import uuid
 
 import pytest
 
@@ -19,15 +20,20 @@ def decision(reason='Included', **changes):
                  'decided_by': SOFTWARE, 'checked_by': None}, **changes)
 
 
+def record(workspace, value, **options):
+    head = review_history.edition(workspace)['last_entry']
+    return review_history.append(workspace, value, request_id=uuid.uuid4().hex, expected_last_entry=head, **options)
+
+
 def test_review_editions_survive_sealing_correction_and_download(tmp_path):
     prepared(tmp_path)
-    first = review_history.append(tmp_path, decision('Wrong population'))
-    second = review_history.append(tmp_path, decision('Eligible outcome'))
+    first = record(tmp_path, decision('Wrong population'))
+    second = record(tmp_path, decision('Eligible outcome'))
     before = review_history.edition(tmp_path, first)
     assert before['base_sha256'] is None
     assert review_history.NAME not in {r['path'] for r in research_bundle.seal(tmp_path)['artifacts']}
     compact_bundle.retain(tmp_path)
-    third = review_history.append(tmp_path, decision('Population confirmed'), replaces=first)
+    third = record(tmp_path, decision('Population confirmed'), replaces=first)
     old = review_history.edition(tmp_path, first)
     assert old['entries'] == before['entries']
     assert old['bundle_id'] == before['bundle_id']
@@ -46,18 +52,18 @@ def test_review_editions_survive_sealing_correction_and_download(tmp_path):
 def test_failed_first_correction_and_old_bundles(tmp_path):
     prepared(tmp_path)
     with pytest.raises(ValueError, match='Unknown review decision'):
-        review_history.append(tmp_path, decision(), replaces='missing')
+        record(tmp_path, decision(), replaces='missing')
     assert not (tmp_path / review_history.NAME).exists()
     compact_bundle.retain(tmp_path)
     assert review_history.edition(tmp_path)['entries'] == []
     assert not (tmp_path / review_history.NAME).exists()
-    first = review_history.append(tmp_path, decision('Included'))
+    first = record(tmp_path, decision('Included'))
     assert review_history.edition(tmp_path, first)['last_entry'] == first
 
 
 def test_compaction_refuses_a_changed_review_and_keeps_sources(tmp_path):
     prepared(tmp_path)
-    review_history.append(tmp_path, decision('Included'))
+    record(tmp_path, decision('Included'))
     with sqlite3.connect(tmp_path / review_history.NAME) as db:
         db.execute("UPDATE entries SET body = replace(body, 'Included', 'Excluded')")
     with pytest.raises(ValueError, match='changed since'):
@@ -68,7 +74,7 @@ def test_compaction_refuses_a_changed_review_and_keeps_sources(tmp_path):
 
 def test_cleanup_retry_keeps_the_original_decision_and_its_base(tmp_path, monkeypatch):
     prepared(tmp_path)
-    entry = review_history.append(tmp_path, decision('Included'))
+    entry = record(tmp_path, decision('Included'))
     release = compact_bundle._release
 
     def interrupt(workspace):
@@ -87,7 +93,7 @@ def test_cleanup_retry_keeps_the_original_decision_and_its_base(tmp_path, monkey
 
 def test_retry_binds_decisions_if_publication_was_interrupted(tmp_path, monkeypatch):
     prepared(tmp_path)
-    first = review_history.append(tmp_path, decision('Included'))
+    first = record(tmp_path, decision('Included'))
     bind = review_history.bind
 
     def interrupt(*args):
@@ -107,14 +113,14 @@ def test_retry_binds_decisions_if_publication_was_interrupted(tmp_path, monkeypa
 def test_recorded_participants_and_evidence_survive_compaction(tmp_path):
     prepared(tmp_path)
     proposal = decision('Review eligibility', status='proposed', proposed_by=SOFTWARE, decided_by=None)
-    original = review_history.append(tmp_path, proposal)
+    original = record(tmp_path, proposal)
     checked = decision('Methods confirm eligibility', status='modified', proposed_by=SOFTWARE,
                        decided_by=PERSON, checked_by=PERSON)
-    review_history.append(tmp_path, checked, replaces=original)
+    record(tmp_path, checked, replaces=original)
     direct = decision(decided_by=PERSON)
-    review_history.append(tmp_path, direct)
+    record(tmp_path, direct)
     automated = decision()
-    review_history.append(tmp_path, automated)
+    record(tmp_path, automated)
     compact_bundle.retain(tmp_path)
     assert [entry['decision'] for entry in review_history.edition(tmp_path)['entries']] == [
         proposal, checked, direct, automated]
@@ -129,13 +135,13 @@ def test_recorded_participants_and_evidence_survive_compaction(tmp_path):
 def test_invalid_decisions_leave_no_review_file(tmp_path, changes):
     prepared(tmp_path)
     with pytest.raises(ValueError, match='Invalid review decision'):
-        review_history.append(tmp_path, decision(**changes))
+        record(tmp_path, decision(**changes))
     assert not (tmp_path / review_history.NAME).exists()
 
 def test_modified_decision_identifies_the_record_it_replaces(tmp_path):
     prepared(tmp_path)
     with pytest.raises(ValueError, match='must name the entry'):
-        review_history.append(tmp_path, decision(status='modified'))
+        record(tmp_path, decision(status='modified'))
 
 
 def test_software_validation_names_the_missing_provenance_field(tmp_path):
@@ -143,4 +149,65 @@ def test_software_validation_names_the_missing_provenance_field(tmp_path):
     actor = dict(SOFTWARE)
     del actor['prompt_reference']
     with pytest.raises(ValueError, match='prompt_reference'):
-        review_history.append(tmp_path, decision(decided_by=actor))
+        record(tmp_path, decision(decided_by=actor))
+
+
+def test_concurrent_resubmissions_and_competing_edits(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    prepared(tmp_path)
+    data = decision()
+    def submit(request_id):
+        try:
+            return review_history.append(tmp_path, data, request_id=request_id, expected_last_entry='initial')
+        except review_history.ReviewConflict:
+            return None
+
+    with ThreadPoolExecutor(4) as pool:
+        results = list(pool.map(submit, ['first', 'first', 'second', 'second']))
+    assert results.count(None) == 2
+    first, = set(results) - {None}
+    assert len(review_history.edition(tmp_path)['entries']) == 1
+    correction = dict(request_id='correction', expected_last_entry=first, replaces=first)
+    updated = decision('Methods revised')
+    second = review_history.append(tmp_path, updated, **correction)
+    record(tmp_path, decision('Another outcome', subject='Outcome B'))
+    assert review_history.append(tmp_path, updated, **correction) == second
+    with pytest.raises(review_history.ReviewConflict):
+        review_history.append(tmp_path, data, **correction)
+    with pytest.raises(review_history.ReviewConflict):
+        record(tmp_path, updated, replaces=first)
+    assert len(review_history.edition(tmp_path)['entries']) == 3
+
+
+def test_large_review_file_and_amendments_are_outside_the_contribution(tmp_path, monkeypatch):
+    import shutil
+    from canary import bundle_connectors, bundle_encoding
+    workspace = tmp_path / 'research'
+    workspace.mkdir()
+    prepared(workspace)
+    snapshot = tmp_path / 'snapshot'
+    shutil.copytree(workspace, snapshot)
+    compact_bundle.retain(workspace)
+    def exported():
+        return bundle_encoding.dumps(bundle_connectors.export(workspace, 'resolvent')).encode()
+    expected = exported()
+    shutil.rmtree(workspace)
+    shutil.copytree(snapshot, workspace)
+    subject = decision('Published passage', evidence=['p. 2: ' + 'x' * bundle_connectors.CONTRIBUTION_LIMIT_BYTES])
+    first = record(workspace, subject)
+    compact_bundle.retain(workspace)
+    assert (workspace / review_history.NAME).stat().st_size > bundle_connectors.CONTRIBUTION_LIMIT_BYTES
+    assert len(expected) + 1 < bundle_connectors.CONTRIBUTION_LIMIT_BYTES
+    assert exported() == expected
+    record(workspace, decision('Passage corrected'), replaces=first)
+    assert exported() == expected
+    assert review_history.edition(workspace, first)['entries'][0]['decision'] == subject
+    assert len(review_history.edition(workspace)['entries']) == 2
+    monkeypatch.setattr(bundle_connectors, 'CONTRIBUTION_LIMIT_BYTES', len(expected) - 1)
+    with pytest.raises(bundle_connectors.ContributionTooLarge):
+        bundle_connectors.export(workspace, 'resolvent')
+    archive = io.BytesIO()
+    research_bundle.archive(workspace, archive)
+    with zipfile.ZipFile(archive) as output:
+        downloaded = json.loads(output.read('review-decisions.json'))
+    assert downloaded == review_history.edition(workspace)
