@@ -262,3 +262,101 @@ def test_retry_refuses_an_entry_past_the_saved_head(tmp_path):
         db.execute('UPDATE history SET last_entry = ?', (first,))
     with pytest.raises(ValueError, match='inconsistent last entry'):
         review_history.append(tmp_path, decision('Second'), **retry)
+
+
+@pytest.mark.parametrize('first_access', ['edition', 'archive', 'append'])
+def test_first_access_recovers_interrupted_binding(tmp_path, monkeypatch, first_access):
+    prepared(tmp_path)
+    head = record(tmp_path, decision())
+    def interrupt(*args):
+        raise KeyboardInterrupt
+    with monkeypatch.context() as patch:
+        patch.setattr(review_history, 'bind', interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            compact_bundle.retain(tmp_path)
+    if first_access == 'archive':
+        out = io.BytesIO()
+        research_bundle.archive(tmp_path, out)
+        with zipfile.ZipFile(out) as archive:
+            assert json.loads(archive.read('review-decisions.json'))['last_entry'] == head
+    elif first_access == 'append':
+        head = review_history.append(tmp_path, decision('Updated'), request_id='retry', expected_last_entry=head)
+    edition = review_history.edition(tmp_path)
+    assert edition['last_entry'] == head
+    assert edition['base_sha256'] == research_bundle.file_hash(tmp_path / compact_bundle.NAME)
+
+
+@pytest.mark.parametrize('first_access', ['edition', 'archive'])
+def test_read_recovers_a_hot_rollback_journal(tmp_path, first_access):
+    import subprocess
+    import sys
+    prepared(tmp_path)
+    head = record(tmp_path, decision())
+    path = tmp_path / review_history.NAME
+    subprocess.run([sys.executable, '-c', """
+import os, sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.execute('PRAGMA cache_size=8')
+db.execute('BEGIN IMMEDIATE')
+db.execute('CREATE TABLE scratch(data)')
+db.execute('INSERT INTO scratch VALUES (zeroblob(350000))')
+os._exit(0)
+""", str(path)], check=True)
+    assert path.with_name(path.name + '-journal').exists()
+    if first_access == 'archive':
+        out = io.BytesIO()
+        research_bundle.archive(tmp_path, out)
+        with zipfile.ZipFile(out) as archive:
+            assert json.loads(archive.read('review-decisions.json'))['last_entry'] == head
+    assert review_history.edition(tmp_path)['last_entry'] == head
+
+
+def test_relative_workspace_survives_archive_and_cleanup(tmp_path, monkeypatch):
+    from pathlib import Path
+    workspace = tmp_path / 'review'
+    workspace.mkdir()
+    prepared(workspace)
+    head = record(workspace, decision())
+    monkeypatch.chdir(tmp_path)
+    for _ in range(2):
+        research_bundle.archive(Path('review'), io.BytesIO())
+        compact_bundle.retain(Path('review'))
+    assert review_history.edition('review')['last_entry'] == head
+
+
+def test_recovery_checks_the_contribution_before_binding_history(tmp_path, monkeypatch):
+    prepared(tmp_path)
+    record(tmp_path, decision())
+    def interrupt(*args):
+        raise KeyboardInterrupt
+    with monkeypatch.context() as patch:
+        patch.setattr(review_history, 'bind', interrupt)
+        with pytest.raises(KeyboardInterrupt):
+            compact_bundle.retain(tmp_path)
+    def incomplete(*args):
+        raise ValueError('Invalid stored specification')
+    monkeypatch.setattr(compact_bundle, 'manifest', incomplete)
+    with pytest.raises(review_history.ReviewStorageError, match='before linking'):
+        review_history.edition(tmp_path)
+    with sqlite3.connect(tmp_path / review_history.NAME) as db:
+        assert db.execute('SELECT base_sha256 FROM history').fetchone() == (None,)
+
+
+def test_earlier_editions_without_request_ids_remain_readable(tmp_path):
+    from canary import api_contract, mcp_server
+    from canary.research_spec import digest
+    import jsonschema
+    prepared(tmp_path)
+    first = record(tmp_path, decision())
+    edition = review_history.edition(tmp_path)
+    with sqlite3.connect(tmp_path / review_history.NAME) as db:
+        entry = json.loads(db.execute('SELECT body FROM entries WHERE id = ?', (first,)).fetchone()[0])
+        del entry['request_id']
+        original = digest([edition['bundle_id'], entry])
+        db.execute('UPDATE entries SET id = ?, body = ?', (original, json.dumps(entry)))
+        db.execute('UPDATE history SET last_entry = ?', (original,))
+    assert record(tmp_path, decision('Later'), replaces=original)
+    historical = review_history.edition(tmp_path, original)
+    assert 'request_id' not in historical['entries'][0]
+    tool = mcp_server.tool_catalog(api_contract.document())['canary_review_edition']['tool']
+    jsonschema.validate(historical, tool.outputSchema)

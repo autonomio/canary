@@ -188,7 +188,7 @@ def read(workspace) -> ResearchBundle:
 
 def archive(workspace, target):
     workspace = Path(workspace)
-    with review_history.locked(workspace, shared=True):
+    with review_history.reading(workspace):
         _archive(workspace, target)
 
 
