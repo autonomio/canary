@@ -18,6 +18,7 @@ def schema() -> dict[str, Any]:
     result = obj({'subject': text, 'judgement': text, 'status': enum('proposed', 'accepted', 'modified', 'rejected'),
                   'reason': text, 'evidence': dict(arr(text), minItems=1),
                   'proposed_by': optional_actor, 'decided_by': optional_actor, 'checked_by': optional_checker})
+    result['properties']['subject_id'] = text
     result.update({'if': {'properties': {'status': {'const': 'proposed'}}},
                    'then': {'properties': {'proposed_by': actor, 'decided_by': empty}},
                    'else': {'properties': {'decided_by': actor}}})

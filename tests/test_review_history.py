@@ -324,6 +324,21 @@ def test_relative_workspace_survives_archive_and_cleanup(tmp_path, monkeypatch):
     assert review_history.edition('review')['last_entry'] == head
 
 
+@pytest.mark.parametrize('original_id', [None, 'report-17'])
+def test_correction_keeps_its_subject_through_renames(tmp_path, original_id):
+    prepared(tmp_path)
+    first = record(tmp_path, decision(**({'subject_id': original_id} if original_id else {})))
+    same = record(tmp_path, decision('Other evidence'), replaces=first)
+    stable = original_id or first
+    with pytest.raises(ValueError, match='original subject ID'):
+        record(tmp_path, decision(subject='Report B'), replaces=same)
+    with pytest.raises(ValueError, match='same subject'):
+        record(tmp_path, decision(subject_id='unrelated'), replaces=same)
+    renamed = record(tmp_path, decision(subject='Corrected spelling', subject_id=stable), replaces=same)
+    entry = review_history.edition(tmp_path, renamed)['entries'][-1]
+    assert entry['subject_id'] == stable and entry['replaces'] == same
+
+
 def test_recovery_checks_the_contribution_before_binding_history(tmp_path, monkeypatch):
     prepared(tmp_path)
     record(tmp_path, decision())
@@ -360,3 +375,33 @@ def test_earlier_editions_without_request_ids_remain_readable(tmp_path):
     assert 'request_id' not in historical['entries'][0]
     tool = mcp_server.tool_catalog(api_contract.document())['canary_review_edition']['tool']
     jsonschema.validate(historical, tool.outputSchema)
+
+
+def test_independent_decisions_can_share_a_subject_but_cannot_claim_another_name(tmp_path):
+    prepared(tmp_path)
+    first = record(tmp_path, decision(subject_id='R17'))
+    second = record(tmp_path, decision('Separate judgement', subject_id='R17'))
+    with pytest.raises(ValueError, match='different name'):
+        record(tmp_path, decision(subject='Other paper', subject_id='R17'))
+    assert record(tmp_path, decision('Revised'), replaces=first)
+    assert record(tmp_path, decision('Different evidence'), replaces=second)
+
+
+def test_rename_preserves_the_first_subject_across_legacy_corrections(tmp_path):
+    from canary.research_spec import digest
+    prepared(tmp_path)
+    first = record(tmp_path, decision())
+    second = record(tmp_path, decision('Earlier correction'), replaces=first)
+    bundle_id = review_history.edition(tmp_path)['bundle_id']
+    with sqlite3.connect(tmp_path / review_history.NAME) as db:
+        entry = json.loads(db.execute('SELECT body FROM entries WHERE id = ?', (second,)).fetchone()[0])
+        del entry['subject_id']
+        entry['decision']['subject'] = 'Corrected label'
+        middle = digest([bundle_id, entry])
+        db.execute('UPDATE entries SET id = ?, body = ? WHERE id = ?', (middle, json.dumps(entry), second))
+        db.execute('UPDATE history SET last_entry = ?', (middle,))
+    assert record(tmp_path, decision(subject='Corrected label', subject_id=first))
+    with pytest.raises(ValueError, match='original subject ID'):
+        record(tmp_path, decision(subject='Corrected label', subject_id=middle))
+    renamed = record(tmp_path, decision(subject='New label', subject_id=first), replaces=middle)
+    assert review_history.edition(tmp_path, renamed)['entries'][-1]['subject_id'] == first

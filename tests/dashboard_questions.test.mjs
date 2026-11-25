@@ -329,10 +329,14 @@ test("review decisions show their evidence and download the selected edition", a
   const record = {id:"one", recorded_at:"2026-01-01", decision:{subject:"Report A", judgement:"include",
     status:"accepted", reason:"Methods meet criteria", evidence:["Methods <2>"],
     proposed_by:null, decided_by:{kind:"person",name:"S. Lee",role:"screener"}, checked_by:null}};
-  await respond(200, {last_entry:"one",entries:[record]}, endpoint);
+  const correction = {...record, id:"two", replaces:"one"};
+  await respond(200, {last_entry:"two", entries:[record, correction]}, endpoint);
+  const entries = elements.get("review-entries").innerHTML;
+  assert.equal(entries.split("<dt>Subject ID</dt><dd><code>one</code>").length - 1, 2);
+  assert.equal(elements.get("review-status").textContent, "This edition has no recorded bundle checksum.");
   assert.match(elements.get("review-entries").innerHTML, /Methods &lt;2&gt;/);
   assert.match(elements.get("review-entries").innerHTML, /S. Lee · screener \(self-declared\)/);
-  assert.equal(elements.get("review-download").href, endpoint + "?last_entry=one");
+  assert.equal(elements.get("review-download").href, endpoint + "?last_entry=two");
   select.value = "initial";
   select.listeners.get("change")();
   await respond(200, {last_entry:"initial",entries:[]}, endpoint + "?last_entry=initial");

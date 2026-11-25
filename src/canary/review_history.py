@@ -97,8 +97,19 @@ def _header(db: sqlite3.Connection, bundle_id: str, checksum: str | None) -> str
     return row[3]
 
 
+def _index_subject(subjects: dict[str, tuple[str, str]], identifier: str, entry: Record) -> None:
+    try:
+        parent = entry.get('replaces')
+        original = identifier if parent is None else subjects[parent][0]
+        decision = entry['decision']
+        subject_id = entry.get('subject_id') or decision.get('subject_id') or original
+        subjects[identifier] = subject_id, decision['subject']
+    except (KeyError, TypeError, AttributeError) as error:
+        raise ReviewStorageError('Invalid subject or correction link in the saved history') from error
+
+
 def _verify_entries(db: sqlite3.Connection, bundle_id: str, *, through: str | None = None,
-                    entries: list[Record] | None = None) -> None:
+                    entries: list[Record] | None = None, subjects: dict[str, tuple[str, str]] | None = None) -> None:
     if through == INITIAL:
         return
     previous = INITIAL
@@ -109,6 +120,8 @@ def _verify_entries(db: sqlite3.Connection, bundle_id: str, *, through: str | No
             raise ReviewStorageError('Unreadable decision in the saved history') from error
         if not isinstance(entry, dict) or entry.get('previous') != previous or digest([bundle_id, entry]) != identifier:
             raise ReviewStorageError('Review decision changed since it was recorded')
+        if subjects is not None:
+            _index_subject(subjects, identifier, entry)
         if entries is not None:
             entries.append(dict(id=identifier, **entry))
         previous = identifier
@@ -223,10 +236,25 @@ def _initialize(db: sqlite3.Connection, bundle_id: str, checksum: str | None) ->
     db.execute('INSERT INTO history VALUES (?, ?, ?, ?)', (VERSION, bundle_id, checksum, INITIAL))
 
 
+def _correction_subject(db: sqlite3.Connection, subjects: dict[str, tuple[str, str]], replaces: str,
+                        decision: Record) -> str:
+    if db.execute("SELECT 1 FROM entries WHERE json_extract(body, '$.replaces') = ?", (replaces,)).fetchone():
+        raise ReviewConflict('This decision has already been corrected')
+    if replaces not in subjects:
+        raise ValueError('Unknown review decision to replace')
+    subject_id, name = subjects[replaces]
+    if 'subject_id' in decision and decision['subject_id'] != subject_id:
+        raise ValueError('A correction must identify the same subject as the original decision')
+    if decision['subject'] != name and decision.get('subject_id') != subject_id:
+        raise ValueError('Supply the original subject ID to change its displayed name')
+    return subject_id
+
+
 def _record(db: sqlite3.Connection, bundle_id: str, checksum: str | None, decision: Record, *,
             request_id: str, expected_last_entry: str, replaces: str | None) -> str:
     previous = _header(db, bundle_id, checksum)
-    _verify_entries(db, bundle_id)
+    subjects: dict[str, tuple[str, str]] = {}
+    _verify_entries(db, bundle_id, subjects=subjects if replaces is not None or 'subject_id' in decision else None)
     db.execute("CREATE UNIQUE INDEX IF NOT EXISTS review_requests ON entries(json_extract(body, '$.request_id'))")
     db.execute("CREATE INDEX IF NOT EXISTS review_replaces ON entries(json_extract(body, '$.replaces'))")
     saved = db.execute("SELECT id, body FROM entries WHERE json_extract(body, '$.request_id') = ?",
@@ -238,13 +266,18 @@ def _record(db: sqlite3.Connection, bundle_id: str, checksum: str | None, decisi
         return saved[0]
     if expected_last_entry != previous:
         raise ReviewConflict('A newer review edition exists. Read it before submitting this decision.')
-    if replaces is not None:
-        if db.execute("SELECT 1 FROM entries WHERE json_extract(body, '$.replaces') = ?", (replaces,)).fetchone():
-            raise ReviewConflict('This decision has already been corrected')
-        if not db.execute('SELECT 1 FROM entries WHERE id = ?', (replaces,)).fetchone():
-            raise ValueError('Unknown review decision to replace')
     entry = dict(previous=previous, request_id=request_id, replaces=replaces,
                  recorded_at=datetime.now(timezone.utc).isoformat(), decision=decision)
+    if replaces is not None:
+        entry['subject_id'] = _correction_subject(db, subjects, replaces, decision)
+    elif 'subject_id' in decision:
+        subject_id = decision['subject_id']
+        if subject_id in subjects and subjects[subject_id][0] != subject_id:
+            raise ValueError('Use the original subject ID for this decision')
+        known = {name for key, name in subjects.values() if key == subject_id}
+        if known and decision['subject'] not in known:
+            raise ValueError('This subject ID is already recorded under a different name')
+        entry['subject_id'] = decision['subject_id']
     identifier = digest([bundle_id, entry])
     db.execute('INSERT INTO entries VALUES (?, ?)', (identifier, json.dumps(entry, ensure_ascii=False)))
     db.execute('UPDATE history SET last_entry = ?', (identifier,))

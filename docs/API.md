@@ -106,6 +106,12 @@ For each new request, choose a new `request_id` and copy the latest edition’s
 that decision’s ID in `replaces`. The original stays on record. If Canary
 returns HTTP 409, read the latest edition and check your request against it.
 
+Use the same subject for a correction. To fix a spelling error or change a
+display name, include `subject_id` inside `decision`. Copy the subject ID shown
+in the dashboard. For older entries that omit this field, follow `replaces`
+back to the first decision and use its entry ID. For a new decision, you can
+use the permanent ID of the report or study.
+
 A decision request can contain up to 65,536 bytes of JSON. A larger request
 returns HTTP 413. HTTP 404 means the bundle or edition could not be found.
 HTTP 411 means the request needs a Content-Length header. HTTP 500 means

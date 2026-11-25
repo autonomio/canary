@@ -276,7 +276,7 @@ def schemas():
             'reason':S,'public_timeout_seen':B,'reference':ref('AgentReference')},['work_id','status'],closed=False))},
             ['attempted','sources_available','receipts']),
         'ReviewDecision':review_decisions.schema(),
-        'ReviewEntry':obj({'id':S,'previous':S,'request_id':S,'replaces':nullable(S),'recorded_at':S,'decision':ref('ReviewDecision')},
+        'ReviewEntry':obj({'id':S,'previous':S,'subject_id':S,'request_id':S,'replaces':nullable(S),'recorded_at':S,'decision':ref('ReviewDecision')},
                           ['id','previous','replaces','recorded_at','decision']),
         'ReviewEdition':obj({'version':I,'bundle_id':S,'base_sha256':nullable(S),'last_entry':S,
                              'entries':arr(ref('ReviewEntry'))}, ['version','bundle_id','base_sha256','last_entry','entries']),
