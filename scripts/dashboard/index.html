@@ -3652,7 +3652,7 @@
             entries.innerHTML = reviewEntries(edition.entries);
             download.href = path + "?last_entry=" + encodeURIComponent(edition.last_entry);
             download.hidden = false;
-            status.textContent = edition.base_sha256 ? "Linked to the sealed bundle." : "This edition has no recorded bundle checksum.";
+            status.textContent = edition.base_sha256 ? "Compact bundle checksum verified." : "This copy has no compact bundle file to verify.";
           } catch (error) {
             if (request === sequence) status.textContent = error.message;
           }

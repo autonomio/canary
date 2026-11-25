@@ -126,9 +126,10 @@ bundle ID and the last entry ID together identify an edition.
 For an imported bundle, Canary copies any existing decision history into its
 own data directory when it first needs it. Further decisions go into that
 copy. Full and compact copies of the same bundle share one decision history
-under its permanent ID. The compact copy also shows the verified checksum of
-`resolvent.json`. The full copy has no such file, so its edition reports
-`base_sha256` as null. An archive from either copy includes the decisions.
+under its permanent ID. In the downloaded JSON, `base_sha256` gives the
+verified checksum of `resolvent.json` for a compact copy. The full copy has
+no such file, so the field is null. The archived SQLite database keeps the
+compact checksum once Canary has recorded it, whichever copy you download.
 
 The Canary archive includes the database and a copy you can read as JSON
 (`review-decisions.json`). You can download the history even when the research

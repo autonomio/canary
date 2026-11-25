@@ -336,7 +336,7 @@ test("review decisions show their evidence and download the selected edition", a
   assert.match(entries, /<dt>Replaced by<\/dt><dd><code>two<\/code>/);
   assert.match(entries, /<summary>Report A · exclude \(accepted\)<\/summary>/);
   assert.equal(entries.split("<dt>Subject ID</dt><dd><code>one</code>").length - 1, 2);
-  assert.equal(elements.get("review-status").textContent, "This edition has no recorded bundle checksum.");
+  assert.equal(elements.get("review-status").textContent, "This copy has no compact bundle file to verify.");
   assert.match(elements.get("review-entries").innerHTML, /Methods &lt;2&gt;/);
   assert.match(elements.get("review-entries").innerHTML, /S. Lee · screener \(self-declared\)/);
   assert.equal(elements.get("review-download").href, endpoint + "?last_entry=two");
