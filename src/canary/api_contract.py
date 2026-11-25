@@ -345,6 +345,7 @@ def document():
     op('record_review_decision','post',decisions,'Record or correct a review decision','ReviewReceipt',
        params=[key],body='ReviewDecisionRequest',mcp=True)
     for method, status, description in (
+        ('get', '400', 'Review decisions require a versioned research bundle'),
         ('get', '404', 'Unknown bundle or edition'), ('post', '400', 'Invalid decision request'),
         ('post', '404', 'Unknown research bundle'), ('post', '409', 'Conflicting decision or request ID'),
         ('post', '411', 'Content-Length required'), ('post', '413', 'Decision request exceeds 65536 bytes'), ('post', '500', 'Review storage error'),

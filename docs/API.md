@@ -113,7 +113,8 @@ back to the first decision and use its entry ID. For a new decision, you can
 use the permanent ID of the report or study.
 
 A decision request can contain up to 65,536 bytes of JSON. A larger request
-returns HTTP 413. HTTP 404 means the bundle or edition could not be found.
+returns HTTP 413. Reading decisions from a bundle with no versioned manifest
+returns HTTP 400. HTTP 404 means the bundle or edition could not be found.
 HTTP 411 means the request needs a Content-Length header. HTTP 500 means
 Canary could not read or save the review history.
 

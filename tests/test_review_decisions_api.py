@@ -94,6 +94,19 @@ def test_review_decisions_share_the_http_contract_across_clients(tmp_path, monke
     assert client.post(route, json=msg).status_code == 404
 
 
+def test_unversioned_review_returns_the_documented_bad_request(tmp_path, review_client):
+    client, registry, _, _ = review_client
+    legacy = tmp_path / 'legacy'
+    legacy.mkdir()
+    runs.adopt_bundle(legacy, path=registry)
+    route = '/api/runs/{key}/review-decisions'
+    response = client.get(route.format(key='legacy'))
+    assert response.status_code == 400
+    assert response.json()['error'] == 'Review decisions require a versioned research bundle'
+    responses = api_contract.document()['paths'][route]['get']['responses']
+    assert responses['400']['content']['application/json']['schema'] == {'$ref': '#/components/schemas/Error'}
+
+
 def test_owned_run_uses_local_history_and_reports_storage_errors(review_client):
     client, registry, root, _ = review_client
     workspace = root / 'container-out' / 'owned'
