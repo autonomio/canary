@@ -405,3 +405,14 @@ def test_rename_preserves_the_first_subject_across_legacy_corrections(tmp_path):
         record(tmp_path, decision(subject='Corrected label', subject_id=middle))
     renamed = record(tmp_path, decision(subject='New label', subject_id=first), replaces=middle)
     assert review_history.edition(tmp_path, renamed)['entries'][-1]['subject_id'] == first
+
+
+@pytest.mark.parametrize('invalid_checksum', [None, 'invalid'])
+def test_compact_copy_requires_its_recorded_checksum(tmp_path, invalid_checksum):
+    prepared(tmp_path)
+    record(tmp_path, decision())
+    compact_bundle.retain(tmp_path)
+    with sqlite3.connect(tmp_path / review_history.NAME) as db:
+        db.execute('UPDATE history SET base_sha256 = ?', (invalid_checksum,))
+    with pytest.raises(review_history.ReviewStorageError):
+        review_history.edition(tmp_path)

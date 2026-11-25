@@ -1,5 +1,6 @@
 import io
 import json
+import shutil
 import sqlite3
 import zipfile
 from pathlib import Path
@@ -11,6 +12,7 @@ import jsonschema
 import pytest
 
 from canary import api_contract, cli, command_client, compact_bundle, dashboard, mcp_server, review_history, runs
+from canary.research_bundle import file_hash
 from test_compact_bundle import prepared
 from test_review_history import decision
 
@@ -182,7 +184,6 @@ def test_missing_base_metadata_and_database_errors_are_server_errors(tmp_path, r
 
 
 def test_incomplete_import_is_retried_from_source(tmp_path, review_client, monkeypatch):
-    import shutil
     client, registry, root, _ = review_client
     source = tmp_path / 'history'
     source.mkdir()
@@ -282,3 +283,52 @@ def test_linked_output_directory_keeps_native_decisions_in_the_run(tmp_path, rev
     msg = dict(request_id='first', expected_last_entry='initial', decision=decision())
     assert client.post('/api/runs/owned/review-decisions', json=msg).status_code == 200
     assert (workspace / review_history.NAME).exists()
+
+
+@pytest.mark.parametrize('first_copy', ['full', 'compact'])
+def test_imported_full_and_compact_copies_share_decisions(tmp_path, review_client, first_copy):
+    client, registry, _, _ = review_client
+    full = tmp_path / 'full'
+    full.mkdir()
+    prepared(full)
+    compact = tmp_path / 'compact'
+    shutil.copytree(full, compact)
+    compact_bundle.retain(compact)
+    checksum = (compact / compact_bundle.CHECKSUM).read_text().strip()
+    for source in (full, compact):
+        runs.adopt_bundle(source, path=registry)
+
+    first = client.post(f'/api/runs/{first_copy}/review-decisions', json={
+        'request_id': 'first', 'expected_last_entry': 'initial', 'decision': decision()})
+    assert first.status_code == 200
+    original = first.json()['last_entry']
+    sealed = client.get('/api/runs/compact/review-decisions').json()
+    assert sealed['base_sha256'] == checksum
+    assert sealed['last_entry'] == original
+    route = '/api/runs/full/review-decisions'
+    assert client.get(route).json() == dict(sealed, base_sha256=None)
+    change = client.post(route, json={'request_id': 'edit', 'expected_last_entry': original,
+                                      'decision': decision('Corrected'), 'replaces': original})
+    assert change.status_code == 200
+    latest = client.get('/api/runs/compact/review-decisions').json()
+    assert latest['last_entry'] == change.json()['last_entry']
+    for source in (full, compact):
+        expected_checksum = checksum if source == compact else None
+        earlier = client.get(f'/api/runs/{source.name}/review-decisions', params=first.json()).json()
+        assert earlier == dict(sealed, base_sha256=expected_checksum)
+        expected = dict(latest, base_sha256=expected_checksum)
+        response = client.get(f'/api/runs/{source.name}/bundle/archive')
+        assert response.status_code == 200
+        restored = tmp_path / ('restored-' + source.name)
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert json.loads(archive.read('review-decisions.json')) == expected
+            archive.extractall(restored)
+        assert review_history.edition(restored) == expected
+        assert not (source / review_history.NAME).exists()
+
+    stored = compact / compact_bundle.NAME
+    stored.write_bytes(stored.read_bytes() + b'\n')
+    (compact / compact_bundle.CHECKSUM).write_text(file_hash(stored))
+    rejected = client.get('/api/runs/compact/review-decisions')
+    assert rejected.status_code == 500 and rejected.json()['code'] == 'review_storage_error'
+    assert client.get(route).json() == dict(latest, base_sha256=None)

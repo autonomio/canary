@@ -89,7 +89,12 @@ def _connect(path: Path, *, mode: str = 'rw') -> Iterator[sqlite3.Connection]:
 
 def _header(db: sqlite3.Connection, bundle_id: str, checksum: str | None) -> str:
     row = db.execute('SELECT version, bundle_id, base_sha256, last_entry FROM history').fetchone()
-    if not row or row[:3] != (VERSION, bundle_id, checksum):
+    if not row or row[:2] != (VERSION, bundle_id):
+        raise ReviewStorageError('Review history does not match its base bundle')
+    recorded = row[2]
+    if recorded is not None and (not isinstance(recorded, str) or not re.fullmatch('[0-9a-f]{64}', recorded)):
+        raise ReviewStorageError('Invalid checksum in the review history')
+    if checksum is not None and recorded != checksum:
         raise ReviewStorageError('Review history does not match its base bundle')
     tail = db.execute('SELECT id FROM entries ORDER BY rowid DESC LIMIT 1').fetchone()
     if row[3] != (tail[0] if tail else INITIAL):
