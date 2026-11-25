@@ -152,8 +152,11 @@ The maintainer publisher opens an `auto/revise-*` PR against `main` and waits
 for completed checks and a current-commit approval from a different GitHub
 account with repository write access. It submits the reviewed commit SHA with
 the squash request. If review is missing, the issue and journal record the
-reason and the PR stays open. The publisher uses its existing token and
-GitHub's repository permissions for reviewer eligibility.
+reason and the PR stays open. On `autonomio/canary`, the publisher requires the
+approval from the confirmed independent reviewer `bit-mis` (GitHub account ID
+`265471408`). This also applies to the legacy `mikkokotila/Canary` remote.
+Other repositories continue to use their existing write-access
+reviewers and publisher token.
 
 On `autonomio/canary`, classic branch protection on `main` also requires one
 approval, dismisses stale approvals, and requires up-to-date checks, including
@@ -165,10 +168,10 @@ gh api repos/autonomio/canary/branches/main/protection
 gh api repos/autonomio/canary/rules/branches/main
 ```
 
-The publisher gate applies to Canary's maintenance merge request. A GitHub
-merge initiated separately follows the destination repository's own protections.
-A repository write role establishes review eligibility. Independent control of
-those accounts remains the repository owner's responsibility.
+The named reviewer is enforced by the publisher. GitHub rules target the
+destination branch, and GitHub's required-reviewer rules select teams by file
+pattern. Merges initiated separately in GitHub follow the destination
+repository's protection settings.
 
 ## 11. Data-exposure policy
 

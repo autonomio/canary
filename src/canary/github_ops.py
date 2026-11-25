@@ -19,6 +19,8 @@ import httpx
 
 API = "https://api.github.com"
 DEFAULT_REPO = "mikkokotila/Canary"
+UPSTREAM_REPO = "autonomio/canary"
+UPSTREAM_REVIEWER_ID = 265471408  # bit-mis
 BOT_NAME = "canary-bot"
 BOT_EMAIL = "canary-bot@users.noreply.github.com"
 COMMIT_STAGE_PREFIXES = ("src/canary/", "runs/")
@@ -118,6 +120,8 @@ class Pull:
 class GitHub:
     def __init__(self, token: str, repo: str, client: httpx.Client | None = None) -> None:
         self.repo = repo
+        # GitHub redirects the original remote to this repository after transfer.
+        self._api_repo = UPSTREAM_REPO if repo.casefold() == DEFAULT_REPO.casefold() else repo
         self._client = client or httpx.Client(
             base_url=API,
             headers={
@@ -143,24 +147,24 @@ class GitHub:
         return self._result(self._client.get(path))
 
     def create_issue(self, title: str, body: str) -> Issue:
-        d = self._post(f"/repos/{self.repo}/issues", {"title": title, "body": body})
+        d = self._post(f"/repos/{self._api_repo}/issues", {"title": title, "body": body})
         return Issue(number=d["number"], url=d["html_url"])
 
     def comment(self, number: int, body: str) -> None:
-        self._post(f"/repos/{self.repo}/issues/{number}/comments", {"body": body})
+        self._post(f"/repos/{self._api_repo}/issues/{number}/comments", {"body": body})
 
     def create_pr(self, title: str, body: str, head: str, base: str = "main") -> Pull:
-        d = self._post(f"/repos/{self.repo}/pulls", {"title": title, "body": body, "head": head, "base": base})
+        d = self._post(f"/repos/{self._api_repo}/pulls", {"title": title, "body": body, "head": head, "base": base})
         return Pull(number=d["number"], url=d["html_url"], node_id=d["node_id"], head_sha=d["head"]["sha"])
 
     def get_pr(self, number: int) -> dict:
-        return self._get(f"/repos/{self.repo}/pulls/{number}")
+        return self._get(f"/repos/{self._api_repo}/pulls/{number}")
 
     def reviews(self, number: int) -> list[dict]:
         reviews = []
         page = 1
         while True:
-            items = self._get(f"/repos/{self.repo}/pulls/{number}/reviews?per_page=100&page={page}")
+            items = self._get(f"/repos/{self._api_repo}/pulls/{number}/reviews?per_page=100&page={page}")
             if not isinstance(items, list):
                 return []
             reviews.extend(items)
@@ -168,7 +172,8 @@ class GitHub:
                 return reviews
             page += 1
 
-    def independently_approved(self, number: int, author: str | None, head_sha: str | None = None) -> bool:
+    def independently_approved(self, number: int, author: str | None, head_sha: str | None = None,
+                               *, reviewer_id: int | None = None) -> bool:
         """Require current-head approval by a non-author with repository write access."""
         if not isinstance(author, str) or not author:
             return False
@@ -187,6 +192,8 @@ class GitHub:
                 login = user.get("login") if isinstance(user, dict) else None
                 if not isinstance(login, str) or not login or login.casefold() == author.casefold():
                     continue
+                if reviewer_id is not None and user.get("id") != reviewer_id:
+                    continue
                 state = review.get("state")
                 if state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
                     decisions[login.casefold()] = (login, state, review.get("commit_id"))
@@ -195,7 +202,7 @@ class GitHub:
                     continue
                 reviewer = quote(login, safe="")
                 try:
-                    access = self._get(f"/repos/{self.repo}/collaborators/{reviewer}/permission")
+                    access = self._get(f"/repos/{self._api_repo}/collaborators/{reviewer}/permission")
                 except httpx.HTTPStatusError as error:
                     if error.response.status_code != 404:
                         raise
@@ -207,7 +214,7 @@ class GitHub:
         return False
 
     def check_runs(self, sha: str) -> list[dict]:
-        d = self._get(f"/repos/{self.repo}/commits/{sha}/check-runs")
+        d = self._get(f"/repos/{self._api_repo}/commits/{sha}/check-runs")
         return d.get("check_runs", [])
 
     def enable_automerge(self, node_id: str) -> bool:
@@ -227,7 +234,7 @@ class GitHub:
         if head_sha is not None:
             payload["sha"] = head_sha
         try:
-            d = self._result(self._client.put(f"/repos/{self.repo}/pulls/{number}/merge", json=payload))
+            d = self._result(self._client.put(f"/repos/{self._api_repo}/pulls/{number}/merge", json=payload))
             return bool(d.get("merged"))
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 405 or (head_sha is not None and e.response.status_code == 409):
@@ -235,7 +242,7 @@ class GitHub:
             raise
 
     def delete_branch(self, branch: str) -> None:
-        resp = self._client.delete(f"/repos/{self.repo}/git/refs/heads/{branch}")
+        resp = self._client.delete(f"/repos/{self._api_repo}/git/refs/heads/{branch}")
         if resp.status_code not in (204, 404, 422):
             resp.raise_for_status()
 
@@ -245,6 +252,7 @@ class GitHub:
         Keep this decision in the publisher. GitHub's auto-merge queue cannot
         enforce the publisher's review policy on downstream repositories.
         """
+        reviewer_id = UPSTREAM_REVIEWER_ID if self._api_repo.casefold() == UPSTREAM_REPO else None
         deadline = time.monotonic() + timeout_s
         unapproved = False
         while time.monotonic() < deadline:
@@ -262,7 +270,7 @@ class GitHub:
                     raise RuntimeError(f"PR #{pr.number} checks failed: {names}")
                 author = state.get("user")
                 login = author.get("login") if isinstance(author, dict) else None
-                if not self.independently_approved(pr.number, login, head_sha):
+                if not self.independently_approved(pr.number, login, head_sha, reviewer_id=reviewer_id):
                     unapproved = True
                     time.sleep(interval_s)
                     continue
@@ -271,9 +279,10 @@ class GitHub:
                     return "merged"
             time.sleep(interval_s)
         if unapproved:
+            reviewer = "bit-mis" if reviewer_id is not None else "a reviewer"
             raise RuntimeError(
                 f"PR #{pr.number} has no independent approval for its current commit "
-                "from a reviewer with repository write access")
+                f"from {reviewer} with repository write access")
         raise RuntimeError(f"PR #{pr.number} did not merge within {timeout_s}s")
 
 
