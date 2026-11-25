@@ -7,11 +7,13 @@ import os
 import re
 from pathlib import Path
 import sqlite3
+import tempfile
 
 from . import compact_bundle, research_bundle, review_decisions
 from .research_spec import digest
 
 NAME = 'review-decisions.sqlite3'
+DATABASE_FILES = frozenset(NAME + suffix for suffix in ('', '-journal', '-shm', '-wal'))
 INITIAL = 'initial'
 VERSION = 1
 
@@ -61,23 +63,29 @@ def _header(db, bundle_id, checksum):
     return row[3]
 
 
+def _verify_entries(db, bundle_id, *, through=None, entries=None):
+    if through == INITIAL:
+        return
+    previous = INITIAL
+    for identifier, body in db.execute('SELECT id, body FROM entries ORDER BY rowid'):
+        entry = json.loads(body)
+        if not isinstance(entry, dict) or entry.get('previous') != previous or digest([bundle_id, entry]) != identifier:
+            raise ValueError('Review decision changed since it was recorded')
+        if entries is not None:
+            entries.append(dict(id=identifier, **entry))
+        previous = identifier
+        if through == identifier:
+            return
+    if through is not None:
+        raise KeyError('Unknown review edition')
+
+
 def _edition(db, bundle_id, checksum, last_entry=None):
     head = _header(db, bundle_id, checksum)
     if last_entry is None:
         last_entry = head
-    previous = INITIAL
     entries = []
-    if last_entry != INITIAL:
-        for identifier, body in db.execute('SELECT id, body FROM entries ORDER BY rowid'):
-            entry = json.loads(body)
-            if entry['previous'] != previous or digest([bundle_id, entry]) != identifier:
-                raise ValueError('Review decision changed since it was recorded')
-            entries.append(dict(id=identifier, **entry))
-            previous = identifier
-            if identifier == last_entry:
-                break
-    if previous != last_entry:
-        raise KeyError('Unknown review edition')
+    _verify_entries(db, bundle_id, through=last_entry, entries=entries)
     return dict(version=VERSION, bundle_id=bundle_id, base_sha256=checksum, last_entry=last_entry, entries=entries)
 
 
@@ -119,6 +127,7 @@ def append(workspace, decision, *, request_id, expected_last_entry, replaces=Non
                     db.execute('CREATE TABLE entries(id TEXT PRIMARY KEY, body TEXT NOT NULL)')
                     db.execute('INSERT INTO history VALUES (?, ?, ?, ?)', (VERSION, bundle_id, checksum, INITIAL))
                 previous = _header(db, bundle_id, checksum)
+                _verify_entries(db, bundle_id)
                 db.execute("CREATE UNIQUE INDEX IF NOT EXISTS review_requests ON entries(json_extract(body, '$.request_id'))")
                 db.execute("CREATE INDEX IF NOT EXISTS review_replaces ON entries(json_extract(body, '$.replaces'))")
                 saved = db.execute("SELECT id, body FROM entries WHERE json_extract(body, '$.request_id') = ?",
@@ -157,7 +166,8 @@ def bind(workspace, bundle_id, checksum):
         stored = db.execute('SELECT base_sha256 FROM history').fetchone()
         if not stored or stored[0] not in (None, checksum):
             raise ValueError('Review history is bound to another contribution')
-        _edition(db, bundle_id, stored[0])
+        _header(db, bundle_id, stored[0])
+        _verify_entries(db, bundle_id)
         db.execute('UPDATE history SET base_sha256 = ?', (checksum,))
 
 
@@ -166,6 +176,15 @@ def archive(workspace, output, manifest):
         return
     checksum = (workspace / compact_bundle.CHECKSUM).read_text().strip() if compact_bundle.exists(workspace) else None
     with _connect(workspace / NAME, mode='ro') as db:
+        db.execute('BEGIN')
         record = _edition(db, manifest['id'], checksum)
-    output.write(workspace / NAME, NAME)
+        if db.execute('PRAGMA journal_mode').fetchone()[0] == 'wal':
+            with tempfile.TemporaryDirectory() as directory:
+                snapshot = Path(directory) / NAME
+                with closing(sqlite3.connect(snapshot)) as copy:
+                    db.backup(copy)
+                    copy.execute('PRAGMA journal_mode=DELETE')
+                output.write(snapshot, NAME)
+        else:
+            output.write(workspace / NAME, NAME)
     output.writestr('review-decisions.json', json.dumps(record, ensure_ascii=False))

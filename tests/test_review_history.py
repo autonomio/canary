@@ -211,3 +211,54 @@ def test_large_review_file_and_amendments_are_outside_the_contribution(tmp_path,
     with zipfile.ZipFile(archive) as output:
         downloaded = json.loads(output.read('review-decisions.json'))
     assert downloaded == review_history.edition(workspace)
+
+
+def test_corrupt_earlier_entry_blocks_appends_corrections_and_retries(tmp_path):
+    prepared(tmp_path)
+    first = record(tmp_path, decision('First read'))
+    second = review_history.append(tmp_path, decision('Second read'), request_id='second', expected_last_entry=first)
+    with sqlite3.connect(tmp_path / review_history.NAME) as db:
+        db.execute("UPDATE entries SET body = replace(body, 'First read', 'Changed') WHERE id = ?", (first,))
+    for options in (dict(request_id='third', expected_last_entry=second),
+                    dict(request_id='correct', expected_last_entry=second, replaces=first),
+                    dict(request_id='second', expected_last_entry=first)):
+        with pytest.raises(ValueError, match='changed since'):
+            review_history.append(tmp_path, decision('Second read'), **options)
+    with sqlite3.connect(tmp_path / review_history.NAME) as db:
+        assert db.execute('SELECT count(*) FROM entries').fetchone()[0] == 2
+
+
+def test_review_journals_stay_out_of_the_inventory_and_archived_database_is_complete(tmp_path):
+    from contextlib import closing
+    workspace = tmp_path / 'research'
+    workspace.mkdir()
+    prepared(workspace)
+    first = record(workspace, decision('First'))
+    with closing(sqlite3.connect(workspace / review_history.NAME)) as db:
+        assert db.execute('PRAGMA journal_mode=WAL').fetchone() == ('wal',)
+        db.execute('BEGIN')
+        db.execute('SELECT id FROM entries').fetchall()
+        second = record(workspace, decision('Second'))
+        assert (workspace / (review_history.NAME + '-wal')).stat().st_size > 0
+        manifest = research_bundle.seal(workspace)
+        assert review_history.DATABASE_FILES.isdisjoint(e['path'] for e in manifest['artifacts'])
+        compact_bundle.retain(workspace)
+        archive = io.BytesIO()
+        research_bundle.archive(workspace, archive)
+    with zipfile.ZipFile(archive) as output:
+        snapshot = output.extract(review_history.NAME, tmp_path / 'download')
+        assert json.loads(output.read('review-decisions.json'))['last_entry'] == second
+    with closing(sqlite3.connect(snapshot)) as db:
+        assert db.execute('SELECT id FROM entries ORDER BY rowid').fetchall() == [(first,), (second,)]
+        assert db.execute('SELECT base_sha256 FROM history').fetchone()[0] == research_bundle.file_hash(workspace / compact_bundle.NAME)
+
+
+def test_retry_refuses_an_entry_past_the_saved_head(tmp_path):
+    prepared(tmp_path)
+    first = record(tmp_path, decision('First'))
+    retry = dict(request_id='second', expected_last_entry=first)
+    review_history.append(tmp_path, decision('Second'), **retry)
+    with sqlite3.connect(tmp_path / review_history.NAME) as db:
+        db.execute('UPDATE history SET last_entry = ?', (first,))
+    with pytest.raises(ValueError, match='inconsistent last entry'):
+        review_history.append(tmp_path, decision('Second'), **retry)

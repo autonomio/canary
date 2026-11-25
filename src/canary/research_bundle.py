@@ -103,18 +103,22 @@ def _artifact_paths(workspace):
             path = base / name
             if (name.startswith('.') or name in excluded_files or name.endswith(('.tmp', '.pyc'))
                     or path == workspace / 'bundle.json' or path.is_symlink()
-                    or (base == workspace and name in (review_history.NAME, review_history.NAME + '-journal',
-                                                       'review-decisions.json'))):
+                    or (base == workspace and (name in review_history.DATABASE_FILES or name == 'review-decisions.json'))):
                 continue
             if path.is_file():
                 yield path
 
 
 def seal(workspace, *, state='finished') -> ResearchBundle:
+    workspace = Path(workspace).resolve()
+    with review_history.locked(workspace):
+        return _seal(workspace, state)
+
+
+def _seal(workspace, state):
     from . import compact_bundle
     if compact_bundle.exists(workspace):
         return compact_bundle.manifest(workspace)
-    workspace = Path(workspace).resolve()
     report = json.loads((workspace / 'compile-report.json').read_text(encoding='utf-8'))
     artifacts = []
     for path in _artifact_paths(workspace):

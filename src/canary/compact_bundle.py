@@ -155,7 +155,7 @@ def _retain(workspace):
 def _release(workspace):
     from . import review_history
     for path in workspace.iterdir():
-        if path.name in (NAME, CHECKSUM, review_history.NAME, '.run-reservation'):
+        if path.name in (NAME, CHECKSUM, '.run-reservation') or path.name in review_history.DATABASE_FILES:
             continue
         if path.is_dir() and not path.is_symlink():
             shutil.rmtree(path)
