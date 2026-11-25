@@ -187,6 +187,28 @@ def test_unqualified_approval_cannot_merge(reviews):
     assert ("POST", "/graphql") not in api.calls
 
 
+@pytest.mark.parametrize(("repo", "author", "reviewer", "reviewer_id", "merges"), [
+    ("Autonomio/Canary", "canary-bot", "bit-mis", 265471408, True),
+    ("autonomio/canary", "canary-bot", "bit-mis", 1, False),
+    ("autonomio/canary", "canary-bot", "another-writer", 1, False),
+    ("autonomio/canary", "BIT-MIS", "bit-mis", 265471408, False),
+    ("downstream/canary", "canary-bot", "another-writer", 1, True),
+])
+def test_upstream_maintenance_uses_verified_reviewer(repo, author, reviewer, reviewer_id, merges):
+    review = approval(reviewer)
+    review["user"]["id"] = reviewer_id
+    api = FakeGitHubAPI(author=author, reviews=[review])
+    api.permissions[reviewer] = "write"
+    gh = api.client(repo)
+    pr = gh.create_pr("T", "B", head="auto/x")
+    if merges:
+        assert gh.wait_and_merge(pr, timeout_s=1, interval_s=0) == "merged"
+    else:
+        with pytest.raises(RuntimeError, match="no independent approval.*bit-mis"):
+            gh.wait_and_merge(pr, timeout_s=0.1, interval_s=0.005)
+        assert ("PUT", f"/repos/{repo}/pulls/9/merge") not in api.calls
+
+
 def test_head_change_during_merge_requires_new_approval():
     api = FakeGitHubAPI()
     api.next_head = "def456"

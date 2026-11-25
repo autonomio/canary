@@ -19,6 +19,8 @@ import httpx
 
 API = "https://api.github.com"
 DEFAULT_REPO = "mikkokotila/Canary"
+UPSTREAM_REPO = "autonomio/canary"
+UPSTREAM_REVIEWER_ID = 265471408  # bit-mis
 BOT_NAME = "canary-bot"
 BOT_EMAIL = "canary-bot@users.noreply.github.com"
 COMMIT_STAGE_PREFIXES = ("src/canary/", "runs/")
@@ -168,7 +170,8 @@ class GitHub:
                 return reviews
             page += 1
 
-    def independently_approved(self, number: int, author: str | None, head_sha: str | None = None) -> bool:
+    def independently_approved(self, number: int, author: str | None, head_sha: str | None = None,
+                               *, reviewer_id: int | None = None) -> bool:
         """Require current-head approval by a non-author with repository write access."""
         if not isinstance(author, str) or not author:
             return False
@@ -186,6 +189,8 @@ class GitHub:
                 user = review.get("user")
                 login = user.get("login") if isinstance(user, dict) else None
                 if not isinstance(login, str) or not login or login.casefold() == author.casefold():
+                    continue
+                if reviewer_id is not None and user.get("id") != reviewer_id:
                     continue
                 state = review.get("state")
                 if state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
@@ -245,6 +250,7 @@ class GitHub:
         Keep this decision in the publisher. GitHub's auto-merge queue cannot
         enforce the publisher's review policy on downstream repositories.
         """
+        reviewer_id = UPSTREAM_REVIEWER_ID if self.repo.casefold() == UPSTREAM_REPO else None
         deadline = time.monotonic() + timeout_s
         unapproved = False
         while time.monotonic() < deadline:
@@ -262,7 +268,7 @@ class GitHub:
                     raise RuntimeError(f"PR #{pr.number} checks failed: {names}")
                 author = state.get("user")
                 login = author.get("login") if isinstance(author, dict) else None
-                if not self.independently_approved(pr.number, login, head_sha):
+                if not self.independently_approved(pr.number, login, head_sha, reviewer_id=reviewer_id):
                     unapproved = True
                     time.sleep(interval_s)
                     continue
@@ -271,9 +277,10 @@ class GitHub:
                     return "merged"
             time.sleep(interval_s)
         if unapproved:
+            reviewer = "bit-mis" if reviewer_id is not None else "a reviewer"
             raise RuntimeError(
                 f"PR #{pr.number} has no independent approval for its current commit "
-                "from a reviewer with repository write access")
+                f"from {reviewer} with repository write access")
         raise RuntimeError(f"PR #{pr.number} did not merge within {timeout_s}s")
 
 
