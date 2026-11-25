@@ -3643,7 +3643,7 @@
             entries.innerHTML = reviewEntries(edition.entries);
             download.href = path + "?last_entry=" + encodeURIComponent(edition.last_entry);
             download.hidden = false;
-            status.textContent = edition.base_sha256 ? "Linked to the sealed bundle." : "The base checksum is recorded at compaction.";
+            status.textContent = edition.base_sha256 ? "Linked to the sealed bundle." : "This edition has no recorded bundle checksum.";
           } catch (error) {
             if (request === sequence) status.textContent = error.message;
           }

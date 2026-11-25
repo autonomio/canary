@@ -106,6 +106,19 @@ For each new request, choose a new `request_id` and copy the latest edition’s
 that decision’s ID in `replaces`. The original stays on record. If Canary
 returns HTTP 409, read the latest edition and check your request against it.
 
+A decision request can contain up to 65,536 bytes of JSON. A larger request
+returns HTTP 413. HTTP 404 means the bundle or edition could not be found.
+HTTP 411 means the request needs a Content-Length header. HTTP 500 means
+Canary could not read or save the review history.
+
+When you review an imported bundle, Canary keeps your decisions in its own
+data directory under the bundle’s permanent ID. If you move the original
+and import it again, its decisions follow that ID. The download includes
+those decisions and the original research.
+
+Save an edition’s last entry ID separately if you need to check that the
+edition is still present after restoring a backup.
+
 Both HTTP actions use `/api/runs/{key}/review-decisions`. GET reads the latest
 edition, or an earlier one if you pass `last_entry`. POST accepts the JSON
 shown above. The corresponding MCP tools are `canary_review_edition` and

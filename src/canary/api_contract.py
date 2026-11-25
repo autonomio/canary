@@ -344,9 +344,14 @@ def document():
        params=[key,('last_entry','query',S,False)],mcp=True)
     op('record_review_decision','post',decisions,'Record or correct a review decision','ReviewReceipt',
        params=[key],body='ReviewDecisionRequest',mcp=True)
-    result['paths'][decisions]['post']['responses']['409'] = {
-        'description':'The edition, correction or request ID conflicts with a saved decision',
-        'content':{'application/json':{'schema':ref('Error')}}}
+    for method, status, description in (
+        ('get', '404', 'Unknown bundle or edition'), ('post', '400', 'Invalid decision request'),
+        ('post', '404', 'Unknown research bundle'), ('post', '409', 'Conflicting decision or request ID'),
+        ('post', '411', 'Content-Length required'), ('post', '413', 'Decision request exceeds 65536 bytes'), ('post', '500', 'Review storage error'),
+        ('get', '500', 'Review storage error'),
+    ):
+        result['paths'][decisions][method]['responses'][status] = {
+            'description':description, 'content':{'application/json':{'schema':ref('Error')}}}
     op('archive','get','/api/runs/{key}/bundle/archive','Download a finished bundle with exact saved materials',params=[key],media='application/zip')
     op('artifact','get','/api/runs/{key}/bundle/artifacts/{artifact_path}','Download one hash-checked inventoried artifact',params=[key,('artifact_path','path',S,True)],media='application/octet-stream')
     op('export','get','/api/runs/{key}/exports/{connector}',

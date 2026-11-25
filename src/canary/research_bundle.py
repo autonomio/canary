@@ -9,7 +9,7 @@ import datetime
 import zipfile
 import os
 from pathlib import Path
-from typing import TypedDict
+from typing import BinaryIO, TypedDict
 
 from . import review_history
 from .research_spec import verify_compiled, digest
@@ -186,13 +186,14 @@ def read(workspace) -> ResearchBundle:
     return value
 
 
-def archive(workspace, target):
+def archive(workspace: str | Path, target: str | Path | BinaryIO, *, review_store: Path | None = None) -> None:
+    """Write a verified research archive with the decisions held for this bundle."""
     workspace = Path(workspace)
-    with review_history.reading(workspace):
-        _archive(workspace, target)
+    with review_history.reading(workspace, review_store):
+        _archive(workspace, target, review_store)
 
 
-def _archive(workspace, target):
+def _archive(workspace: Path, target: str | Path | BinaryIO, review_store: Path | None) -> None:
     manifest = read(workspace)
     if manifest['state'] != 'finished':
         raise ValueError('Only a finished versioned bundle can be archived')
@@ -205,7 +206,7 @@ def _archive(workspace, target):
             output.write(workspace / 'bundle.json', 'bundle.json')
         for entry in manifest['artifacts']:
             output.write(verified_artifact(workspace, entry), entry['path'])
-        review_history.archive(workspace, output, manifest)
+        review_history.archive(workspace, output, manifest, store=review_store)
 
 
 def verified_artifact(workspace, record):

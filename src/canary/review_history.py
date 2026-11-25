@@ -1,5 +1,5 @@
 """Review editions kept alongside the sealed research bundle."""
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 import fcntl
@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sqlite3
 import tempfile
 from typing import Any
@@ -46,11 +47,11 @@ def locked(workspace: Path, *, shared: bool = False) -> Iterator[None]:
 
 
 @contextmanager
-def reading(workspace: Path) -> Iterator[None]:
-    """Share ordinary reads and take an exclusive lock for recovery."""
+def reading(workspace: Path, store: Path | None) -> Iterator[None]:
+    """Share ordinary reads and take an exclusive lock for recovery or an import."""
     with locked(workspace, shared=True):
         pending = compact_bundle.exists(workspace) and (workspace / '.run-reservation').is_file()
-        if not pending and not (workspace / (NAME + '-journal')).exists():
+        if store is None and not pending and not (workspace / (NAME + '-journal')).exists():
             yield
             return
     with locked(workspace):
@@ -130,34 +131,90 @@ def _read_mode(path: Path) -> str:
     return 'rw' if path.with_name(path.name + '-journal').exists() else 'ro'
 
 
-def _recover_binding(workspace: Path, bundle_id: str, checksum: str | None) -> None:
-    path = workspace / NAME
-    if checksum is None or not path.is_file() or not (workspace / '.run-reservation').is_file():
-        return
-    with _connect(path, mode=_read_mode(path)) as db:
-        unbound = db.execute('SELECT 1 FROM history WHERE base_sha256 IS NULL').fetchone()
-    if unbound:
+def _source_files(root: Path) -> dict[Path, tuple[int, int, int, int]]:
+    files = {}
+    for name in (NAME, NAME + '-journal', NAME + '-wal'):
+        path = root / name
+        if path.is_symlink():
+            raise ReviewStorageError('Invalid review file')
         try:
-            if compact_bundle.manifest(workspace)['id'] != bundle_id:
-                raise ValueError('Bundle ID differs from the stored contribution')
-        except (ValueError, KeyError, TypeError, AttributeError, OSError) as error:
-            raise ReviewStorageError('Cannot verify the stored contribution before linking decisions') from error
-        bind(workspace, bundle_id, checksum)
+            stat = path.stat()
+        except FileNotFoundError:
+            continue
+        files[path] = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_ctime_ns)
+    return files
 
 
-def edition(workspace: str | Path, last_entry: str | None = None) -> Record:
+def _import_history(root: Path, target: Path, bundle_id: str, checksum: str | None) -> None:
+    with tempfile.TemporaryDirectory(dir=target) as temporary:
+        snapshot = Path(temporary)
+        source_files = _source_files(root)
+        for source in source_files:
+            shutil.copyfile(source, snapshot / source.name)
+        if source_files != _source_files(root):
+            raise ReviewStorageError('The imported review changed while it was being copied')
+        path = snapshot / NAME
+        with _connect(path) as db:
+            db.execute('PRAGMA journal_mode=DELETE').fetchone()
+        _recover_binding(root, snapshot, bundle_id, checksum)
+        with _connect(path, mode='ro') as db:
+            _header(db, bundle_id, checksum)
+            _verify_entries(db, bundle_id)
+        path.replace(target / NAME)
+
+
+@contextmanager
+def _directory(root: Path, bundle_id: str, checksum: str | None, store: Path | None) -> Iterator[Path]:
+    if store is None:
+        yield root
+        return
+    if store.resolve().is_relative_to(root.resolve()):
+        raise ReviewStorageError('The decision store must be outside the imported bundle')
+    target = store / digest(bundle_id)
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise ReviewStorageError('Could not open the imported decision history') from error
+    with locked(target):
+        if not (target / NAME).exists() and ((root / NAME).is_file() or (root / NAME).is_symlink()):
+            try:
+                _import_history(root, target, bundle_id, checksum)
+            except OSError as error:
+                raise ReviewStorageError('Could not copy the imported decision history') from error
+        yield target
+
+
+def _recover_binding(root: Path, directory: Path, bundle_id: str, checksum: str | None) -> None:
+    if checksum is None or not (directory / NAME).is_file():
+        return
+    if directory != root or (root / '.run-reservation').is_file():
+        path = directory / NAME
+        with _connect(path, mode=_read_mode(path)) as db:
+            unbound = db.execute('SELECT 1 FROM history WHERE base_sha256 IS NULL').fetchone()
+        if unbound:
+            try:
+                manifest = compact_bundle.manifest(root)
+                if manifest['id'] != bundle_id:
+                    raise ValueError('Bundle ID differs from the stored contribution')
+            except (ValueError, KeyError, TypeError, AttributeError, OSError) as error:
+                raise ReviewStorageError('Cannot verify the stored contribution before linking decisions') from error
+            bind(directory, bundle_id, checksum)
+
+
+def edition(workspace: str | Path, last_entry: str | None = None, *, store: Path | None = None) -> Record:
     """Read decisions through the requested entry, or through the most recent one."""
     root = Path(workspace).resolve()
-    with reading(root):
+    with reading(root, store):
         bundle_id, checksum = _base(root)
-        path = root / NAME
-        if not path.exists():
-            if last_entry not in (None, INITIAL):
-                raise UnknownEdition('Unknown review edition')
-            return dict(version=VERSION, bundle_id=bundle_id, base_sha256=checksum, last_entry=INITIAL, entries=[])
-        _recover_binding(root, bundle_id, checksum)
-        with _connect(path, mode=_read_mode(path)) as db:
-            return _edition(db, bundle_id, checksum, last_entry)
+        with _directory(root, bundle_id, checksum, store) as directory:
+            path = directory / NAME
+            if not path.exists():
+                if last_entry not in (None, INITIAL):
+                    raise UnknownEdition('Unknown review edition')
+                return dict(version=VERSION, bundle_id=bundle_id, base_sha256=checksum, last_entry=INITIAL, entries=[])
+            _recover_binding(root, directory, bundle_id, checksum)
+            with _connect(path, mode=_read_mode(path)) as db:
+                return _edition(db, bundle_id, checksum, last_entry)
 
 
 def _initialize(db: sqlite3.Connection, bundle_id: str, checksum: str | None) -> None:
@@ -195,7 +252,7 @@ def _record(db: sqlite3.Connection, bundle_id: str, checksum: str | None, decisi
 
 
 def append(workspace: str | Path, decision: Record, *, request_id: str, expected_last_entry: str,
-           replaces: str | None = None) -> str:
+           replaces: str | None = None, store: Path | None = None) -> str:
     """Record a decision and return the same entry ID when a client retries it."""
     review_decisions.validate(decision)
     if not isinstance(request_id, str) or not re.fullmatch(r'\S{1,128}', request_id):
@@ -209,24 +266,25 @@ def append(workspace: str | Path, decision: Record, *, request_id: str, expected
     root = Path(workspace).resolve()
     with locked(root):
         bundle_id, checksum = _base(root)
-        _recover_binding(root, bundle_id, checksum)
-        path = root / NAME
-        new = not path.exists()
-        target = root / ('.' + NAME + '.tmp') if new else path
-        if new:
-            target.unlink(missing_ok=True)
-        try:
-            with _connect(target, mode='rwc' if new else 'rw') as db, db:
-                db.execute('BEGIN IMMEDIATE')
-                if new:
-                    _initialize(db, bundle_id, checksum)
-                identifier = _record(db, bundle_id, checksum, decision, request_id=request_id,
-                                     expected_last_entry=expected_last_entry, replaces=replaces)
-            if new:
-                target.replace(path)
-        finally:
+        with _directory(root, bundle_id, checksum, store) as directory:
+            _recover_binding(root, directory, bundle_id, checksum)
+            path = directory / NAME
+            new = not path.exists()
+            target = directory / ('.' + NAME + '.tmp') if new else path
             if new:
                 target.unlink(missing_ok=True)
+            try:
+                with _connect(target, mode='rwc' if new else 'rw') as db, db:
+                    db.execute('BEGIN IMMEDIATE')
+                    if new:
+                        _initialize(db, bundle_id, checksum)
+                    identifier = _record(db, bundle_id, checksum, decision, request_id=request_id,
+                                         expected_last_entry=expected_last_entry, replaces=replaces)
+                if new:
+                    target.replace(path)
+            finally:
+                if new:
+                    target.unlink(missing_ok=True)
     return identifier
 
 
@@ -246,23 +304,24 @@ def bind(workspace: Path, bundle_id: str, checksum: str) -> None:
             db.execute('UPDATE history SET base_sha256 = ?', (checksum,))
 
 
-def archive(workspace: Path, output: ZipFile, manifest: Record) -> None:
+def archive(workspace: Path, output: ZipFile, manifest: Mapping[str, Any], *, store: Path | None = None) -> None:
     """Add the decision database and the same edition in readable JSON to the ZIP."""
-    path = workspace / NAME
-    if not path.exists():
-        return
     checksum = (workspace / compact_bundle.CHECKSUM).read_text().strip() if compact_bundle.exists(workspace) else None
-    _recover_binding(workspace, manifest['id'], checksum)
-    with _connect(path, mode=_read_mode(path)) as db:
-        db.execute('BEGIN')
-        record = _edition(db, manifest['id'], checksum, None)
-        if db.execute('PRAGMA journal_mode').fetchone()[0] == 'wal':
-            with tempfile.TemporaryDirectory() as directory:
-                snapshot = Path(directory) / NAME
-                with closing(sqlite3.connect(snapshot)) as copy:
-                    db.backup(copy)
-                    copy.execute('PRAGMA journal_mode=DELETE')
-                output.write(snapshot, NAME)
-        else:
-            output.write(path, NAME)
-    output.writestr('review-decisions.json', json.dumps(record, ensure_ascii=False))
+    with _directory(workspace, manifest['id'], checksum, store) as directory:
+        path = directory / NAME
+        if not path.exists():
+            return
+        _recover_binding(workspace, directory, manifest['id'], checksum)
+        with _connect(path, mode=_read_mode(path)) as db:
+            db.execute('BEGIN')
+            record = _edition(db, manifest['id'], checksum, None)
+            if db.execute('PRAGMA journal_mode').fetchone()[0] == 'wal':
+                with tempfile.TemporaryDirectory() as temporary:
+                    snapshot = Path(temporary) / NAME
+                    with closing(sqlite3.connect(snapshot)) as copy:
+                        db.backup(copy)
+                        copy.execute('PRAGMA journal_mode=DELETE')
+                    output.write(snapshot, NAME)
+            else:
+                output.write(path, NAME)
+        output.writestr('review-decisions.json', json.dumps(record, ensure_ascii=False))

@@ -123,9 +123,20 @@ the working files, it records the checksum of the stored `resolvent.json` in the
 decision history. Later corrections point back to the entries they amend. The
 bundle ID and the last entry ID together identify an edition.
 
+For an imported bundle, Canary copies any existing decision history into its
+own data directory when it first needs it. Further decisions go into that
+copy. An archive downloaded through the service includes the copy.
+
 The Canary archive includes the database and a copy you can read as JSON
 (`review-decisions.json`). You can download the history even when the research
 exceeds Resolvent’s 10 MiB export limit. [How to read or correct a decision](API.md#review-decisions).
+
+Canary checks every earlier decision before saving another. In a local test,
+saving 1,000 short decisions one at a time took 7.7 seconds and required 500,500
+entry hashes. The cost grows with the square of the number of decisions.
+Any faster write path must still detect a change to an earlier entry before
+accepting another decision. Reading or downloading an edition also checks the
+entries it contains.
 
 The retained bundle is checked before any working files are released. A failed
 commit/export preserves the workspace. Only newly reserved API workers enter this
