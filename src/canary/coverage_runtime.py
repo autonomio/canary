@@ -105,6 +105,9 @@ def validate_plan(plan):
         raise ValueError("QuestionPlan requires typed coverage aspects/facets")
     if not isinstance(plan.get("eligibility"), dict):
         raise ValueError("QuestionPlan requires eligibility criteria")
+    instructions = plan.get("screening_instructions", [])
+    if not isinstance(instructions, list) or any(not isinstance(item, str) for item in instructions):
+        raise ValueError("QuestionPlan screening_instructions must be an array of strings")
     ids, terms = set(), set()
     if not plan["queries"]:
         raise ValueError("QuestionPlan requires at least one query")

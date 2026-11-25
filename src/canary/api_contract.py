@@ -109,7 +109,7 @@ def schemas():
         'withheld_evidence':dict(arr(O),description='Evidence records used only by withheld or withdrawn claims; excluded from active evidence.'),
         'claim_review_checks':arr(ref('ClaimReviewCheck')),
         'source_checks':arr(ref('RecordedSourceCheck')), 'evidence_independence':arr(ref('EvidenceIndependence'))},closed=False)
-    research = obj({'kind':S,'answer':ref('Findings'),'run':O,'peer_review':O,'query_net':O,
+    research = obj({'kind':S,'answer':ref('Findings'),'run':O,'peer_review':O,'query_net':ref('QueryNet'),
         'access':O,'profile':obj({'progress':obj({'updated_at':S,'findings_updated_at':nullable(S),
             'findings_refreshed':B,'final_refresh':B},closed=False)},closed=False),
         'coverage':obj({'candidate_metadata':ref('CandidateMetadata'), 'additional_sources':arr(ref('AdditionalSourceStatus')),
@@ -191,6 +191,7 @@ def schemas():
         'BundleResponse':obj({'key':S,'live':B,'bundle':ref('BundleManifest'),'research':ref('Research')},['key','live','bundle','research']),
         'Findings':findings,'RecordedClaim':claim,'RecordedEvidence':evidence,'Passage':passage,
         'SourceContext':context,'GeneratedInvestigation':generated,'QuestionPlan':_query_schema(),
+        'QueryNet':obj({'screening_instructions':arr(S)}, closed=False),
         'ScientificAudit':protocol.audit_schema(),
         'ClaimLink':generated['properties']['claim_links']['items'],
         'RevisionDigest':obj({'round':I,'kind':{'enum':['research','audit','correction']},'sha256':S}, ['round','kind','sha256']),
@@ -282,6 +283,7 @@ def schemas():
 def _query_schema():
     shape = protocol.question_plan_schema(ADDITIONAL_SOURCES)
     shape['properties']['queries']['items']['required'].remove('source')
+    shape['required'].remove('screening_instructions')
     return shape
 
 

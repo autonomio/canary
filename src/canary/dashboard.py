@@ -1029,7 +1029,8 @@ def research_bundle(bundle: str | Path) -> dict:
 
 
 def question_research_bundle(bundle: Path, run: dict) -> dict:
-    """Native question artifacts are returned intact, without legacy UI caps."""
+    """Native question artifacts without legacy UI caps."""
+    from .coverage_protocol import published_question_plan
     def load(name, default):
         value = _load_json_file(bundle / name, default)
         return value if isinstance(value, type(default)) else default
@@ -1054,7 +1055,7 @@ def question_research_bundle(bundle: Path, run: dict) -> dict:
         startup_error, _ = _read_capped(bundle/'research-stderr.log', 3000)
     return {"kind": "question", "answer": graph, "run": run, "peer_review": review,
             'startup_error': startup_error,
-            "query_net": load("query-net.json", {}), "access": access,
+            "query_net": published_question_plan(load("query-net.json", {})), "access": access,
             "source_recovery": load("source-recovery.json", {}),
             "coverage": coverage, "paper_selection": load("paper-selection.json", {}),
             "profile": load("profile.json", {}), "source_efficiency": load("source-efficiency.json", {}),

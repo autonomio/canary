@@ -131,7 +131,7 @@ research.yaml                Exact submitted YAML (generated YAML for JSON/quest
 run-spec.json                Fully resolved settings; stable SHA-256 identity
 compile-report.json          Compiler version/checks, bundle identity/time and engine fingerprints
 run.json                     Execution outcome; answer availability and audit scope remain separate
-question-plan.json           Question concepts, search branches and inclusion criteria
+question-plan.json           Question concepts, search branches, eligibility and screening instructions
 selection.json               Candidate dispositions and selection rationale
 coverage-map.json            Coverage and remaining needs
 reviewed-papers.json          Actual source-reading record
@@ -152,6 +152,13 @@ The artifact inventory retains research files recursively, including CSV tables,
 The writer reserves new workspaces and never replaces prior source bodies. Input hashes are checked on bundle reads; artifacts are hash-checked before download/export. Downloading the ZIP streams its file contents instead of loading all papers into memory. These are inspectable filesystem snapshots, not protection against an operator rewriting both files and their checksums. Original and extracted text hashes differ by design. Exact passage reconstruction is `canonical_text[start:end]`; visual tables/figures and scientific interpretation still require original-source inspection and audit.
 
 Old runs are `legacy_unversioned` with no fabricated YAML/specification. Their existing findings remain readable. Damaged/unsupported manifests are labeled invalid while the existing research projection remains available. No historical scientific files are rewritten to add this format.
+
+New question plans put screeners’ operational instructions in an optional
+`screening_instructions` string array alongside `eligibility`. The research
+API and `query-net.json` retain `eligibility.core`, `eligibility.supporting`
+and `eligibility.exclusion` for protocol consumers. For the legacy mixed
+criterion reported in #201, the published view moves the known instruction
+into that array. The original plan and sealed artifacts preserve the recorded text.
 
 Optional `clinicaltrials`, `epo` and `osf` sources are additive to the default
 OpenAlex corpus. Their requested-source status and typed reference metadata survive

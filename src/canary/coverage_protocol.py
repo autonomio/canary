@@ -160,8 +160,8 @@ def question_plan_schema(additional_sources=()):
         "comparators": SS,
         "conditions": SS,
         "coverage_aspects": arr(obj({"id": S, "description": S, "priority_reason": S})),
-        "eligibility": obj({"core": S, "supporting": S, "exclusion": S,
-                            "full_paper_checks": SS}),
+        "eligibility": obj({"core": S, "supporting": S, "exclusion": S, "full_paper_checks": SS}),
+        "screening_instructions": dict(SS, description="Operational instructions for screening and full-paper review."),
         "queries": arr(obj({"id": S, "search": S, "coverage_aspect_ids": SS,
                             "purpose": S, "collapse_reason": S})),
         "scope_note": S,
@@ -171,6 +171,25 @@ def question_plan_schema(additional_sources=()):
         query['properties']['source'] = enum('openalex', *additional_sources)
         query['required'].append('source')
     return shape
+
+
+def published_question_plan(plan):
+    """Separate the known legacy instruction in public views without changing the saved plan."""
+    if not isinstance(plan, dict):
+        return {}
+    eligibility = plan.get("eligibility")
+    core = eligibility.get("core") if isinstance(eligibility, dict) else None
+    suffix = "; label publication type and overlap."
+    if not isinstance(core, str) or not core.endswith("Theses and technical publications may qualify" + suffix):
+        return plan
+    instructions = plan.get("screening_instructions", [])
+    instruction = "Label publication type and overlap."
+    if not isinstance(instructions, list):
+        return plan
+    if instruction not in instructions:
+        instructions = [*instructions, instruction]
+    return dict(plan, eligibility=dict(eligibility, core=core.removesuffix(suffix) + "."),
+                screening_instructions=instructions)
 
 
 def investigation_schema():
@@ -362,9 +381,13 @@ Question: {question}{brief_scope}
 If you stop because the question cannot be researched as asked (for example, it needs the product or measure identified first), save and return investigation.json with clarification {{question, reason}}: the one question a person must answer, and why. Leave the summary and findings empty. Otherwise clarification is null.
 1. Write question-plan-draft.json conforming to question-plan-schema.json. Use 'concepts', never 'entities'.
 Translate the question into concepts/synonyms, outcomes, comparators, conditions, coverage aspects and explicit inclusion/exclusion criteria.
+In eligibility.core, eligibility.supporting and eligibility.exclusion, state only what makes a study qualify or be excluded.
+Put operational directions, such as labeling publication type or documenting study overlap, in screening_instructions; use [] if none apply.
+Keep full_paper_checks for facts to verify in the full paper when applying eligibility criteria.
 {search}
 Discovery alone commits the validated question-plan.json; never overwrite that canonical file directly.
 2. Run {command} discover --plan question-plan-draft.json. Read search-progress.json and candidates.jsonl.
+Apply the saved eligibility criteria and follow screening_instructions during screening and full-paper review.
 Choose batches by coverage-guided marginal information gain: direct comparisons, contrasting/adverse/null findings, condition/outcome differences, methods, then needed context.
 Record selection.json as {{method:'coverage', approach, assessed_candidate_ids, decisions:[{{work_id,decision:'include|exclude|defer',evidence_role:'core|supporting|unknown',reason,criterion_matches,unknowns,supporting_abstract_text,priority_rank,coverage_contribution}}], selected_for_review_ids, stopping_reason, selection_limitations}}.
 Exact abstract support or null; missing abstracts are uncertainty, not automatic exclusion. All omitted candidates remain unassessed.{citation_scope}
@@ -378,6 +401,8 @@ Every retrieved source still requires identity, completeness and question releva
 Count unique publications, not versions. Do not pad with generic context. Persist reviewed-papers.json after each completed source review:
 [{{work_id,eligibility:'core|supporting|preview|irrelevant|uncertain',reason,investigated_sections,passage_ids_read,incorporated_in_output,related_study_ids,substantive_review_note}}].
 Notes must reflect actual question-linked reading of methods/results or equivalent context, not templated status notes.
+In published review reasons, state the source's contribution without instructions to the screener or editor.
+If naming the publication type or version, verify it from the source and its metadata; omit the label if it cannot be established.
 Use a JSON serializer for all research records and preserve free text as drafted, including spaces beside numbers.
 If shortening a review note into a reason, keep the whole first sentence. A sentence-ending period is followed
 by whitespace and a capital or by the end of the note. Keep decimal points inside numbers.
