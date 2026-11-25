@@ -120,6 +120,8 @@ class Pull:
 class GitHub:
     def __init__(self, token: str, repo: str, client: httpx.Client | None = None) -> None:
         self.repo = repo
+        # GitHub redirects the original remote to this repository after transfer.
+        self._api_repo = UPSTREAM_REPO if repo.casefold() == DEFAULT_REPO.casefold() else repo
         self._client = client or httpx.Client(
             base_url=API,
             headers={
@@ -145,24 +147,24 @@ class GitHub:
         return self._result(self._client.get(path))
 
     def create_issue(self, title: str, body: str) -> Issue:
-        d = self._post(f"/repos/{self.repo}/issues", {"title": title, "body": body})
+        d = self._post(f"/repos/{self._api_repo}/issues", {"title": title, "body": body})
         return Issue(number=d["number"], url=d["html_url"])
 
     def comment(self, number: int, body: str) -> None:
-        self._post(f"/repos/{self.repo}/issues/{number}/comments", {"body": body})
+        self._post(f"/repos/{self._api_repo}/issues/{number}/comments", {"body": body})
 
     def create_pr(self, title: str, body: str, head: str, base: str = "main") -> Pull:
-        d = self._post(f"/repos/{self.repo}/pulls", {"title": title, "body": body, "head": head, "base": base})
+        d = self._post(f"/repos/{self._api_repo}/pulls", {"title": title, "body": body, "head": head, "base": base})
         return Pull(number=d["number"], url=d["html_url"], node_id=d["node_id"], head_sha=d["head"]["sha"])
 
     def get_pr(self, number: int) -> dict:
-        return self._get(f"/repos/{self.repo}/pulls/{number}")
+        return self._get(f"/repos/{self._api_repo}/pulls/{number}")
 
     def reviews(self, number: int) -> list[dict]:
         reviews = []
         page = 1
         while True:
-            items = self._get(f"/repos/{self.repo}/pulls/{number}/reviews?per_page=100&page={page}")
+            items = self._get(f"/repos/{self._api_repo}/pulls/{number}/reviews?per_page=100&page={page}")
             if not isinstance(items, list):
                 return []
             reviews.extend(items)
@@ -200,7 +202,7 @@ class GitHub:
                     continue
                 reviewer = quote(login, safe="")
                 try:
-                    access = self._get(f"/repos/{self.repo}/collaborators/{reviewer}/permission")
+                    access = self._get(f"/repos/{self._api_repo}/collaborators/{reviewer}/permission")
                 except httpx.HTTPStatusError as error:
                     if error.response.status_code != 404:
                         raise
@@ -212,7 +214,7 @@ class GitHub:
         return False
 
     def check_runs(self, sha: str) -> list[dict]:
-        d = self._get(f"/repos/{self.repo}/commits/{sha}/check-runs")
+        d = self._get(f"/repos/{self._api_repo}/commits/{sha}/check-runs")
         return d.get("check_runs", [])
 
     def enable_automerge(self, node_id: str) -> bool:
@@ -232,7 +234,7 @@ class GitHub:
         if head_sha is not None:
             payload["sha"] = head_sha
         try:
-            d = self._result(self._client.put(f"/repos/{self.repo}/pulls/{number}/merge", json=payload))
+            d = self._result(self._client.put(f"/repos/{self._api_repo}/pulls/{number}/merge", json=payload))
             return bool(d.get("merged"))
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 405 or (head_sha is not None and e.response.status_code == 409):
@@ -240,7 +242,7 @@ class GitHub:
             raise
 
     def delete_branch(self, branch: str) -> None:
-        resp = self._client.delete(f"/repos/{self.repo}/git/refs/heads/{branch}")
+        resp = self._client.delete(f"/repos/{self._api_repo}/git/refs/heads/{branch}")
         if resp.status_code not in (204, 404, 422):
             resp.raise_for_status()
 
@@ -250,7 +252,7 @@ class GitHub:
         Keep this decision in the publisher. GitHub's auto-merge queue cannot
         enforce the publisher's review policy on downstream repositories.
         """
-        reviewer_id = UPSTREAM_REVIEWER_ID if self.repo.casefold() == UPSTREAM_REPO else None
+        reviewer_id = UPSTREAM_REVIEWER_ID if self._api_repo.casefold() == UPSTREAM_REPO else None
         deadline = time.monotonic() + timeout_s
         unapproved = False
         while time.monotonic() < deadline:
