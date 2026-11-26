@@ -246,7 +246,9 @@ select {
 .detail-meta { gap: 14px; font-size: 14px; }
 .detail-actions { gap: 12px; margin: 10px 0; }
 .research-tabs { gap: 24px; margin: 10px 0 18px; flex-wrap: wrap; overflow: visible; }
-.research-tabs button { min-height: 34px; padding: 6px 0; font-size: 15px; }
+.research-tabs a { color: var(--muted); text-decoration: none; }
+.research-tabs a[aria-current="page"] { color: var(--blue); border-bottom: 1px solid currentColor; }
+.research-tabs button, .research-tabs a { min-height: 34px; padding: 6px 0; font-size: 15px; }
 .research-tabs button.on { color: var(--blue); border-color: var(--blue); }
 .reading-layout { gap: 28px; grid-template-columns: minmax(0, 1fr) 220px; }
 .report { padding-right: 0; min-width: 0; }

@@ -1268,7 +1268,11 @@
         <section id="detail" hidden></section>
         <section id="checklist-view" aria-labelledby="checklist-title" hidden>
           <a id="checklist-back" class="text-action">Research overview</a>
-          <h1 id="checklist-title">PRISMA checklist</h1>
+          <h1 id="checklist-title">PRISMA</h1>
+          <nav class="research-tabs" aria-label="PRISMA sections">
+            <a id="prisma-checklist">Checklist</a>
+            <a id="prisma-methods">Methods appendix</a>
+          </nav>
           <div id="checklist-content" aria-live="polite"></div>
         </section>
         <section id="operations-view" hidden></section>
@@ -1856,7 +1860,7 @@
           } catch {
             key = "";
           }
-          navigate("research", key, bits[2] || "overview");
+          navigate("research", key, bits[2] === "prisma" ? "checklist" : bits[2] || "overview");
         } else if (["log", "usage", "improvements", "checks"].includes(bits[0]))
           navigate(bits[0]);
         else navigate();
@@ -2025,7 +2029,11 @@
         const content = document.getElementById("checklist-content");
         document.getElementById("checklist-back").href = "#research/" + encodeURIComponent(key) + "/overview";
         const label = tab === "methods" ? "Methods appendix" : "PRISMA checklist";
-        document.getElementById("checklist-title").textContent = label;
+        for (const section of ["checklist", "methods"]) {
+          const link = document.getElementById("prisma-" + section);
+          link.href = "#research/" + encodeURIComponent(key) + "/" + section;
+          link.setAttribute("aria-current", section === tab ? "page" : "false");
+        }
         content.textContent = "Loading " + label + "…";
         try {
           const report = await api("/api/runs/" + encodeURIComponent(key) + "/prisma/" + tab);
@@ -2051,6 +2059,11 @@
         }
       }
 
+      function prismaLink(d, key) {
+        if (d?.compiled_bundle?.state !== "finished" || !d.compiled_bundle.specification) return "";
+        return `<a class="text-action" href="#research/${encodeURIComponent(key)}/prisma" target="_blank" rel="noopener">PRISMA</a>`;
+      }
+
       function bundleHtml(d) {
         const b=d.compiled_bundle;
         if (!b) return '';
@@ -2065,8 +2078,6 @@
           const archiveLabel=jsonDownload ? "Download full bundle (ZIP)" : retained ? "Download retained bundle archive" : "Download bundle";
           links.push(`<a class="text-action" href="${root}/archive" download="research-bundle.zip">${archiveLabel}</a>`);
           if (!retained) links.push(`<a class="text-action" href="${exportUrl}" download="resolvent-submission.json">Resolvent handoff</a>`);
-          links.push(`<a class="text-action" href="#research/${encodeURIComponent(S.selected)}/methods" target="_blank" rel="noopener">Methods appendix</a>`);
-          links.push(`<a class="text-action" href="#research/${encodeURIComponent(S.selected)}/checklist" target="_blank" rel="noopener">PRISMA checklist</a>`);
         }
         return `<details class="coverage" data-detail="research-bundle"><summary>Research bundle · ${esc(b.state)}${b.execution?.status ? ` / ${esc(b.execution.status)}` : ''} · ${esc(p.spec_sha256.slice(0,12))}</summary><p class="hint">${esc(b.id || 'Input staged')} · compiler ${esc(p.compiler_version)}${retained ? " · Bundle only; full papers released" : ""}</p>${!retained ? '<p class="hint">Working sources are released only after the saved bundle passes integrity and input checks.</p>' : ""}${b.id ? '<button class="btn small" data-action="review-decisions">Review decisions</button>' : ''}${studyBriefHtml(spec)}${researchStateHtml(spec)}${bundleEncodingHtml(b)}${contributionHtml(b)}${localCorpusHtml(d)}${additionalSourcesHtml(d)}<p>${esc(spec.research.model)} / ${esc(spec.research.effort)} research · ${esc(spec.audit.model)} / ${esc(spec.audit.effort)} audit · ${esc(spec.retrieval.target_papers)} target papers · ${Number.isInteger(spec.audit.max_correction_rounds) ? `${esc(spec.audit.max_correction_rounds)} correction rounds · ` : ''}${spec.audit.budget_seconds === null ? 'No audit time limit' : Number.isFinite(spec.audit.budget_seconds) ? `${esc(spec.audit.budget_seconds)}s recorded audit limit` : 'Audit time limit not recorded'}</p><details><summary>Original YAML</summary><pre class="search-query">${esc(p.source_yaml)}</pre></details><details><summary>Resolved settings and recorded engine</summary><pre class="search-query">${esc(JSON.stringify({resolved:spec,engine:p.engine || null,checks:p.checks},null,2))}</pre></details><button class="btn small" data-action="repeat-bundle">Repeat these settings</button>${b.state==='finished' ? ` ${links.join(' · ')}<details><summary>Handoff semantics</summary><p class="hint">${d.answer?.export_policy?.connector_version>=4 ? "Audited reported findings export as source-attributed observed facts. Low uncertainty is retained only with audited independent, inspected supporting evidence; otherwise it remains at least medium. Revisions and withheld claims remain visible. " : "Original uncertainty and freshness are retained. Candidate uncertainty is at least medium until evidence independence is established. "}This is candidate input for Resolvent admission; export does not approve or publish findings.</p><p class="hint">Canary packs its own JSON losslessly and resolves it in code. Native Resolvent claims, evidence and sources remain readable in the smaller export. An export above Resolvent's 10 MiB file limit is refused with its measured size, never shortened. Native round records name each repeated payload snapshot by SHA-256; complete records stay in the research artifact and its round history.</p><a class="text-action" href="/api/runs/${encodeURIComponent(S.selected)}/exports/resolvent?representation=expanded" download="research-bundle-expanded.json">Expanded JSON for reading (not size-bounded)</a></details>` : ''}<details><summary>Saved artifacts (${b.artifacts.length})</summary><ul>${b.artifacts.map(a=>`<li><a href="${root}/artifacts/${a.path.split('/').map(encodeURIComponent).join('/')}" download>${esc(a.path)}</a> · ${esc(a.bytes)} bytes · <code>${esc(a.sha256)}</code></li>`).join('')}</ul></details>${(b.limitations || []).map(x=>`<p class="hint">${esc(x)}</p>`).join('')}</details>`;
       }
@@ -2167,7 +2178,7 @@
               : `<p class="muted">Loading the research record…</p>`;
         preserveRender(
           el,
-          `<div class="detail-heading ${S.tab === "issue" ? "issue-heading" : ""}">${badge(r)}<h1 tabindex="-1" id="research-heading" data-focus="research-heading">${esc(questionOf(r))}</h1><div class="detail-meta"><span>${esc(r.name)}</span><span>Started ${dateText(r.started_at, true)}</span>${active(r) ? "<span>Updates automatically</span>" : ""}</div></div><div class="detail-actions"><button class="btn" data-action="retry-research">${active(r) ? "Use this question" : "Research again"}</button>${r.live && r.container ? `<button class="btn" data-action="${r.status === "paused" ? "unpause" : "pause"}">${r.status === "paused" ? "Resume research" : "Pause research"}</button>` : ""}${r.can_cancel ? '<button class="btn quiet" data-action="cancel">Cancel research</button>' : ""}${hasReport(r) ? '<button class="btn" data-action="export-report">Save report</button>' : ""}<button class="btn quiet" data-action="refresh-detail">Refresh</button></div><nav class="research-tabs" aria-label="Research sections">${tabs.map(([k, t]) => `<button class="${S.tab === k ? "on" : ""}" data-research-tab="${k}" aria-current="${S.tab === k ? "page" : "false"}" data-focus="tab-${k}">${t}</button>`).join("")}</nav>${S.errors[key] ? `<p class="error-banner" role="alert">Could not load the research record: ${esc(S.errors[key])}. <button class="btn small" data-action="refresh-detail">Try again</button></p>` : ""}<div class="reading-layout ${S.tab === "issue" ? "issue-layout" : ""}"><div class="report">${body}</div>${d && S.tab !== "issue" ? asideHtml(r, d) : ""}</div>${d ? technicalHtml(r, d) : ""}`,
+          `<div class="detail-heading ${S.tab === "issue" ? "issue-heading" : ""}">${badge(r)}<h1 tabindex="-1" id="research-heading" data-focus="research-heading">${esc(questionOf(r))}</h1><div class="detail-meta"><span>${esc(r.name)}</span><span>Started ${dateText(r.started_at, true)}</span>${active(r) ? "<span>Updates automatically</span>" : ""}</div></div><div class="detail-actions">${prismaLink(d, key)}<button class="btn" data-action="retry-research">${active(r) ? "Use this question" : "Research again"}</button>${r.live && r.container ? `<button class="btn" data-action="${r.status === "paused" ? "unpause" : "pause"}">${r.status === "paused" ? "Resume research" : "Pause research"}</button>` : ""}${r.can_cancel ? '<button class="btn quiet" data-action="cancel">Cancel research</button>' : ""}${hasReport(r) ? '<button class="btn" data-action="export-report">Save report</button>' : ""}<button class="btn quiet" data-action="refresh-detail">Refresh</button></div><nav class="research-tabs" aria-label="Research sections">${tabs.map(([k, t]) => `<button class="${S.tab === k ? "on" : ""}" data-research-tab="${k}" aria-current="${S.tab === k ? "page" : "false"}" data-focus="tab-${k}">${t}</button>`).join("")}</nav>${S.errors[key] ? `<p class="error-banner" role="alert">Could not load the research record: ${esc(S.errors[key])}. <button class="btn small" data-action="refresh-detail">Try again</button></p>` : ""}<div class="reading-layout ${S.tab === "issue" ? "issue-layout" : ""}"><div class="report">${body}</div>${d && S.tab !== "issue" ? asideHtml(r, d) : ""}</div>${d ? technicalHtml(r, d) : ""}`,
         );
         if (S.logs[key]) paintLogs();
       }
@@ -3625,7 +3636,7 @@
     if(S.tab==="claims") S.tab="overview";
     if(!tabs.some(x=>x[0]===S.tab)) S.tab="overview";
     const body=S.tab==="issue" ? issueHtml(row) : S.tab==="sources" ? modernPapersHtml(d) : S.tab==="trail" ? queryNetHtml(d) : bundleHtml(d)+answerHtml(row,d);
-    const scrolls=preserveRender(el,`<div class="answer-workspace"><div class="heading-row"><div class="source-actions"><button class="text-action" data-action="retry-research">Ask again</button>${row.can_cancel ? '<button class="text-action" data-action="cancel">Cancel research</button>' : ""}${hasReport(row) ? '<button class="text-action" data-action="export-report">Save answer ↗</button>' : ""}</div></div><div class="detail-heading"><h1 id="research-heading" tabindex="-1" data-focus="research-heading">${esc(g?.question || d.run?.question || questionOf(row))}</h1><div class="detail-meta">${badge(row)}<span>${g?.claims?.length ?? 0} claims · ${g?.evidence?.length ?? 0} passages · ${cliResearch(d) ? esc(cliSourceCounts(d)) : hasMergedSourceCopies(d) ? `${g?.references?.length ?? 0} unique source${g?.references?.length===1 ? '' : 's'}` : `${d.run?.accepted ?? g?.references?.length ?? 0} full papers`}</span><span>${dateText(row.ended_at || row.started_at,true)}</span>${active(row) ? "<span>Updates automatically</span>" : ""}</div></div><nav class="research-tabs" aria-label="Question sections">${tabs.map(([id,label])=>`<button class="${S.tab===id ? "on" : ""}" data-research-tab="${id}" aria-current="${S.tab===id ? "page" : "false"}" data-focus="tab-${id}">${label}</button>`).join("")}</nav>${S.errors[row.key] ? `<p role="alert">${esc(S.errors[row.key])}</p>` : ""}<div class="answer-grid"><div class="answer-main">${body}</div><aside class="evidence-inspector" id="evidence-inspector" aria-label="Claim and source inspector" hidden></aside></div>${technicalHtml(row,d)}</div>`);
+    const scrolls=preserveRender(el,`<div class="answer-workspace"><div class="heading-row"><div class="source-actions">${prismaLink(d, row.key)}<button class="text-action" data-action="retry-research">Ask again</button>${row.can_cancel ? '<button class="text-action" data-action="cancel">Cancel research</button>' : ""}${hasReport(row) ? '<button class="text-action" data-action="export-report">Save answer ↗</button>' : ""}</div></div><div class="detail-heading"><h1 id="research-heading" tabindex="-1" data-focus="research-heading">${esc(g?.question || d.run?.question || questionOf(row))}</h1><div class="detail-meta">${badge(row)}<span>${g?.claims?.length ?? 0} claims · ${g?.evidence?.length ?? 0} passages · ${cliResearch(d) ? esc(cliSourceCounts(d)) : hasMergedSourceCopies(d) ? `${g?.references?.length ?? 0} unique source${g?.references?.length===1 ? '' : 's'}` : `${d.run?.accepted ?? g?.references?.length ?? 0} full papers`}</span><span>${dateText(row.ended_at || row.started_at,true)}</span>${active(row) ? "<span>Updates automatically</span>" : ""}</div></div><nav class="research-tabs" aria-label="Question sections">${tabs.map(([id,label])=>`<button class="${S.tab===id ? "on" : ""}" data-research-tab="${id}" aria-current="${S.tab===id ? "page" : "false"}" data-focus="tab-${id}">${label}</button>`).join("")}</nav>${S.errors[row.key] ? `<p role="alert">${esc(S.errors[row.key])}</p>` : ""}<div class="answer-grid"><div class="answer-main">${body}</div><aside class="evidence-inspector" id="evidence-inspector" aria-label="Claim and source inspector" hidden></aside></div>${technicalHtml(row,d)}</div>`);
     if(S.inspector) paintInspector(false,scrolls);
     if(S.logs[row.key]) paintLogs();
   }

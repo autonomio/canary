@@ -389,7 +389,7 @@ test("review decisions show their evidence and download the selected edition", a
 test("checklist route uses the dashboard shell and filters the recorded evidence", async () => {
   const { elements, respond, location, route } = openQuestions();
   await respond(200, { runs });
-  location.hash = "#research/lake/checklist";
+  location.hash = "#research/lake/prisma";
   route();
   const item = {id:"24a", title:"Registration", heading:"Registration and protocol", status:"complete",
     elements:[{requirement:"Describe registration", status:"complete", basis:"reported",
@@ -485,5 +485,10 @@ test("methods appendix shows the saved claim beside its quotation", async () => 
     entries:[{label:"C1", text:"Recorded claim", passages:[{source:"p2", text:"A <measurement>"}]}]}]},
     "/api/runs/lake/prisma/methods");
   assert.match(elements.get("checklist-content").innerHTML, /Recorded claim.*A &lt;measurement&gt;.*p2/s);
-  assert.equal(elements.get("checklist-title").textContent, "Methods appendix");
+  assert.equal(elements.get("prisma-methods").attrs["aria-current"], "page");
+  location.hash = elements.get("prisma-checklist").href;
+  route();
+  await respond(200, {question:"Lake water", counts:[], items:[]}, "/api/runs/lake/prisma/checklist");
+  assert.equal(elements.get("prisma-checklist").attrs["aria-current"], "page");
+  assert.equal(elements.get("prisma-methods").attrs["aria-current"], "false");
 });
