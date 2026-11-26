@@ -178,7 +178,14 @@ def test_frontend_labels_retention_and_does_not_present_excerpts_as_complete_pap
 S.selected='synthetic';
 const data=""" + json.dumps(view) + """;
 assert.match(bundleHtml(data),/Bundle only; full papers released/);
-assert.match(bundleHtml(data),/Download research bundle/);
+const archive = 'href="/api/runs/synthetic/bundle/archive" download="research-bundle.zip">Download research bundle';
+const handoff = 'href="/api/runs/synthetic/exports/resolvent" download="resolvent-submission.json">Resolvent handoff';
+assert.ok(bundleHtml(data).includes(archive));
+assert.ok(bundleHtml(data).includes(handoff));
+data.compiled_bundle.contribution.within_limit = false;
+assert.ok(bundleHtml(data).includes(archive));
+assert.ok(!bundleHtml(data).includes(handoff));
+data.compiled_bundle.contribution.within_limit = true;
 assert.match(bundleHtml(data),/Lossless bundle/);
 assert.match(bundleHtml(data),/findings and exact excerpts unchanged/);
 assert.match(bundleHtml(data),/Resolvent contribution · [0-9.]+ MB of the 10.49 MB \\(10 MiB\\) file limit/);
