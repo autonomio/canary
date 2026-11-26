@@ -189,7 +189,7 @@ def read(workspace) -> ResearchBundle:
 def archive(workspace: str | Path, target: str | Path | BinaryIO, *, review_store: Path | None = None) -> None:
     """Write a verified research archive with the decisions held for this bundle."""
     workspace = Path(workspace)
-    with review_history.reading(workspace, review_store):
+    with review_history.reading(workspace):
         _archive(workspace, target, review_store)
 
 

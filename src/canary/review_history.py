@@ -47,11 +47,11 @@ def locked(workspace: Path, *, shared: bool = False) -> Iterator[None]:
 
 
 @contextmanager
-def reading(workspace: Path, store: Path | None) -> Iterator[None]:
-    """Share ordinary reads and take an exclusive lock for recovery or an import."""
+def reading(workspace: Path) -> Iterator[None]:
+    """Share ordinary reads and take an exclusive lock only to recover an interrupted change."""
     with locked(workspace, shared=True):
         pending = compact_bundle.exists(workspace) and (workspace / '.run-reservation').is_file()
-        if store is None and not pending and not (workspace / (NAME + '-journal')).exists():
+        if not pending and not (workspace / (NAME + '-journal')).exists():
             yield
             return
     with locked(workspace):
@@ -210,7 +210,9 @@ def _import_history(root: Path, target: Path, bundle_id: str, checksum: str | No
 
 
 @contextmanager
-def _directory(root: Path, bundle_id: str, checksum: str | None, store: Path | None) -> Iterator[Path]:
+def _directory(root: Path, bundle_id: str, checksum: str | None, store: Path | None, *,
+               write: bool = False, merge: bool = False) -> Iterator[Path]:
+    """Open the service's copy, taking the bundle's decisions only on first use or an explicit import."""
     if store is None:
         yield root
         return
@@ -221,13 +223,34 @@ def _directory(root: Path, bundle_id: str, checksum: str | None, store: Path | N
         target.mkdir(parents=True, exist_ok=True)
     except OSError as error:
         raise ReviewStorageError('Could not open the imported decision history') from error
+    source = (root / NAME).is_file() or (root / NAME).is_symlink()
+    if not write and not merge:
+        with locked(target, shared=True):
+            path = target / NAME
+            ready = path.exists() or not source
+            if ready and not path.with_name(NAME + '-journal').exists():
+                if checksum is not None and path.exists():
+                    with _connect(path, mode='ro') as db:
+                        ready = db.execute('SELECT 1 FROM history WHERE base_sha256 IS NULL').fetchone() is None
+                if ready:
+                    yield target
+                    return
     with locked(target):
-        if (root / NAME).is_file() or (root / NAME).is_symlink():
+        if source and (merge or not (target / NAME).exists()):
             try:
                 _import_history(root, target, bundle_id, checksum)
             except OSError as error:
                 raise ReviewStorageError('Could not copy the imported decision history') from error
         yield target
+
+
+def import_history(workspace: str | Path, store: Path) -> None:
+    """Merge the bundle's own decisions into the service's copy when the bundle is imported."""
+    root = Path(workspace).resolve()
+    with reading(root):
+        bundle_id, checksum = _base(root)
+        with _directory(root, bundle_id, checksum, store, merge=True) as directory:
+            _recover_binding(root, directory, bundle_id, checksum)
 
 
 def _recover_binding(root: Path, directory: Path, bundle_id: str, checksum: str | None) -> None:
@@ -250,7 +273,7 @@ def _recover_binding(root: Path, directory: Path, bundle_id: str, checksum: str 
 def edition(workspace: str | Path, last_entry: str | None = None, *, store: Path | None = None) -> Record:
     """Read decisions through the requested entry, or through the most recent one."""
     root = Path(workspace).resolve()
-    with reading(root, store):
+    with reading(root):
         bundle_id, checksum = _base(root)
         with _directory(root, bundle_id, checksum, store) as directory:
             path = directory / NAME
@@ -332,7 +355,7 @@ def append(workspace: str | Path, decision: Record, *, request_id: str, expected
     root = Path(workspace).resolve()
     with locked(root):
         bundle_id, checksum = _base(root)
-        with _directory(root, bundle_id, checksum, store) as directory:
+        with _directory(root, bundle_id, checksum, store, write=True) as directory:
             _recover_binding(root, directory, bundle_id, checksum)
             path = directory / NAME
             new = not path.exists()

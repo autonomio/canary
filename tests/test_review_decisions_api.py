@@ -1,5 +1,7 @@
+import fcntl
 import io
 import json
+import os
 import shutil
 import sqlite3
 import zipfile
@@ -357,16 +359,70 @@ def test_reimport_keeps_compatible_corrections_and_refuses_divergence(tmp_path, 
     with zipfile.ZipFile(io.BytesIO(client.get('/api/runs/original/bundle/archive').content)) as archive:
         edition = json.loads(archive.read('review-decisions.json'))
         assert [entry['id'] for entry in edition['entries']] == [first, second]
-    assert register(fork).status_code == 409
+    conflict = register(fork)
+    assert conflict.status_code == 409 and conflict.json()['code'] == 'review_conflict'
     assert runs.get('fork', registry) is None
     runs.adopt_bundle(fork, path=registry)
+    assert client.get('/api/runs/fork/review-decisions').json()['last_entry'] == second
     msg = dict(request_id='extra', expected_last_entry=other, decision=decision())
-    for response in (client.get('/api/runs/fork/review-decisions'),
-                     client.post('/api/runs/fork/review-decisions', json=msg),
-                     client.get('/api/runs/fork/bundle/archive')):
-        assert response.status_code == 409 and response.json()['code'] == 'review_conflict'
+    stale = client.post('/api/runs/fork/review-decisions', json=msg)
+    assert stale.status_code == 409 and stale.json()['code'] == 'review_conflict'
+    assert client.get('/api/runs/fork/bundle/archive').status_code == 200
     assert client.get(route).json()['last_entry'] == second
     assert review_history.edition(fork)['last_entry'] == other
+
+
+def test_changed_source_folder_keeps_the_service_history_readable(tmp_path, review_client, monkeypatch):
+    client, _, _, _ = review_client
+    source = tmp_path / 'original'
+    source.mkdir()
+    prepared(source)
+    shared = review_history.append(source, decision(), request_id='shared', expected_last_entry='initial')
+    elsewhere = tmp_path / 'elsewhere'
+    shutil.copytree(source, elsewhere)
+    review_history.append(elsewhere, decision('Other finding'), request_id='elsewhere', expected_last_entry=shared)
+    assert client.post('/api/runs/import', json={'server_path': str(source)}).status_code == 201
+    route = '/api/runs/original/review-decisions'
+    msg = dict(request_id='service', expected_last_entry=shared, decision=decision('Service finding'))
+    saved = client.post(route, json=msg).json()['last_entry']
+    shutil.copyfile(elsewhere / review_history.NAME, source / review_history.NAME)
+    def unexpected(*args):
+        raise AssertionError('a read or write copied the source history')
+    with monkeypatch.context() as patch:
+        patch.setattr(review_history, '_import_history', unexpected)
+        assert client.get(route).json()['last_entry'] == saved
+        later = client.post(route, json=dict(msg, request_id='later', expected_last_entry=saved)).json()['last_entry']
+        with zipfile.ZipFile(io.BytesIO(client.get('/api/runs/original/bundle/archive').content)) as archive:
+            assert json.loads(archive.read('review-decisions.json'))['last_entry'] == later
+    conflict = client.post('/api/runs/import', json={'server_path': str(source)})
+    assert conflict.status_code == 409 and conflict.json()['code'] == 'review_conflict'
+    assert client.get(route).json()['last_entry'] == later
+
+
+def test_reads_of_an_imported_run_share_the_bundle_and_history_locks(tmp_path, review_client, monkeypatch):
+    client, _, root, _ = review_client
+    source = tmp_path / 'shared-read'
+    source.mkdir()
+    prepared(source)
+    first = review_history.append(source, decision(), request_id='first', expected_last_entry='initial')
+    assert client.post('/api/runs/import', json={'server_path': str(source)}).status_code == 201
+    held = []
+    edition = review_history._edition
+    def probe(*args):
+        for folder in (source, *(root / 'review-decisions').iterdir()):
+            fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                held.append(folder)
+            finally:
+                os.close(fd)
+        return edition(*args)
+    monkeypatch.setattr(review_history, '_edition', probe)
+    assert client.get('/api/runs/shared-read/review-decisions').json()['last_entry'] == first
+    assert client.get('/api/runs/shared-read/bundle/archive').status_code == 200
+    assert len(held) == 4
 
 
 def test_full_history_extension_preserves_the_compact_receipt(tmp_path, review_client):
@@ -381,7 +437,7 @@ def test_full_history_extension_preserves_the_compact_receipt(tmp_path, review_c
     checksum = (compact / compact_bundle.CHECKSUM).read_text().strip()
     assert client.post('/api/runs/import', json={'server_path': str(compact)}).status_code == 201
     second = review_history.append(full, decision('Correction'), request_id='edit', expected_last_entry=first, replaces=first)
-    runs.adopt_bundle(full, path=registry)
+    assert client.post('/api/runs/import', json={'server_path': str(full)}).status_code == 201
     with zipfile.ZipFile(io.BytesIO(client.get('/api/runs/full/bundle/archive').content)) as archive:
         edition = json.loads(archive.read('review-decisions.json'))
         assert edition['last_entry'] == second and edition['base_sha256'] is None

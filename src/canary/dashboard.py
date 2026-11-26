@@ -1685,7 +1685,7 @@ class Handler(BaseHTTPRequestHandler):
                 if history.is_file() or history.is_symlink():
                     store = self._decision_paths(existing)[1] if existing else self.supervisor.root / 'review-decisions'
                     if store is not None:
-                        review_history.edition(path, review_history.INITIAL, store=store)
+                        review_history.import_history(path, store)
                 self._send(200 if existing else 201, existing or runs.adopt_bundle(
                     path, body.get('name',''), body.get('brief',''), self.supervisor.registry))
             elif parsed.path == "/api/runs/compile" or (parsed.path == "/api/runs" and ('yaml' in body or 'spec' in body)):

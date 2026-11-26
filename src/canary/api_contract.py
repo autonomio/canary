@@ -346,7 +346,7 @@ def document():
        params=[key],body='ReviewDecisionRequest',mcp=True)
     for method, status, description in (
         ('get', '400', 'Review decisions require a versioned research bundle'),
-        ('get', '404', 'Unknown bundle or edition'), ('get', '409', 'Conflicting imported review history'),
+        ('get', '404', 'Unknown bundle or edition'),
         ('post', '400', 'Invalid decision request'),
         ('post', '404', 'Unknown research bundle'), ('post', '409', 'Conflicting decision or request ID'),
         ('post', '411', 'Content-Length required'), ('post', '413', 'Decision request exceeds 65536 bytes'), ('post', '500', 'Review storage error'),
@@ -378,8 +378,8 @@ def document():
     op('openalex_recheck','post','/api/sources/openalex/recheck','Operator-requested bounded recheck of the actual allowance recorded hold; a successful fresh response releases only that allowance hold','OpenAlexRecheck',body='OpenAlexRecheckRequest')
     op('import_run','post','/api/runs/import','Register an explicit service-host bundle directory','Run',body='ImportRequest',status=201)
     result['paths']['/api/runs/import']['post']['responses']['200'] = deepcopy(result['paths']['/api/runs/import']['post']['responses']['201'])
-    for path, method in (('/api/runs/import', 'post'), ('/api/runs/{key}/bundle/archive', 'get')):
-        result['paths'][path][method]['responses']['409'] = deepcopy(result['paths'][decisions]['get']['responses']['409'])
+    result['paths']['/api/runs/import']['post']['responses']['409'] = {
+        'description':'Conflicting imported review history', 'content':{'application/json':{'schema':ref('Error')}}}
     result['paths']['/api/runs/import']['post']['responses']['500'] = deepcopy(result['paths'][decisions]['get']['responses']['500'])
     op('action','post','/api/actions','Run a retained compatibility workflow','RunStarted',body='ActionRequest',status=201)
     result['paths']['/api/actions']['post']['responses']['200'] = {'description':'Synchronous inspection result','content':{'application/json':{'schema':ref('Object')}}}

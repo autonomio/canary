@@ -125,8 +125,11 @@ bundle ID and the last entry ID together identify an edition.
 
 When you import a bundle, Canary checks its decisions against the history
 in its data directory. If one history continues the other, Canary keeps the
-longer history. If they disagree, Canary reports a conflict and preserves
-both copies. Further decisions go into the service’s copy. Full and compact copies of the same bundle share one decision history
+longer history. If they disagree, the import reports a conflict and both
+copies are preserved. Reads, further decisions and downloads use the
+service’s copy and leave the bundle folder untouched. Canary reads the
+folder again only on the next import, or on first use when the service has
+no copy yet. Full and compact copies of the same bundle share one decision history
 under its permanent ID. In the downloaded JSON, `base_sha256` gives the
 verified checksum of `resolvent.json` for a compact copy. The full copy has
 no such file, so the field is null. The archived SQLite database keeps the
@@ -141,7 +144,9 @@ saving 1,000 short decisions one at a time took 7.7 seconds and required 500,500
 entry hashes. The cost grows with the square of the number of decisions.
 Any faster write path must still detect a change to an earlier entry before
 accepting another decision. Reading or downloading an edition also checks the
-entries it contains.
+entries it contains. Reads share the bundle and history locks, so several
+reads of one run proceed at once. Importing a bundle with decisions checks
+both histories once more.
 
 The retained bundle is checked before any working files are released. A failed
 commit/export preserves the workspace. Only newly reserved API workers enter this
