@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.0 on 26th of November, 2026
+
+- Add a PRISMA checklist to finished reviews. Readers can find each recorded answer, see what is missing and trace author statements to the reviewer. The checklist is available in the dashboard, CLI and API and as a standalone HTML report.
+
 ## v0.2.0 on 26th of November, 2026
 
 - Add a history of review decisions. Readers can see why a paper was included or excluded, who made the decision and what evidence they cited.

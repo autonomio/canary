@@ -85,8 +85,7 @@ def test_corrected_author_answer_keeps_its_subject_and_the_run_evidence():
     from test_review_history import decision, PERSON
     answer = decision('Original objective', subject_id='prisma:abstract-2:1', judgement='reported', decided_by=PERSON)
     correction = decision('Corrected objective', judgement='reported', decided_by=PERSON)
-    entries = [dict(id='one', decision=answer), dict(id='two', replaces='one', subject_id='prisma:abstract-2:1',
-                                                      decision=correction)]
+    entries = [dict(id='one', decision=answer), dict(id='two', replaces='one', decision=correction)]
     report = prisma.report({'answer': {'question': 'Original research question'}}, dict(entries=entries, last_entry='two'))
     row = next(row for row in report['items'] if row['id'] == 'abstract-2')
     assert row['status'] == 'complete'
@@ -114,7 +113,7 @@ def test_abstract_shows_the_reason_participants_do_not_apply():
     page = prisma.html(result)
     assert 'Participants: unknown' in page
     assert 'Participants · author statement: <a href="#decision-r1">The experiments used polymer specimens.' in page
-    assert 'id="decision-r1" href="../review-decisions?last_entry=r1"' in page
+    assert '<article id="decision-r1">' in page
     assert result['counts'][-1]['value'] is None
 
 
@@ -140,3 +139,10 @@ def test_selection_summary_uses_saved_counts_and_keeps_original_wording():
     item = next(row for row in result['items'] if row['id'] == '23c')
     assert item['reader_question'] == 'What might the review itself have missed?'
     assert item['elements'][0]['passages'][0]['text'] == 'Original note.'
+
+def test_unused_conditional_abstract_methods():
+    for index in (3, 4):
+        row = declared_item('abstract-8', declaration(f'abstract-8:{index}', 'not_used', 'No such comparison was made.'))
+        assert row['elements'][index - 1]['status'] == 'inapplicable'
+    row = declared_item('abstract-8', declaration('abstract-8:1', 'not_used', 'No results were reported.'))
+    assert row['elements'][0]['status'] == 'partial'

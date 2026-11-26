@@ -2001,7 +2001,10 @@
           const overview = item.id === "23c" && report.selection_summary?.length
             ? `<p>${esc(report.selection_summary.join(" "))}</p>` : "";
           if (!groups.has(item.heading)) groups.set(item.heading, []);
-          const body = abstract || overview + answersHtml(item);
+          const abstractTarget = item.elements[0]?.location?.slice(1);
+          const body = abstract && abstractTarget
+            ? `<div id="checklist-${esc(abstractTarget)}" tabindex="-1">${abstract}</div>`
+            : abstract || overview + answersHtml(item);
           const question = item.reader_question ? `<p><strong>${esc(item.reader_question)}</strong></p>` : "";
           groups.get(item.heading).push(`<details class="checklist-row" id="checklist-item-${esc(item.id)}" data-checklist-status="${esc(item.status)}"><summary><span>${esc(item.id)} · ${esc(item.title)}</span><span class="checklist-status">${esc(item.status)}</span></summary>${question}${body}</details>`);
         }

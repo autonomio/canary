@@ -483,7 +483,6 @@ def test_saved_checklist_is_available_to_dashboard_cli_and_agent(tmp_path, monke
     assert response.status_code == 200
     report = response.json()
     assert len(report['items']) == 54
-    from urllib.parse import urljoin
     from test_prisma import declaration
     decision_url = '/api/runs/review/review-decisions'
     entry = declaration('abstract-7:2', 'inapplicable', 'This review tested polymer specimens.')
@@ -493,9 +492,12 @@ def test_saved_checklist_is_available_to_dashboard_cli_and_agent(tmp_path, monke
     head = recorded.json()['last_entry']
     page = client.get('/api/runs/review/prisma/report')
     assert f'href="#decision-{head}"' in page.text
-    edition_link = f'../review-decisions?last_entry={head}'
-    assert f'href="{edition_link}"' in page.text
-    assert client.get(urljoin(str(page.url), edition_link)).json()['last_entry'] == head
+    saved = tmp_path / 'checklist.html'
+    saved.write_bytes(page.content)
+    assert f'id="decision-{head}"' in saved.read_text()
+    assert 'Reviewer A · inapplicable' in saved.read_text()
+    assert 'Signed methods note, section 2' in saved.read_text()
+    assert '../review-decisions?' not in page.text
     contract = api_contract.document()
     tool = mcp_server.tool_catalog(contract)['canary_prisma_checklist']
     jsonschema.validate(report, tool['tool'].outputSchema)

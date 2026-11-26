@@ -436,7 +436,7 @@ test("item 2 links to an abstract entry and its recorded passage in the dashboar
   await respond(200, {runs});
   const endpoint = "/api/runs/lake/prisma/checklist";
   const report = {question:"Lake water", counts:[], citation:"Page et al.", items:[
-    {id:"2", heading:"Abstract", title:"Structured abstract", status:"partial", elements:[], see_also:["abstract-2"]},
+    {id:"2", heading:"Abstract", title:"Structured abstract", status:"partial", elements:[{location:"#answer-2-1"}], see_also:["abstract-2"]},
     {id:"abstract-2", heading:"Abstract", title:"Objectives", status:"complete", elements:[
       {requirement:"State the question.", basis:"saved_run", status:"complete", location:"#answer-abstract-2-1",
        passages:[{text:"What changes in lake water?", supplier:"run", evidence:["/answer/question"]}]}]}
@@ -453,7 +453,7 @@ test("item 2 links to an abstract entry and its recorded passage in the dashboar
   const abstract = content.innerHTML.split('id="checklist-item-2"')[1].split("</details>")[0];
   assert.match(abstract, /What changes in lake water\?/);
   assert.equal(content.innerHTML.split('id="checklist-answer-abstract-2-1"').length, 2);
-  for (const id of ["item-abstract-2", "answer-abstract-2-1"]) {
+  for (const id of ["answer-2-1", "item-abstract-2", "answer-abstract-2-1"]) {
     const href = "#research/lake/checklist/" + id;
     assert.equal(content.innerHTML.includes('href="' + href + '"'), id === "item-abstract-2");
     assert.ok(content.innerHTML.includes('id="checklist-' + id + '"'));

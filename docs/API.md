@@ -261,7 +261,7 @@ research view. An entry ID refers to the review’s decision history.
 `canary checklist RUN_KEY` and `GET /api/runs/{key}/prisma/checklist` return
 the same checklist as JSON. The corresponding agent action is
 `canary_prisma_checklist`. Use `GET /api/runs/{key}/prisma/report` to read or
-save the linked HTML report. Both views are generated from the saved review
+save the linked HTML report. The saved file includes the cited reviewer decisions and their evidence so readers can follow the links offline. Both views are generated from the saved review
 and its latest decision edition.
 
 Use an accepted review decision to supply an author’s answer. In `decision`,

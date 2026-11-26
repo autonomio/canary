@@ -73,6 +73,7 @@
     },
     {
       "id": "3",
+      "conditional_elements": [3, 4],
       "reader_question": "Why was this review needed?",
       "title": "Rationale",
       "elements": [
@@ -85,6 +86,7 @@
     },
     {
       "id": "4",
+      "conditional_elements": [2],
       "reader_question": "What question did the review set out to answer?",
       "title": "Objectives",
       "elements": [
@@ -107,6 +109,7 @@
     },
     {
       "id": "6",
+      "conditional_elements": [2, 3, 4, 5, 6, 7, 8, 9],
       "reader_question": "Where did the team look for studies, and when?",
       "title": "Information sources",
       "elements": [
@@ -124,6 +127,7 @@
     },
     {
       "id": "7",
+      "conditional_elements": [3, 4, 5, 6, 7, 8],
       "reader_question": "What did the team search for?",
       "title": "Search strategies",
       "elements": [
@@ -140,6 +144,7 @@
     },
     {
       "id": "8",
+      "conditional_elements": [3, 5, 6, 7, 8, 9],
       "reader_question": "How did the team decide which papers to include?",
       "title": "Selection process",
       "elements": [
@@ -157,6 +162,7 @@
     },
     {
       "id": "9",
+      "conditional_elements": [3, 4, 5, 6],
       "reader_question": "How did the team collect and check the data?",
       "title": "Data collection",
       "elements": [
@@ -171,6 +177,7 @@
     },
     {
       "id": "10a",
+      "conditional_elements": [3, 4],
       "reader_question": "Which outcomes did the team look for?",
       "title": "Outcomes",
       "elements": [
@@ -183,6 +190,7 @@
     },
     {
       "id": "10b",
+      "conditional_elements": [3],
       "reader_question": "What else did the team record about each study?",
       "title": "Other variables",
       "elements": [
@@ -194,6 +202,7 @@
     },
     {
       "id": "11",
+      "conditional_elements": [4, 5, 8],
       "reader_question": "How did the team check for bias in individual studies?",
       "title": "Study risk of bias",
       "elements": [
@@ -210,6 +219,7 @@
     },
     {
       "id": "12",
+      "conditional_elements": [3],
       "reader_question": "How did the team measure the size of an effect?",
       "title": "Effect measures",
       "elements": [
@@ -249,6 +259,7 @@
     },
     {
       "id": "13d",
+      "conditional_elements": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
       "reader_question": "How did the team combine findings across studies?",
       "title": "Synthesis methods",
       "elements": [
@@ -267,6 +278,7 @@
     },
     {
       "id": "13e",
+      "conditional_elements": [1, 2, 3, 4, 5, 6],
       "reader_question": "How did the team investigate differences between studies?",
       "title": "Exploring heterogeneity",
       "elements": [
@@ -281,6 +293,7 @@
     },
     {
       "id": "13f",
+      "conditional_elements": [1, 2],
       "reader_question": "How did the team test whether its conclusions depended on its choices?",
       "title": "Sensitivity analyses",
       "elements": [
@@ -291,6 +304,7 @@
     },
     {
       "id": "14",
+      "conditional_elements": [2, 3, 4, 7],
       "reader_question": "How did the team check whether missing results could skew the findings?",
       "title": "Bias from missing results",
       "elements": [
@@ -306,6 +320,7 @@
     },
     {
       "id": "15",
+      "conditional_elements": [4, 5, 8, 10],
       "reader_question": "How did the team judge its confidence in the evidence?",
       "title": "Certainty assessment",
       "elements": [
@@ -324,6 +339,7 @@
     },
     {
       "id": "16a",
+      "conditional_elements": [2, 3],
       "reader_question": "How many records made it through each stage of selection?",
       "title": "Selection flow",
       "elements": [
@@ -364,6 +380,7 @@
     },
     {
       "id": "19",
+      "conditional_elements": [3, 4, 5],
       "reader_question": "What did each study find?",
       "title": "Individual study results",
       "elements": [
@@ -387,6 +404,7 @@
     },
     {
       "id": "20b",
+      "conditional_elements": [2, 3, 4, 5, 6, 7],
       "reader_question": "What did the combined results show?",
       "title": "Statistical synthesis results",
       "elements": [
@@ -402,6 +420,7 @@
     },
     {
       "id": "20c",
+      "conditional_elements": [1, 2, 3, 4, 5, 6],
       "reader_question": "What explained the differences between studies?",
       "title": "Heterogeneity results",
       "elements": [
@@ -416,6 +435,7 @@
     },
     {
       "id": "20d",
+      "conditional_elements": [1, 2],
       "reader_question": "How did the results change when the team varied its assumptions?",
       "title": "Sensitivity results",
       "elements": [
@@ -426,6 +446,7 @@
     },
     {
       "id": "21",
+      "conditional_elements": [2, 3, 4, 5],
       "reader_question": "Could missing results have changed a combined finding?",
       "title": "Bias from missing results by synthesis",
       "elements": [
@@ -524,6 +545,7 @@
     },
     {
       "id": "26",
+      "conditional_elements": [2],
       "reader_question": "What competing interests did the authors declare?",
       "title": "Competing interests",
       "elements": [
@@ -534,6 +556,7 @@
     },
     {
       "id": "27",
+      "conditional_elements": [2, 3],
       "reader_question": "Where can readers find the data, code and other review materials?",
       "title": "Availability of materials",
       "elements": [
@@ -611,6 +634,7 @@
     },
     {
       "id": "abstract-8",
+      "conditional_elements": [3, 4],
       "reader_question": "What were the main results?",
       "title": "Results",
       "elements": [

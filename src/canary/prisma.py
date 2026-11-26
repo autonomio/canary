@@ -2,13 +2,15 @@
 from functools import lru_cache
 from html import escape
 from typing import Literal, TypedDict
-from urllib.parse import quote
 from importlib.resources import files
 import json
+
+from . import review_history
 
 
 @lru_cache(maxsize=1)
 def catalogue() -> dict:
+    """Load the versioned checklist shipped with Canary."""
     return json.loads(files('canary').joinpath('prisma_2020.json').read_text(encoding='utf-8'))
 
 
@@ -59,6 +61,7 @@ class Report(TypedDict):
 
 
 def counts(coverage: dict) -> list[Count]:
+    """List the five review counts, preserving unknown totals."""
     result = []
     for label, field in [('Unique candidate records', 'discovered_candidates'),
                          ('Included reports', 'included_report_count'),
@@ -72,11 +75,13 @@ def counts(coverage: dict) -> list[Count]:
 
 
 def count_text(count: Count) -> str:
+    """Format a review count with its unit."""
     value = count['value']
     return f"{count['label']}: {value:,}" if value is not None else count['label'] + ': unknown'
 
 
 def selection_summary(view: dict) -> list[str]:
+    """Describe how many discovered records remained unassessed."""
     coverage = view.get('coverage', {})
     total, assessed = coverage.get('discovered_candidates'), coverage.get('assessed_candidates')
     if type(total) is int and type(assessed) is int and 0 <= assessed < total:
@@ -148,6 +153,7 @@ def _status(statuses: list[Status]) -> Status:
 
 
 def report(view: dict, edition: dict) -> Report:
+    """Build the checklist from a saved review and its decision history."""
     data = catalogue()
     answers = _run_answers(view)
     declarations = _declarations(edition['entries'])
@@ -165,7 +171,7 @@ def report(view: dict, edition: dict) -> Report:
                 basis = statements[0][0] if len(statements) == 1 else 'unresolved_decisions'
                 if basis == 'reported' or (basis == 'not_used' and number in ('24a', '24b')):
                     status = 'complete'
-                elif basis == 'inapplicable' or (basis == 'not_used' and requirement.startswith('If ')):
+                elif basis == 'inapplicable' or (basis == 'not_used' and i in definition.get('conditional_elements', ())):
                     status = 'inapplicable'
                 elif basis == 'archive_missing':
                     status = 'missing'
@@ -196,10 +202,13 @@ def report(view: dict, edition: dict) -> Report:
 
 def _declarations(entries: list[dict]) -> dict[str, list[tuple[str, Passage]]]:
     declarations: dict[str, list[tuple[str, Passage]]] = {}
+    subjects: dict[str, str] = {}
     replaced = {entry['replaces'] for entry in entries if entry.get('replaces')}
     for entry in entries:
         d = entry['decision']
-        subject = entry.get('subject_id') or d.get('subject_id', '')
+        predecessor = entry.get('replaces')
+        subject = review_history.subject_id(entry, subjects.get(predecessor, entry['id']) if predecessor else entry['id'])
+        subjects[entry['id']] = subject
         if (entry['id'] in replaced or not subject.startswith('prisma:') or
                 d['status'] not in ('accepted', 'modified') or (d.get('decided_by') or {}).get('kind') != 'person' or
                 d['judgement'] not in ('reported', 'partial', 'not_used', 'archive_missing', 'inapplicable')):
@@ -227,7 +236,8 @@ def validate(result: Report) -> None:
                 raise ValueError(f"Missing or incorrect answer location for PRISMA item {row['id']}")
 
 
-def html(result: Report) -> str:
+def html(result: Report, entries: list[dict] | None = None) -> str:
+    """Render a standalone checklist with the cited reviewer decisions."""
     lines = ['<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">',
              '<title>PRISMA checklist</title><style>body{font:1rem/1.5 system-ui;max-width:68rem;margin:2rem auto;padding:0 1rem}'
              'td,th{padding:.4rem .7rem;text-align:left;vertical-align:top}article{margin:1rem 0}blockquote{white-space:pre-wrap}</style><main>',
@@ -241,6 +251,8 @@ def html(result: Report) -> str:
                              + '">' + escape(passage['text']) + '</a></p>')
     lines.append('<table><thead><tr><th>Item</th><th>Reporting status</th><th>Recorded answers</th></tr></thead><tbody>')
     sections = []
+    decisions = {entry['id']: entry['decision'] for entry in entries or []}
+    cited_decisions: dict[str, Passage] = {}
     last_heading = None
     for item in result['items']:
         links = []
@@ -259,8 +271,8 @@ def html(result: Report) -> str:
                 attribution = ''
                 if p['supplier'] == 'author':
                     entry = p['evidence'][0]
-                    attribution = (f'<a id="decision-{escape(entry)}" href="../review-decisions?last_entry='
-                                   + quote(entry, safe='') + '">Recorded decision</a>')
+                    cited_decisions[entry] = p
+                    attribution = f'<a href="#decision-{escape(entry)}">Recorded decision</a>'
                 sections.append(attribution + '<blockquote>' + escape(p['text']) + '</blockquote><p>' + escape(p['supplier'].capitalize())
                                 + ' · ' + escape(' · '.join(p['evidence'])) + '</p>')
             if element['basis'] not in ('saved_run', 'reported', 'abstract_checklist'):
@@ -271,6 +283,17 @@ def html(result: Report) -> str:
         sections.append('</section>')
         lines.append(f'<tr><td><a href="#item-{item["id"]}">{title}</a></td><td>{item["status"].capitalize()}</td>'
                      + '<td>' + ' · '.join(links) + '</td></tr>')
+    if cited_decisions:
+        sections.append('<section><h2>Recorded decisions</h2>')
+        for entry_id, passage in cited_decisions.items():
+            decision = decisions.get(entry_id, {})
+            person = decision.get('decided_by') or {}
+            sections.append(f'<article id="decision-{escape(entry_id)}"><h3>Reviewer decision</h3>')
+            if person.get('name'):
+                sections.append('<p>' + escape(person['name']) + ' · ' + escape(decision['judgement']) + '</p>')
+            sections.append('<p>' + escape(passage['text']) + '</p><p>' +
+                            escape(' · '.join(passage['evidence'])) + '</p></article>')
+        sections.append('</section>')
     return '\n'.join([*lines, '</tbody></table>', *sections, '<footer>', escape(result['citation']),
                       ' · '.join('<a href="' + escape(url) + '">' + label + '</a>'
                                  for url, label in zip(result['sources'], ['Main and expanded checklists', 'Abstract checklist'])),

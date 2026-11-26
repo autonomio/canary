@@ -1551,7 +1551,7 @@ class Handler(BaseHTTPRequestHandler):
                 edition = review_history.edition(workspace, store=store)
                 result = prisma.report(research_bundle(workspace), edition)
                 if representation == 'report':
-                    self._send(200, prisma.html(result).encode('utf-8'), 'text/html; charset=utf-8')
+                    self._send(200, prisma.html(result, edition['entries']).encode('utf-8'), 'text/html; charset=utf-8')
                 else:
                     self._send(200, result)
             elif re.fullmatch(r"/api/runs/[^/]+/review-decisions", parsed.path):
