@@ -399,6 +399,7 @@ test("checklist route uses the dashboard shell and filters the recorded evidence
   const content = elements.get("checklist-content");
   assert.equal(elements.get("checklist-view").hidden, false);
   assert.equal(elements.get("detail").hidden, true);
+  assert.doesNotMatch(content.innerHTML, /Lake water/);
   assert.match(content.innerHTML, /Complete · 1/);
   assert.match(content.innerHTML, /Unregistered &lt;review&gt;/);
   assert.match(content.innerHTML, /Other detail <small class="hint">\(inapplicable\)/);
@@ -484,6 +485,7 @@ test("methods appendix shows the saved claim beside its quotation", async () => 
   await respond(200, {question:"Lake water", sections:[{title:"Claims and supporting passages",
     entries:[{label:"C1", text:"Recorded claim", passages:[{source:"p2", text:"A <measurement>"}]}]}]},
     "/api/runs/lake/prisma/methods");
+  assert.doesNotMatch(elements.get("checklist-content").innerHTML, /Lake water/);
   assert.match(elements.get("checklist-content").innerHTML, /Recorded claim.*A &lt;measurement&gt;.*p2/s);
   assert.equal(elements.get("prisma-methods").attrs["aria-current"], "page");
   location.hash = elements.get("prisma-checklist").href;
@@ -507,7 +509,7 @@ test("methods groups repeated headings within each section and keeps each entry'
   ]}, "/api/runs/lake/prisma/methods");
   const html = elements.get("checklist-content").innerHTML;
   assert.match(html, /Screening instructions<\/h3>.*Full-paper checks<\/h3>/s);
-  assert.match(html, /Search and screening limits<\/h3><ul><li>.*One source.*<\/li><li>.*One language/s);
+  assert.match(html, /Search and screening limits<\/h3><div><ul><li>.*One source.*<\/li><li>.*One language/s);
   assert.equal(html.split("<h3>Round one</h3>").length, 2);
   assert.match(html, /First<\/p><a href="https:\/\/example.org\/evaluation".*?<\/li><li>.*Second<\/p><blockquote>Quote<footer>Paper/s);
 });

@@ -2018,7 +2018,7 @@
         }
         const rows = Array.from(groups, ([heading, items]) =>
           `<section data-checklist-group><h2>${esc(heading)}</h2>${items.join("")}</section>`).join("");
-        return `<p>${esc(report.question)}</p><dl class="checklist-counts">${counts}</dl>
+        return `<dl class="checklist-counts">${counts}</dl>
           <div class="checklist-filters" role="group" aria-label="Filter by reporting status">${filters}</div>
           <p id="checklist-empty" class="muted" hidden>No items have this status.</p>${rows}
           <footer class="hint">Checklist adapted from <a href="https://www.prisma-statement.org/prisma-2020-checklist">PRISMA 2020</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></footer>`;
@@ -2045,10 +2045,10 @@
         const body = labels.map(label => {
           const entries = groups.get(label);
           const list = titles.has(label) || entries.length > 1;
-          return `<h3>${esc(titles.get(label) || label)}</h3>` +
-            (list ? `<ul>${entries.map(html => `<li>${html}</li>`).join("")}</ul>` : entries[0]);
+          const content = list ? `<ul>${entries.map(html => `<li>${html}</li>`).join("")}</ul>` : entries[0];
+          return `<div class="methods-group"><h3>${esc(titles.get(label) || label)}</h3><div>${content}</div></div>`;
         }).join("");
-        return `<details class="checklist-row"><summary>${esc(section.title)}</summary>${body || "<p>No details were recorded.</p>"}</details>`;
+        return `<details class="methods-section"><summary>${esc(section.title)}</summary>${body || "<p>No details were recorded.</p>"}</details>`;
       }
 
       async function loadChecklist(key, tab = "checklist") {
@@ -2066,7 +2066,7 @@
           const report = await api("/api/runs/" + encodeURIComponent(key) + "/prisma/" + tab);
           if (request !== checklistRequest || S.tab !== tab || S.selected !== key) return;
           if (tab === "methods") {
-            content.innerHTML = `<p>${esc(report.question)}</p>` + report.sections.map(methodsSectionHtml).join("");
+            content.innerHTML = report.sections.map(methodsSectionHtml).join("");
             return;
           }
           content.innerHTML = checklistHtml(report, key);
