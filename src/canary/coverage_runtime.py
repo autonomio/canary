@@ -28,6 +28,7 @@ import uuid
 
 import httpx
 
+from .methods_search import request_address
 from .api_client import endpoint
 
 from .claim_uncertainty import unassessed as unassessed_uncertainty
@@ -476,7 +477,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                     continue
                 if stopped_for_backoff: continue
                 seen = set()
-                for _ in range(pages):
+                for page_index in range(pages):
                     cursor = state["cursor"]
                     if not cursor or cursor in seen:
                         break
@@ -514,7 +515,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                         progress["incomplete_reason"] = "openalex_" + progress["backoff"]["reason"]
                         stopped_for_backoff = True
                     receipt = {"round": search_round, "page_limit": pages, "query_id": query["id"], "search": query["search"], "page": state["pages"] + 1,
-                        "requested_at": now(), "status": response.status_code, "url": str(response.request.url),
+                        "requested_at": now(), "status": response.status_code, "url": request_address(response.request.url),
                         "seconds": round(time.monotonic() - started, 3), "local_cache_used": False,
                         "rate_headers": {k: v for k, v in response.headers.items() if k.lower().startswith("x-ratelimit") or k.lower() == "retry-after"}}
                     requests.append(receipt); write(workspace / "openalex-requests.json", requests)
@@ -545,9 +546,11 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                         isinstance(state["matched"], int) and state["pages"] * 200 >= state["matched"])
                     state["truncated"] = not state["complete"]
                     receipt.update(retrieved=returned, matched=state["matched"])
-                    if state["complete"]:
+                    if not returned or not state["cursor"]:
                         receipt["ended"] = "The source returned its final page."
-                    elif _ == pages - 1:
+                    elif state["complete"]:
+                        receipt["ended"] = "The page range reached the source’s reported match count."
+                    elif page_index + 1 == pages:
                         receipt["ended"] = "Reached the page limit for this round."
                     write(workspace / "openalex-requests.json", requests)
                     progress["queries"][query["id"]] = state
@@ -576,9 +579,9 @@ class LoggedTransport(httpx.BaseTransport):
         try:
             response = self.transport.handle_request(request)
         except Exception as error:
-            append(self.workspace / "public-network.jsonl", {"at": now(), "url": str(request.url), "error": type(error).__name__, "previous_body_used": False})
+            append(self.workspace / "public-network.jsonl", {"at": now(), "url": request_address(request.url), "error": type(error).__name__, "previous_body_used": False})
             raise
-        append(self.workspace / "public-network.jsonl", {"at": now(), "url": str(request.url), "status": response.status_code,
+        append(self.workspace / "public-network.jsonl", {"at": now(), "url": request_address(request.url), "status": response.status_code,
             "seconds": round(time.monotonic() - started, 3), "previous_body_used": False})
         return response
 

@@ -16,6 +16,8 @@ import xml.etree.ElementTree as ET
 
 import httpx
 
+from .methods_search import request_address
+
 SourceName = Literal['clinicaltrials', 'epo', 'osf']
 NAMES = ('clinicaltrials', 'epo', 'osf')
 KINDS = {'clinicaltrials': 'clinical_trial_registry', 'epo': 'patent_disclosure', 'osf': 'study_registration'}
@@ -400,7 +402,7 @@ def discover_query(workspace, root, http, index, query, state, pages, search_rou
     provider = query['source']
     source = Client(http, root)
     seen = set()
-    for _ in range(pages):
+    for page_index in range(pages):
         cursor = state['cursor']
         if cursor is None: break  # A provider result cap remains explicitly incomplete.
         if cursor in seen:
@@ -412,7 +414,7 @@ def discover_query(workspace, root, http, index, query, state, pages, search_rou
                    'page': state['pages'] + 1, 'requested_at': now(), 'status': None}
         try:
             response, rows, next_cursor, matched, limitation = source.search(provider, query['search'], cursor)
-            receipt.update(status=response.status_code, url=str(response.request.url),
+            receipt.update(status=response.status_code, url=request_address(response.request.url),
                 rate_headers=_rate_headers(response))
             if next_cursor == cursor: raise ValueError('Provider repeated a pagination cursor')
             extension = 'xml' if provider == 'epo' else 'json'
@@ -425,7 +427,7 @@ def discover_query(workspace, root, http, index, query, state, pages, search_rou
                          complete=next_cursor is None and not limitation, truncated=bool(next_cursor or limitation))
             state.pop('failure', None)
             if limitation: state['failure'] = limitation
-            if limitation or state['complete'] or _ == pages - 1:
+            if limitation or state['complete'] or page_index + 1 == pages:
                 receipt['ended'] = limitation or ('The source returned its final page.' if state['complete']
                                                   else 'Reached the page limit for this round.')
             event(workspace, 'search_page', source=provider, query_id=query['id'], page=state['pages'],

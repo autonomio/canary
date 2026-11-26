@@ -32,3 +32,50 @@ def test_evaluation_matches_the_recorded_session(tmp_path):
     session, = sessions(tmp_path)
     assert session['evaluation'] == 'https://example.org/evaluation'
     assert session['prompt'] == 'Screen the abstracts.'
+
+
+def test_partial_archive_shows_unknowns_and_only_attributes_recorded_decisions(tmp_path):
+    from canary import methods
+    graph = {'evidence': None, 'claims': [{'evidence_ids': None}], 'audit': {'status': 'not_run'}}
+    decisions = [dict(work_id='A', decision='exclude', reason=None, decided_by='software_only'),
+                 dict(work_id='B', decision='exclude', reason='Out of scope')]
+    view = dict(answer=graph, paper_selection={'selection': {'decisions': decisions}}, access=None,
+                coverage=dict(discovered_candidates=3, assessed_candidates=2),
+                query_net={'queries': [dict(id='Q1', search='water quality')]})
+    report = methods.report(view, tmp_path)
+    entries = {r['label']: r for s in report['sections'] for r in s['entries']}
+    assert 'Software made this decision alone.' in entries['A · exclude']['text']
+    assert 'Software' not in entries['B · exclude']['text']
+    assert entries['Records left unscreened']['text'] == '1'
+    assert 'not_run' in entries['Who checked the findings']['text']
+    assert report['searches'][0]['attempted'] is False
+
+
+def test_incomplete_page_preserves_known_retrievals(tmp_path):
+    receipts = [dict(query_id='a', round=1, status=200, retrieved=3, matched=40),
+                dict(query_id='a', round=1, status=200),
+                dict(query_id='a', round=2, status=429)]
+    (tmp_path / 'openalex-requests.json').write_text(json.dumps(receipts))
+    first, second = searches(tmp_path, dict(queries={'a': dict(search='lake', matched=40)}))
+    assert first['retrieved'] == 3 and first['retrieved_partial']
+    assert second['matched'] is None and second['retrieved'] == 0
+
+
+def test_interrupted_search_without_a_published_projection(tmp_path):
+    from canary import methods
+    (tmp_path / 'question-plan.json').write_text(json.dumps({'question': 'Lake water', 'queries': [
+        {'id': 'a', 'search': 'water'}]}))
+    (tmp_path / 'search-progress.json').write_text(json.dumps({'queries': {'a': {'search': 'water', 'failure_status': 429}}}))
+    (tmp_path / 'openalex-requests.json').write_text(json.dumps([dict(query_id='a', status=429, round=1)]))
+    report = methods.report({}, tmp_path)
+    assert report['question'] == 'Lake water'
+    assert report['searches'][0]['ended'] == 'Request failed (HTTP 429).'
+
+
+def test_interrupted_receipt_write_keeps_readable_pages(tmp_path):
+    from canary import methods
+    receipt = dict(query_id='a', round=1, requested_at='2026-01-01', status=200, matched=5, retrieved=2)
+    (tmp_path / 'additional-source-requests.jsonl').write_text(json.dumps(receipt) + '\n{"page":')
+    report = methods.report(dict(query_net={'queries': [dict(id='a', source='clinicaltrials', search='water')]}), tmp_path)
+    assert report['searches'][0]['retrieved'] == 2
+    assert any(row['label'] == 'Incomplete request log' for row in report['sections'][1]['entries'])

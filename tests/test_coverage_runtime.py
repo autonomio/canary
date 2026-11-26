@@ -123,6 +123,12 @@ def test_openalex_429_stops_whole_net_and_resumes_committed_cursor(tmp_path, mon
         assert len(runtime.read(workspace / "openalex-requests.json")) == 2
         clock[0] += 1
         resumed = runtime.discover(workspace, plan_path, root=tmp_path, pages=3, client=client)
+    from canary.methods_search import searches
+    first, second, other = searches(workspace, resumed)
+    assert (first['round'], first['matched'], first['retrieved']) == (1, 400, 1)
+    assert first['ended'] == 'Request failed (HTTP 429).'
+    assert first['last_search'] == runtime.read(workspace / 'openalex-requests.json')[1]['requested_at']
+    assert second['round'] == other['round'] == 3
     assert len(calls) == 4 and resumed["complete"] is True
     assert resumed["pending_query_ids"] == [] and resumed["backoff"]["active"] is False
     assert resumed["queries"]["q1"]["pages"] == 2
