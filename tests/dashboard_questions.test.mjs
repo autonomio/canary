@@ -451,7 +451,8 @@ test("item 2 links to an abstract entry and its recorded passage in the dashboar
   assert.doesNotMatch(content.innerHTML, /<blockquote>|>(?:Partly answered|Answered)\.<|Canary’s research record|Page et al/);
   assert.match(content.innerHTML, /Checklist adapted from/);
   for (const id of ["item-abstract-2", "answer-abstract-2-1"]) {
-    const [, href] = content.innerHTML.match(new RegExp('href="([^"]+/' + id + ')"'));
+    const href = "#research/lake/checklist/" + id;
+    assert.equal(content.innerHTML.includes('href="' + href + '"'), id === "item-abstract-2");
     assert.ok(content.innerHTML.includes('id="checklist-' + id + '"'));
     const section = {...element(), parentElement:{closest:()=>null}};
     const target = {...element(), closest:()=>section, matches:()=>id.startsWith("item"), querySelector:()=>section};

@@ -255,7 +255,7 @@ For a finished review, open **Research bundle → PRISMA checklist** in the
 dashboard. It opens in a new dashboard tab with the same colour theme. Select
 a status to filter the list. Expand an item to see the question in plain English.
 The recorded passages, their sources and any missing answers appear together.
-Use **Link to this passage** to share an answer. Item 2 links to each abstract entry. A path such as `/answer/question` refers to the saved
+Item 2 links to each abstract entry. A path such as `/answer/question` refers to the saved
 research view. An entry ID refers to the review’s decision history.
 
 `canary checklist RUN_KEY` and `GET /api/runs/{key}/prisma/checklist` return
