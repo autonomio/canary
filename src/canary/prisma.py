@@ -78,27 +78,11 @@ def count_text(count: Count) -> str:
 
 def selection_summary(view: dict) -> list[str]:
     coverage = view.get('coverage', {})
-    selection = view.get('paper_selection', {}).get('selection', {})
-    lines = []
-    if selection.get('method') == 'coverage':
-        lines.append('Canary chose papers to cover different parts of the question.')
     total, assessed = coverage.get('discovered_candidates'), coverage.get('assessed_candidates')
-    if type(total) is int and type(assessed) is int and 0 <= assessed <= total:
-        lines.append(f'Canary assessed {assessed:,} of the {total:,} records it found.')
-        if total > assessed:
-            lines.append(f'The remaining {total - assessed:,} records may include relevant papers.')
-    queries = (coverage.get('search_progress') or {}).get('queries', {})
-    if isinstance(queries, dict) and queries and all(isinstance(q, dict) for q in queries.values()):
-        capped = sum(q.get('truncated') is True for q in queries.values())
-        if capped:
-            lines.append(f'{capped} of {len(queries)} searches stopped before reaching the last page of results.')
-    selected = selection.get('selected_for_review_ids')
-    if isinstance(selected, list) and all(isinstance(value, str) and value for value in selected):
-        lines.append(f'Canary selected {len(set(selected)):,} records for full review.')
-    available = coverage.get('available_papers')
-    if type(available) is int and available >= 0:
-        lines.append(f'The review had access to {available:,} full papers.')
-    return lines
+    if type(total) is int and type(assessed) is int and 0 <= assessed < total:
+        return [f'Canary assessed {assessed:,} of the {total:,} records it found.',
+                f'The remaining {total - assessed:,} records may include relevant papers.']
+    return []
 
 
 def _run_answers(view: dict) -> dict:

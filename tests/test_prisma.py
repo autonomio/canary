@@ -134,8 +134,8 @@ def test_selection_summary_uses_saved_counts_and_keeps_original_wording():
                     search_progress={'queries': {'first': {'truncated': True}, 'second': {'complete': True}}})
     result = prisma.report(dict(paper_selection={'selection': selection}, coverage=coverage),
                            dict(entries=[], last_entry='initial'))
-    assert 'The remaining 7 records may include relevant papers.' in result['selection_summary']
-    assert '1 of 2 searches stopped before reaching the last page of results.' in result['selection_summary']
+    assert result['selection_summary'] == ['Canary assessed 3 of the 10 records it found.',
+                                           'The remaining 7 records may include relevant papers.']
     assert prisma.selection_summary({}) == []
     item = next(row for row in result['items'] if row['id'] == '23c')
     assert item['reader_question'] == 'What might the review itself have missed?'

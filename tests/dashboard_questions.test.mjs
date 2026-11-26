@@ -450,6 +450,9 @@ test("item 2 links to an abstract entry and its recorded passage in the dashboar
   assert.match(content.innerHTML, /Source · The question that started this review/);
   assert.doesNotMatch(content.innerHTML, /<blockquote>|>(?:Partly answered|Answered)\.<|Canary’s research record|Page et al/);
   assert.match(content.innerHTML, /Checklist adapted from/);
+  const abstract = content.innerHTML.split('id="checklist-item-2"')[1].split("</details>")[0];
+  assert.match(abstract, /What changes in lake water\?/);
+  assert.equal(content.innerHTML.split('id="checklist-answer-abstract-2-1"').length, 2);
   for (const id of ["item-abstract-2", "answer-abstract-2-1"]) {
     const href = "#research/lake/checklist/" + id;
     assert.equal(content.innerHTML.includes('href="' + href + '"'), id === "item-abstract-2");
