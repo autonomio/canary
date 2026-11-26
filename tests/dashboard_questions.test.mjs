@@ -25,7 +25,7 @@ function element() {
   };
 }
 
-function openQuestions({ mobile = false, storage = new Map() } = {}) {
+function openQuestions({ mobile = false, storage = new Map(), href = "http://localhost/" } = {}) {
   // The real boot code binds the actions and fetches the run list.
   const elements = new Map(
     [...markup.matchAll(/\bid="([^"]+)"([^>]*)>/g)].map(([, id, tail]) => [
@@ -43,7 +43,7 @@ function openQuestions({ mobile = false, storage = new Map() } = {}) {
   dialog.showModal = () => { dialog.open = true; };
   dialog.close = () => { dialog.open = false; dialog.listeners.get("close")(); };
   const handlers = new Map(), browser = new Map(), requests = [];
-  const location = { hash: "", href: "http://localhost/" };
+  const location = { hash: new URL(href).hash, href, assign(url) { this.href = url.toString(); } };
   vm.runInNewContext(source, {
     URL, crypto: globalThis.crypto, Option: class { constructor(label, value) { this.label = label; this.value = value; } },
     document: {
@@ -384,4 +384,49 @@ test("review decisions show their evidence and download the selected edition", a
   const sameName = elements.get("review-entries").innerHTML;
   assert.match(sameName, /Report A appears under 2 different subject IDs/);
   assert.doesNotMatch(sameName, /One of 2 current/);
+});
+
+test("checklist route uses the dashboard shell and filters the recorded evidence", async () => {
+  const { elements, respond, location, route } = openQuestions();
+  await respond(200, { runs });
+  location.hash = "#research/lake/checklist";
+  route();
+  const item = {id:"24a", title:"Registration", heading:"Registration and protocol", status:"complete",
+    elements:[{requirement:"Describe registration", status:"complete", basis:"reported",
+      passages:[{supplier:"author", text:"Unregistered <review>", evidence:["entry", "Protocol"]}]}]};
+  await respond(200, {question:"Lake water", citation:"Page et al.", counts:[], items:[item]}, "/api/runs/lake/prisma/checklist");
+  const content = elements.get("checklist-content");
+  assert.equal(elements.get("checklist-view").hidden, false);
+  assert.equal(elements.get("detail").hidden, true);
+  assert.match(content.innerHTML, /Complete · 1/);
+  assert.match(content.innerHTML, /Unregistered &lt;review&gt;/);
+  assert.match(content.innerHTML, /review-decisions\?last_entry=entry/);
+  const empty = element(), filter = element(), all = element(), row = element();
+  elements.set("checklist-empty", empty);
+  filter.dataset = {checklistFilter:"missing"};
+  all.dataset = {checklistFilter:"all"};
+  row.dataset = {checklistStatus:"complete"};
+  content.querySelectorAll = selector => selector.includes("-filter") ? [all, filter] : selector.includes("-status") ? [row] : [];
+  const select = button => content.listeners.get("click")({currentTarget:content, target:{closest:()=>button}});
+  select(filter);
+  assert.equal(row.hidden, true);
+  assert.equal(empty.hidden, false);
+  select(all);
+  assert.equal(row.hidden, false);
+  assert.equal(empty.hidden, true);
+});
+
+test("checklist links inherit the dashboard theme and the toggle keeps the checklist open", () => {
+  for (const theme of ["dark", "light"]) {
+    const overview = new URL(theme === "light" ? "http://localhost/?theme=light" : "http://localhost/");
+    const url = new URL("#research/lake/checklist", overview);
+    const { elements, location } = openQuestions({href:url.href});
+    assert.equal(elements.get("checklist-view").hidden, false);
+    const toggle = elements.get("theme-toggle");
+    assert.equal(toggle.textContent, theme === "light" ? "Dark" : "Light");
+    toggle.listeners.get("click")();
+    const next = new URL(location.href);
+    assert.equal(next.hash, url.hash);
+    assert.equal(next.searchParams.get("theme"), theme === "light" ? null : "light");
+  }
 });
