@@ -1958,6 +1958,15 @@
         const statusText = {complete:"Answered", partial:"Partly answered", missing:"No answer recorded", inapplicable:"Does not apply"};
         const basisText = {archive_missing:"The archive is missing this information.", not_used:"The team says it did not use this method.",
           unresolved_decisions:"Reviewers recorded different answers.", inapplicable:"The reviewer explains why this does not apply."};
+        const sourceNames = {
+          "/answer/question":"The question that started this review", "/query_net/outcomes":"Outcomes listed in the review plan",
+          "/query_net/eligibility":"Eligibility criteria in the review plan", "/run/search_scope":"Search settings",
+          "/coverage/search_progress/queries":"Search terms used in this review", "/answer/executive_summary":"The review summary",
+          "/paper_selection/selection/approach":"The review’s paper selection method",
+          "/paper_selection/selection/selection_limitations":"Notes on which papers the review may have missed",
+          "/answer/next_questions":"Follow-up questions in the review", "/coverage/included_study_count":"Count of included studies",
+          "/coverage/participant_count":"Participant count"
+        };
         for (const item of report.items) {
           const abstractLinks = (item.see_also || []).map(id => {
             const row = items.get(id);
@@ -1968,11 +1977,14 @@
             const answer = element.location?.slice(1);
             const references = element.passages.map(p => {
               const author = p.supplier === "author";
-              const source = author ? `<a href="${edition + encodeURIComponent(p.evidence[0])}">Reviewer’s decision</a>` : "Canary’s research record";
-              return `<blockquote>${esc(p.text)}</blockquote><p class="hint">${source} · ${esc(p.evidence.join(" · "))}</p>`;
+              const path = p.evidence[0];
+              const label = sourceNames[path] || (path?.startsWith("/answer/study_results/") ? "Results recorded for an individual study" : "The saved review");
+              const source = author ? `<a href="${edition + encodeURIComponent(p.evidence[0])}">Reviewer’s decision</a>` : esc(label);
+              return `<p class="checklist-passage">${esc(p.text)}</p><p class="hint" title="${esc(p.evidence.join(" · "))}">Source · ${source}</p>`;
             }).join("");
             const passage = references && answer ? `<div id="checklist-${esc(answer)}" tabindex="-1">${references}<a class="text-action" href="${link}${esc(answer)}">Link to this passage</a></div>` : references;
-            return `<li><p>${esc(element.requirement)}</p>${passage}<p class="hint">${esc(statusText[element.status])}. ${esc(basisText[element.basis] || "")}</p></li>`;
+            const note = basisText[element.basis] || (element.status === "missing" && item.status === "partial" ? "The review does not report this detail." : "");
+            return `<li><p>${esc(element.requirement)}</p>${passage}${note ? `<p class="hint">${esc(note)}</p>` : ""}</li>`;
           }).join("");
           if (!groups.has(item.heading)) groups.set(item.heading, []);
           const body = abstractLinks ? `<ul>${abstractLinks}</ul>` : `${overview}<ol>${elements}</ol>`;
@@ -1984,7 +1996,7 @@
         return `<p>${esc(report.question)}</p><dl class="checklist-counts">${counts}</dl>
           <div class="checklist-filters" role="group" aria-label="Filter by reporting status">${filters}</div>
           <p id="checklist-empty" class="muted" hidden>No items have this status.</p>${rows}
-          <footer class="hint">${esc(report.citation)} · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></footer>`;
+          <footer class="hint">Checklist adapted from <a href="https://www.prisma-statement.org/prisma-2020-checklist">PRISMA 2020</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></footer>`;
       }
 
       async function loadChecklist(key) {

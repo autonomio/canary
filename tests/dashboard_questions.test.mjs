@@ -446,7 +446,10 @@ test("item 2 links to an abstract entry and its recorded passage in the dashboar
   route();
   await respond(200, report, endpoint);
   assert.equal((content.innerHTML.match(/<details\b/g) || []).length, report.items.length);
-  assert.ok(content.innerHTML.includes("<blockquote>What changes in lake water?</blockquote>"));
+  assert.ok(content.innerHTML.includes("<p class=\"checklist-passage\">What changes in lake water?</p>"));
+  assert.match(content.innerHTML, /Source · The question that started this review/);
+  assert.doesNotMatch(content.innerHTML, /<blockquote>|>(?:Partly answered|Answered)\.<|Canary’s research record|Page et al/);
+  assert.match(content.innerHTML, /Checklist adapted from/);
   for (const id of ["item-abstract-2", "answer-abstract-2-1"]) {
     const [, href] = content.innerHTML.match(new RegExp('href="([^"]+/' + id + ')"'));
     assert.ok(content.innerHTML.includes('id="checklist-' + id + '"'));
