@@ -1,5 +1,8 @@
 """Methods appendix assembled from the saved review."""
+from pathlib import Path
 from typing import TypedDict
+
+from .methods_search import searches
 
 
 class Passage(TypedDict):
@@ -27,7 +30,7 @@ def entry(label, text, passages=()) -> Entry:
     return dict(label=label, text=text, passages=list(passages))
 
 
-def report(view: dict) -> Appendix:
+def report(view: dict, workspace: Path) -> Appendix:
     graph = view.get('answer', {})
     plan = view.get('query_net', {})
     coverage = view.get('coverage', {})
@@ -40,10 +43,17 @@ def report(view: dict) -> Appendix:
     criteria.extend(entry('Screening instruction', text) for text in plan.get('screening_instructions', []))
     search = []
     progress = coverage.get('search_progress', {})
-    for query_id, state in progress.get('queries', {}).items():
-        source = state.get('source') or progress.get('adapter') or 'openalex'
-        label = source if state.get('pages') or state.get('failure') or state.get('failure_status') else 'Planned query'
-        search.append(entry(f'{query_id} · {label}', state.get('search') or 'Search terms were not recorded.'))
+    for row in searches(workspace, progress):
+        source = row['source'] if row['attempted'] else 'Planned query'
+        number = row['round']
+        label = f"{row['query_id']} · {source} · " + (f"Round {number}" if number else 'Round unknown')
+        details = [row['search']]
+        for key, name in [('matched', 'Matches reported by the source'), ('retrieved', 'Records retrieved'),
+                          ('last_search', 'Last search')]:
+            value = row[key]
+            details.append(f"{name}: {value if value is not None else 'not recorded'}")
+        details.append(row['ended'] or 'No stopping reason was recorded.')
+        search.append(entry(label, '\n'.join(details)))
     limits = selection.get('selection_limitations') or []
     for limit in [limits] if isinstance(limits, str) else limits:
         search.append(entry('Recorded limitation', limit))

@@ -1555,7 +1555,7 @@ class Handler(BaseHTTPRequestHandler):
                     finished = bundle_store.read(workspace)['state'] == 'finished'
                     view = research_bundle(workspace) if finished else None
                     if view is not None and representation == 'methods':
-                        self._send(200, methods.report(view))
+                        self._send(200, methods.report(view, workspace))
                         return
                 if view is None:
                     self._send(409, {'error': 'The checklist requires a finished review bundle', 'code': 'checklist_unavailable'})

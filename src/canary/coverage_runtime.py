@@ -450,6 +450,8 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
         for query in plan["queries"]:
             progress["queries"].setdefault(query["id"], {"search": query["search"], "pages": 0, "cursor": "*", "complete": False})
             if additional: progress['queries'][query['id']]['source'] = query.get('source', 'openalex')
+        from .methods_search import start_round
+        search_round = start_round(workspace, pages)
         headers = {"User-Agent": "Canary/coverage-native", "Cache-Control": "no-cache", "Pragma": "no-cache"}
         key = operator_key(root)
         allowance = "configured_key" if key else "anonymous"
@@ -469,7 +471,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                     continue  # Only receipts in this research workspace may be resumed.
                 if query.get('source', 'openalex') != 'openalex':
                     from .source_adapters import discover_query
-                    discover_query(workspace, root, client, index, query, state, pages)
+                    discover_query(workspace, root, client, index, query, state, pages, search_round)
                     _commit_discovery(workspace, index, progress, plan)
                     continue
                 if stopped_for_backoff: continue
@@ -495,7 +497,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                             params={"search": query["search"], "per_page": 200, "cursor": cursor,
                                     "select": OPENALEX_SELECT}, headers=headers)
                     except httpx.HTTPError as error:
-                        receipt = {"query_id": query["id"], "search": query["search"], "page": state["pages"] + 1,
+                        receipt = {"round": search_round, "page_limit": pages, "query_id": query["id"], "search": query["search"], "page": state["pages"] + 1,
                             "requested_at": now(), "status": None, "error": type(error).__name__, "local_cache_used": False}
                         requests.append(receipt); write(workspace / "openalex-requests.json", requests)
                         state.update(complete=False, truncated=True, failure=receipt["error"])
@@ -511,7 +513,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                             deadline=deadline, retry_after=retry_after, source=delay_source)
                         progress["incomplete_reason"] = "openalex_" + progress["backoff"]["reason"]
                         stopped_for_backoff = True
-                    receipt = {"query_id": query["id"], "search": query["search"], "page": state["pages"] + 1,
+                    receipt = {"round": search_round, "page_limit": pages, "query_id": query["id"], "search": query["search"], "page": state["pages"] + 1,
                         "requested_at": now(), "status": response.status_code, "url": str(response.request.url),
                         "seconds": round(time.monotonic() - started, 3), "local_cache_used": False,
                         "rate_headers": {k: v for k, v in response.headers.items() if k.lower().startswith("x-ratelimit") or k.lower() == "retry-after"}}
@@ -534,7 +536,7 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                         if not WORK_ID.fullmatch(identifier):
                             raise ValueError("Invalid OpenAlex work ID")
                         work["metadata_retrieved_at"] = receipt["requested_at"]
-                    index.add_page(body.get('results', []), query['id'])
+                    returned = index.add_page(body.get('results', []), query['id'])
                     state.update(pages=state["pages"] + 1, cursor=body.get("meta", {}).get("next_cursor"),
                                  matched=body.get("meta", {}).get("count"))
                     state.pop("failure_status", None)
@@ -542,6 +544,12 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
                     state["complete"] = not body.get("results") or not state["cursor"] or (
                         isinstance(state["matched"], int) and state["pages"] * 200 >= state["matched"])
                     state["truncated"] = not state["complete"]
+                    receipt.update(retrieved=returned, matched=state["matched"])
+                    if state["complete"]:
+                        receipt["ended"] = "The source returned its final page."
+                    elif _ == pages - 1:
+                        receipt["ended"] = "Reached the page limit for this round."
+                    write(workspace / "openalex-requests.json", requests)
                     progress["queries"][query["id"]] = state
                     _commit_discovery(workspace, index, progress, plan)
                     event(workspace, "search_page", query_id=query["id"], page=state["pages"], candidates=index.count(), complete=state["complete"])
