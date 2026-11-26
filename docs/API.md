@@ -75,7 +75,9 @@ to see what the record said at the time. You can download any edition as JSON.
 | Read an earlier edition | `canary decisions RUN_KEY --edition ENTRY_ID` |
 | Submit a decision or correction | `canary decisions RUN_KEY --submit FILE` |
 
-The dashboard accepts the same JSON file. In this example, a review requires
+The dashboard accepts the same JSON file, or a file holding only the
+`decision` object. For such a file it adds a new `request_id` and the
+latest edition’s `last_entry`. In this example, a review requires
 a measure of tensile strength. Report 17 measures stiffness alone, so the
 reviewer excludes it.
 
@@ -106,6 +108,12 @@ For each new request, choose a new `request_id` and copy the latest edition’s
 that decision’s ID in `replaces`. The original stays on record. If Canary
 returns HTTP 409, read the latest edition and check your request against it.
 
+A decision sent with `replaces` set to null stands beside any earlier decision
+for the same subject, and both remain current. Use this when separate reviewers
+each record a decision. To supersede a decision, name it in `replaces`. The
+dashboard marks a subject with more than one current decision and lists the
+others under each one.
+
 Use the same subject for a correction. To fix a spelling error or change a
 display name, include `subject_id` inside `decision`. Copy the subject ID shown
 in the dashboard. For older entries that omit this field, follow `replaces`
@@ -120,10 +128,15 @@ Canary could not read or save the review history.
 
 When you review an imported bundle, Canary keeps your decisions in its own
 data directory under the bundle’s permanent ID. If you move the original
-and import it again, its decisions follow that ID. An imported correction
-becomes part of the saved history if it continues the same sequence. If the
-two copies disagree, the request returns HTTP 409 and both histories remain
-intact. The download includes the saved decisions and the original research.
+and import it again, its decisions follow that ID. Canary reads the bundle’s
+own decisions when you import it with `POST /api/runs/import`, or on first
+use if the service holds no decisions for that ID yet. Reads, new decisions
+and downloads then use the service’s copy alone. To bring in decisions that
+were added to the bundle folder later, import the folder again. If the
+folder’s history continues the saved one, Canary adds the new entries. If
+the two disagree, the import returns HTTP 409. Both histories remain intact,
+and the run keeps reading the service’s copy. The download includes the
+saved decisions and the original research.
 
 Save an edition’s last entry ID separately if you need to check that the
 edition is still present after restoring a backup.

@@ -45,7 +45,7 @@ function openQuestions({ mobile = false, storage = new Map() } = {}) {
   const handlers = new Map(), browser = new Map(), requests = [];
   const location = { hash: "", href: "http://localhost/" };
   vm.runInNewContext(source, {
-    URL, Option: class { constructor(label, value) { this.label = label; this.value = value; } },
+    URL, crypto: globalThis.crypto, Option: class { constructor(label, value) { this.label = label; this.value = value; } },
     document: {
       body: element(),
       documentElement: element(),
@@ -357,4 +357,19 @@ test("review decisions show their evidence and download the selected edition", a
   const sent = await respond(409, {error:"Another edition was saved"}, endpoint, "POST");
   assert.deepEqual(sent, request);
   assert.equal(elements.get("review-status").textContent, "Another edition was saved");
+  const parallel = {...record, id:"three", decision:{...record.decision, subject_id:"one", judgement:"exclude"}};
+  input.files = [{text: async () => JSON.stringify(parallel.decision)}];
+  input.listeners.get("change")();
+  await new Promise(setImmediate);
+  const filled = await respond(200, {last_entry:"three"}, endpoint, "POST");
+  assert.deepEqual(filled.decision, parallel.decision);
+  assert.equal(filled.expected_last_entry, "two");
+  assert.match(filled.request_id, /^dashboard-[0-9a-f]{32}$/);
+  assert.equal("replaces" in filled, false);
+  await respond(200, {last_entry:"three", entries:[record, correction, parallel]}, endpoint);
+  const current = elements.get("review-entries").innerHTML;
+  assert.equal(current.split("One of 2 current · ").length - 1, 2);
+  assert.match(current, /<summary>Replaced · Report A · include/);
+  assert.match(current, /Also current for this subject<\/dt><dd><code>three<\/code>/);
+  assert.match(current, /Also current for this subject<\/dt><dd><code>two<\/code>/);
 });

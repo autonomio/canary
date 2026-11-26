@@ -1291,7 +1291,7 @@
         <div class="field"><label for="review-edition">Edition</label><select id="review-edition"></select></div>
         <p id="review-status" role="status"></p>
         <div id="review-entries"></div>
-        <div class="field"><label for="review-input">Import a recorded decision (JSON)</label><input type="file" id="review-input" accept=".json,application/json" /></div>
+        <div class="field"><label for="review-input">Import a recorded decision (JSON)</label><input type="file" id="review-input" accept=".json,application/json" aria-describedby="review-input-hint" /><p class="hint" id="review-input-hint">The file can hold just the decision. Canary adds a new request ID and the latest edition&rsquo;s last entry when the file leaves them out.</p></div>
       </div>
       <footer class="launch-footer"><a id="review-download" class="btn" download="review-decisions.json" hidden>Download edition</a><button type="button" class="btn" id="review-close">Close</button></footer>
     </dialog>
@@ -3608,22 +3608,39 @@
 
       function reviewEntries(entries) {
         if (!entries.length) return "<p>No decisions in this edition.</p>";
-        const subjects = new Map();
+        const subjects = new Map(), current = new Map();
         const replacements = new Map(entries.filter(entry => entry.replaces).map(entry => [entry.replaces, entry.id]));
-        return entries.map(({id, subject_id, recorded_at, replaces, decision: d}) => {
-          const subject = subject_id || d.subject_id || subjects.get(replaces) || id;
-          subjects.set(id, subject);
+        const rows = entries.map(entry => {
+          const subject = entry.subject_id || entry.decision.subject_id || subjects.get(entry.replaces) || entry.id;
+          subjects.set(entry.id, subject);
+          if (!replacements.has(entry.id)) current.set(subject, [...(current.get(subject) || []), entry.id]);
+          return {...entry, subject};
+        });
+        return rows.map(({id, subject, recorded_at, replaces, decision: d}) => {
           const replacement = replacements.get(id);
+          const others = replacement ? [] : current.get(subject).filter(other => other !== id);
           return `<details>
-          <summary>${replacement ? "Replaced · " : ""}${esc(d.subject)} · ${esc(d.judgement)} (${esc(d.status)})</summary>
+          <summary>${replacement ? "Replaced · " : ""}${others.length ? "One of " + (others.length + 1) + " current · " : ""}${esc(d.subject)} · ${esc(d.judgement)} (${esc(d.status)})</summary>
           <p>${esc(d.reason)}</p><ul>${d.evidence.map(item => `<li>${esc(item)}</li>`).join("")}</ul>
           <dl><dt>Proposed by</dt><dd>${esc(reviewActor(d.proposed_by))}</dd>
           <dt>Decided by</dt><dd>${esc(reviewActor(d.decided_by))}</dd><dt>Checked by</dt><dd>${esc(reviewActor(d.checked_by))}</dd>
           <dt>Subject ID</dt><dd><code>${esc(subject)}</code></dd>
           <dt>Recorded</dt><dd>${esc(recorded_at)}</dd><dt>Entry</dt><dd><code>${esc(id)}</code></dd>
           ${replacement ? `<dt>Replaced by</dt><dd><code>${esc(replacement)}</code></dd>` : ""}
+          ${others.length ? `<dt>Also current for this subject</dt><dd>${others.map(other => `<code>${esc(other)}</code>`).join(" ")}</dd>` : ""}
           ${replaces ? `<dt>Corrects</dt><dd><code>${esc(replaces)}</code></dd>` : ""}</dl></details>`;
         }).join("");
+      }
+
+      function reviewRequest(file, latest) {
+        if (!file || typeof file !== "object" || Array.isArray(file)) return file;
+        const request = "decision" in file ? {...file} : {decision: file};
+        if (request.request_id === undefined) {
+          const bytes = crypto.getRandomValues(new Uint8Array(16));
+          request.request_id = "dashboard-" + Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+        }
+        if (request.expected_last_entry === undefined && latest) request.expected_last_entry = latest;
+        return request;
       }
 
       function setUpReviewDialog() {
@@ -3633,7 +3650,7 @@
         const status = document.getElementById("review-status");
         const entries = document.getElementById("review-entries");
         const download = document.getElementById("review-download");
-        let path, sequence = 0;
+        let path, latest, sequence = 0;
 
         async function load(id) {
           const request = ++sequence;
@@ -3645,6 +3662,7 @@
             const edition = await api(url);
             if (request !== sequence) return;
             if (!id) {
+              latest = edition.last_entry;
               const options = edition.entries.map((entry, i) => new Option(`${i + 1}. ${entry.decision.subject} · ${entry.decision.judgement}`, entry.id));
               select.replaceChildren(new Option("Before the first decision", "initial"), ...options);
             }
@@ -3660,11 +3678,12 @@
 
         select.addEventListener("change", () => load(select.value));
         input.addEventListener("change", async () => {
-          const file = input.files[0], current = path;
+          const file = input.files[0], current = path, expected = latest;
           if (!file) return;
           input.disabled = true;
           try {
-            const body = JSON.parse(await file.text());
+            const parsed = JSON.parse(await file.text());
+            const body = reviewRequest(parsed, expected);
             await api(current, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
             if (current === path && dialog.open) await load();
           } catch (error) {
@@ -3675,6 +3694,7 @@
         dialog.addEventListener("close", () => { sequence++; });
         return key => {
           path = "/api/runs/" + encodeURIComponent(key) + "/review-decisions";
+          latest = undefined;
           select.replaceChildren();
           dialog.showModal();
           load();
