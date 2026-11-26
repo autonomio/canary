@@ -79,3 +79,50 @@ def test_interrupted_receipt_write_keeps_readable_pages(tmp_path):
     report = methods.report(dict(query_net={'queries': [dict(id='a', source='clinicaltrials', search='water')]}), tmp_path)
     assert report['searches'][0]['retrieved'] == 2
     assert any(row['label'] == 'Incomplete request log' for row in report['sections'][1]['entries'])
+
+
+def test_damaged_log_only_limits_counts_from_that_log(tmp_path):
+    receipt = dict(query_id='a', source='clinicaltrials', search='water', round=1, status=200, retrieved=2)
+    (tmp_path / 'additional-source-requests.jsonl').write_text(json.dumps(receipt) + '\n{"page":')
+    (tmp_path / 'openalex-requests.json').write_text(json.dumps([dict(query_id='b', status=200, retrieved=4)]))
+    other, damaged = searches(tmp_path, {})
+    assert (other['source'], other['retrieved'], other['retrieved_partial']) == ('openalex', 4, False)
+    assert (damaged['source'], damaged['search'], damaged['retrieved_partial']) == ('clinicaltrials', 'water', True)
+
+
+def test_unreadable_working_files_leave_the_rest_of_the_appendix_available(tmp_path):
+    from canary import methods
+    for name in ('selection.json', 'search-progress.json', 'question-plan.json'):
+        (tmp_path / name).write_bytes(b'{')
+    result = methods.report(dict(seed='Review question'), tmp_path)
+    assert result['question'] == 'Review question'
+    assert {e['label'] for e in result['sections'][0]['entries']} == {
+        'selection.json', 'search-progress.json', 'question-plan.json'}
+
+
+def test_single_prompt_evaluation_does_not_cover_follow_up_instructions(tmp_path):
+    from canary.methods_automation import sessions
+    receipt = dict(cli_version='1', model='m', reasoning_effort='high')
+    path = tmp_path / 'correction-receipt.json'
+    path.write_text(json.dumps(receipt))
+    (tmp_path / 'correction-prompt.txt').write_text('Check the correction.')
+    config = sessions(tmp_path)[0]['configuration']
+    (tmp_path / 'methods-evaluations.json').write_text(json.dumps([
+        dict(configuration=config, url='https://example.org/evaluation')]))
+    for extra in [dict(response_retry={'resumed': True}), dict(capacity_pauses=[{'resumed': True}])]:
+        path.write_text(json.dumps(dict(receipt, **extra)))
+        assert sessions(tmp_path)[0]['evaluation'] is None
+
+
+def test_counts_stay_with_their_source_when_logs_share_a_query_id(tmp_path):
+    receipt = dict(query_id='a', status=200, round=1, retrieved=2)
+    (tmp_path / 'openalex-requests.json').write_text(json.dumps([receipt, None]))
+    (tmp_path / 'additional-source-requests.jsonl').write_text(json.dumps(dict(receipt, source='pubmed')) + '\n{')
+    rows = searches(tmp_path, dict(queries={'b': dict(source='pubmed', returned=3),
+                                           'a': dict(source='openalex', search='lake', complete=True)}))
+    assert [(row['source'], row['retrieved'], row['retrieved_partial']) for row in rows] == [
+        ('pubmed', 3, False), ('openalex', 2, True), ('pubmed', 2, True)]
+    fallback, openalex, pubmed = rows
+    assert fallback['attempted']
+    assert openalex['search'] == 'lake' and openalex['ended'] == 'The source returned its final page.'
+    assert pubmed['ended'] is None and pubmed['search'] == 'Search terms were not recorded.'

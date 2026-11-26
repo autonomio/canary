@@ -333,3 +333,5 @@ the saved prompt and its SHA-256. A review can supply
 `methods-evaluations.json`, an array with one HTTPS `url` and one
 `configuration` per evaluation. The role, tool, version, model, effort
 and prompt SHA-256 must all match the session for its citation to appear.
+If the receipt records a retry or a capacity pause, the appendix withholds
+the citation because the evaluation covers only the initial prompt.

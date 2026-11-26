@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.0 on 26th of November, 2026
+
+- Add a methods appendix to the PRISMA dashboard. Readers can see which searches ran, why screening stopped and which passages support each claim. The appendix travels with the review archive.
+
 ## v0.3.0 on 26th of November, 2026
 
 - Add a PRISMA checklist to finished reviews. Readers can find each recorded answer, see what is missing and trace author statements to the reviewer. The checklist is available in the dashboard, CLI and API and as a standalone HTML report.

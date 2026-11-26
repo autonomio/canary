@@ -421,6 +421,7 @@ def _store_methods(db: sqlite3.Connection, bundle_id: str, value: Record) -> Non
 
 
 def has_methods(workspace: Path) -> bool:
+    """Check whether the bundle already retains its methods appendix."""
     path = workspace / NAME
     if not path.exists():
         return False

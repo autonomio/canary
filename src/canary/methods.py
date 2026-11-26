@@ -1,5 +1,6 @@
 """Methods appendix assembled from the saved review."""
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TypedDict
 
@@ -30,21 +31,25 @@ class Appendix(TypedDict):
     sections: list[Section]
 
 
-def entry(label, text, passages=()) -> Entry:
+def entry(label: str, text: str, passages: Iterable[Passage] = ()) -> Entry:
+    """Build a labelled appendix entry with its supporting passages."""
     return dict(label=label, text=text, passages=list(passages), url=None)
 
 
-def rows(values):
+def rows(values: object) -> list[dict]:
+    """Read object rows from an optional saved list."""
     return [v for v in values if isinstance(v, dict)] if isinstance(values, list) else []
 
 
-def strings(values):
+def strings(values: object) -> list[str]:
+    """Read text saved as a single string or a list."""
     if isinstance(values, str):
         return [values]
     return [v for v in values if isinstance(v, str)] if isinstance(values, list) else []
 
 
-def criteria_entries(plan):
+def criteria_entries(plan: dict) -> list[Entry]:
+    """Describe the eligibility rules and screening instructions."""
     eligibility = plan.get('eligibility') or {}
     criteria = [entry(label, eligibility[key]) for key, label in
                 [('core', 'Direct evidence'), ('supporting', 'Supporting evidence'), ('exclusion', 'Reasons for exclusion')]
@@ -54,7 +59,8 @@ def criteria_entries(plan):
     return criteria
 
 
-def search_entries(query_rows, selection):
+def search_entries(query_rows: list[dict], selection: dict) -> list[Entry]:
+    """Describe each search round and its recorded limits."""
     search = []
     for row in query_rows:
         source = row['source'] if row['attempted'] else 'Planned query'
@@ -74,7 +80,8 @@ def search_entries(query_rows, selection):
     return search
 
 
-def screening_entries(view, selection, coverage):
+def screening_entries(view: dict, selection: dict, coverage: dict) -> list[Entry]:
+    """Summarise recorded decisions and account for unscreened records."""
     screening = []
     for decision in rows(selection.get('decisions')):
         quote = decision.get('supporting_abstract_text')
@@ -99,7 +106,8 @@ def screening_entries(view, selection, coverage):
     return screening
 
 
-def claim_entries(graph):
+def claim_entries(graph: dict) -> list[Entry]:
+    """Pair claims with the passages cited in the saved answer."""
     evidence = {e['id']: e for e in rows(graph.get('evidence')) if e.get('id') and e.get('quote') and not e.get('navigation_id')}
     claims = []
     for claim in rows(graph.get('claims')):
@@ -113,7 +121,8 @@ def claim_entries(graph):
     return claims
 
 
-def automation_entries(view, selection, workspace):
+def automation_entries(view: dict, selection: dict, workspace: Path | None) -> list[Entry]:
+    """Describe the software and checks recorded for each review step."""
     automation = []
     recorded = sessions(workspace) if workspace is not None else []
     run = view.get('run') or {}
@@ -133,6 +142,8 @@ def automation_entries(view, selection, workspace):
         if session['exit_code'] is not None:
             details.append('Session completed.' if session['exit_code'] == 0 else 'Session stopped with an error.')
         details.append('No separate check of this step was recorded.')
+        if session['follow_up']:
+            details.append('The receipt records a retry or capacity pause. The saved prompt covers only the initial instructions.')
         details.append('No matching evaluation was recorded.' if not session['evaluation'] else 'Matching evaluation available.')
         passages = [dict(source='Saved prompt', text=session['prompt'])] if session['prompt'] else []
         record = entry(name, '\n'.join(details), passages)
@@ -153,32 +164,40 @@ def automation_entries(view, selection, workspace):
 
 
 def report(view: dict, workspace: Path | None) -> Appendix:
+    """Assemble the appendix from the projection and available working records."""
     graph = view.get('answer') or {}
     plan = view.get('query_net') or {}
     coverage = view.get('coverage') or {}
     selection = (view.get('paper_selection') or {}).get('selection') or {}
     progress = coverage.get('search_progress') or {}
+    missing = []
     for name, target in [('question-plan.json', plan), ('search-progress.json', progress), ('selection.json', selection)]:
         if not target:
             path = working_file(workspace, name)
             if path is not None:
-                saved = json.loads(path.read_text())
+                try:
+                    saved = json.loads(path.read_bytes())
+                except (ValueError, OSError):
+                    saved = None
                 if isinstance(saved, dict):
                     target.update(saved)
+                else:
+                    missing.append(entry(name, f'Canary could not read the saved {name} record.'))
     warnings = []
     query_rows = searches(workspace, progress, plan.get('queries') or [], warnings=warnings)
     search = search_entries(query_rows, selection)
     search.extend(entry('Incomplete request log', warning) for warning in warnings)
     return dict(question=graph.get('question') or plan.get('question') or view.get('seed') or '',
                 searches=query_rows,
-                sections=[dict(title='Eligibility', entries=criteria_entries(plan)),
+                sections=([dict(title='Limits of the saved record', entries=missing)] if missing else []) +
+                         [dict(title='Eligibility', entries=criteria_entries(plan)),
                           dict(title='Searches', entries=search),
                           dict(title='Screening and access', entries=screening_entries(view, selection, coverage)),
                           dict(title='Automation and checks', entries=automation_entries(view, selection, workspace)),
                           dict(title='Claims and supporting passages', entries=claim_entries(graph))])
 
 
-def for_bundle(workspace, manifest, store=None):
+def for_bundle(workspace: Path, manifest: dict, store: Path | None = None) -> Appendix:
     """Read a finished bundle while the caller holds its read lock."""
     from . import compact_bundle, dashboard, review_history
     if compact_bundle.exists(workspace):
