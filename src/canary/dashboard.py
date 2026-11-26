@@ -1484,8 +1484,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {'last_entry': last_entry})
         except review_history.UnknownEdition:
             self._send(404, {'error': 'Unknown review edition', 'code': 'unknown_review_edition'})
-        except review_history.ReviewConflict as error:
-            self._send(409, {'error': str(error), 'code': 'review_conflict'})
         except (review_history.ReviewStorageError, OSError):
             self._send(500, {'error': 'Could not read or save the recorded review history', 'code': 'review_storage_error'})
 
@@ -1635,6 +1633,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"experiments": acceptance_runs(self.supervisor.root)})
             else:
                 self._send(404, {"error": "not found"})
+        except review_history.ReviewConflict as error:
+            self._send(409, {'error': str(error), 'code': 'review_conflict'})
         except review_history.ReviewStorageError:
             self._send(500, {'error': 'Could not read the recorded review history', 'code': 'review_storage_error'})
         except KeyError:
@@ -1681,6 +1681,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not path.is_dir(): raise ValueError('Server-side bundle directory does not exist')
                 existing = next((r for r in runs.load(self.supervisor.registry)
                     if r.get('bundle') and Path(r['bundle']).resolve() == path), None)
+                history = path / review_history.NAME
+                if history.is_file() or history.is_symlink():
+                    store = self._decision_paths(existing)[1] if existing else self.supervisor.root / 'review-decisions'
+                    if store is not None:
+                        review_history.edition(path, review_history.INITIAL, store=store)
                 self._send(200 if existing else 201, existing or runs.adopt_bundle(
                     path, body.get('name',''), body.get('brief',''), self.supervisor.registry))
             elif parsed.path == "/api/runs/compile" or (parsed.path == "/api/runs" and ('yaml' in body or 'spec' in body)):
@@ -1726,6 +1731,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(202, self.supervisor.cancel(unquote(parsed.path.split('/')[3])))
             else:
                 self._send(404, {"error": "not found"})
+        except review_history.ReviewConflict as error:
+            self._send(409, {'error': str(error), 'code': 'review_conflict'})
+        except review_history.ReviewStorageError:
+            self._send(500, {'error': 'Could not read the recorded review history', 'code': 'review_storage_error'})
         except KeyError as e:
             self._send(404, {"error": f"unknown run {e}"})
         except CompileError as e:

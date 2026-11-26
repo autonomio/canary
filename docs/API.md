@@ -120,8 +120,10 @@ Canary could not read or save the review history.
 
 When you review an imported bundle, Canary keeps your decisions in its own
 data directory under the bundle’s permanent ID. If you move the original
-and import it again, its decisions follow that ID. The download includes
-those decisions and the original research.
+and import it again, its decisions follow that ID. An imported correction
+becomes part of the saved history if it continues the same sequence. If the
+two copies disagree, the request returns HTTP 409 and both histories remain
+intact. The download includes the saved decisions and the original research.
 
 Save an edition’s last entry ID separately if you need to check that the
 edition is still present after restoring a backup.

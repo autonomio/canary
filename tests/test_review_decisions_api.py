@@ -332,3 +332,59 @@ def test_imported_full_and_compact_copies_share_decisions(tmp_path, review_clien
     rejected = client.get('/api/runs/compact/review-decisions')
     assert rejected.status_code == 500 and rejected.json()['code'] == 'review_storage_error'
     assert client.get(route).json() == dict(latest, base_sha256=None)
+
+
+def test_reimport_keeps_compatible_corrections_and_refuses_divergence(tmp_path, review_client):
+    client, registry, _, _ = review_client
+    source = tmp_path / 'original'
+    source.mkdir()
+    prepared(source)
+    first = review_history.append(source, decision(), request_id='first', expected_last_entry='initial')
+    newer, fork = tmp_path / 'newer', tmp_path / 'fork'
+    shutil.copytree(source, newer)
+    shutil.copytree(source, fork)
+    second = review_history.append(newer, decision('Corrected'), request_id='second', expected_last_entry=first, replaces=first)
+    other = review_history.append(fork, decision('Other finding'), request_id='fork', expected_last_entry=first)
+    def register(path):
+        return client.post('/api/runs/import', json={'server_path': str(path)})
+    route = '/api/runs/original/review-decisions'
+    assert register(source).status_code == 201
+    assert client.get(route).json()['last_entry'] == first
+    assert register(newer).status_code == 201
+    assert client.get(route).json()['last_entry'] == second
+    assert register(newer).status_code == 200
+    assert register(source).status_code == 200
+    with zipfile.ZipFile(io.BytesIO(client.get('/api/runs/original/bundle/archive').content)) as archive:
+        edition = json.loads(archive.read('review-decisions.json'))
+        assert [entry['id'] for entry in edition['entries']] == [first, second]
+    assert register(fork).status_code == 409
+    assert runs.get('fork', registry) is None
+    runs.adopt_bundle(fork, path=registry)
+    msg = dict(request_id='extra', expected_last_entry=other, decision=decision())
+    for response in (client.get('/api/runs/fork/review-decisions'),
+                     client.post('/api/runs/fork/review-decisions', json=msg),
+                     client.get('/api/runs/fork/bundle/archive')):
+        assert response.status_code == 409 and response.json()['code'] == 'review_conflict'
+    assert client.get(route).json()['last_entry'] == second
+    assert review_history.edition(fork)['last_entry'] == other
+
+
+def test_full_history_extension_preserves_the_compact_receipt(tmp_path, review_client):
+    client, registry, _, _ = review_client
+    full = tmp_path / 'full'
+    full.mkdir()
+    prepared(full)
+    first = review_history.append(full, decision(), request_id='initial-review', expected_last_entry='initial')
+    compact = tmp_path / 'compact'
+    shutil.copytree(full, compact)
+    compact_bundle.retain(compact)
+    checksum = (compact / compact_bundle.CHECKSUM).read_text().strip()
+    assert client.post('/api/runs/import', json={'server_path': str(compact)}).status_code == 201
+    second = review_history.append(full, decision('Correction'), request_id='edit', expected_last_entry=first, replaces=first)
+    runs.adopt_bundle(full, path=registry)
+    with zipfile.ZipFile(io.BytesIO(client.get('/api/runs/full/bundle/archive').content)) as archive:
+        edition = json.loads(archive.read('review-decisions.json'))
+        assert edition['last_entry'] == second and edition['base_sha256'] is None
+    compact_edition = client.get('/api/runs/compact/review-decisions').json()
+    assert compact_edition == dict(edition, base_sha256=checksum)
+    assert review_history.edition(compact)['last_entry'] == first

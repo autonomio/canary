@@ -123,9 +123,10 @@ the working files, it records the checksum of the stored `resolvent.json` in the
 decision history. Later corrections point back to the entries they amend. The
 bundle ID and the last entry ID together identify an edition.
 
-For an imported bundle, Canary copies any existing decision history into its
-own data directory when it first needs it. Further decisions go into that
-copy. Full and compact copies of the same bundle share one decision history
+When you import a bundle, Canary checks its decisions against the history
+in its data directory. If one history continues the other, Canary keeps the
+longer history. If they disagree, Canary reports a conflict and preserves
+both copies. Further decisions go into the service’s copy. Full and compact copies of the same bundle share one decision history
 under its permanent ID. In the downloaded JSON, `base_sha256` gives the
 verified checksum of `resolvent.json` for a compact copy. The full copy has
 no such file, so the field is null. The archived SQLite database keeps the

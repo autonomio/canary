@@ -163,6 +163,30 @@ def _source_files(root: Path) -> dict[Path, tuple[int, int, int, int]]:
     return files
 
 
+def _merge_history(stored: sqlite3.Connection, incoming: sqlite3.Connection, bundle_id: str,
+                  incoming_head: str) -> None:
+    stored.execute('BEGIN IMMEDIATE')
+    head = _header(stored, bundle_id, None)
+    _verify_entries(stored, bundle_id)
+    saved_anchor = stored.execute('SELECT base_sha256 FROM history').fetchone()[0]
+    incoming_anchor = incoming.execute('SELECT base_sha256 FROM history').fetchone()[0]
+    if saved_anchor and incoming_anchor and saved_anchor != incoming_anchor:
+        raise ReviewConflict('The imported decisions refer to a different compact copy')
+    if head != incoming_head and incoming_head != INITIAL and not stored.execute(
+            'SELECT 1 FROM entries WHERE id = ?', (incoming_head,)).fetchone():
+        if head == INITIAL:
+            suffix = incoming.execute('SELECT id, body FROM entries ORDER BY rowid')
+        else:
+            common = incoming.execute('SELECT rowid FROM entries WHERE id = ?', (head,)).fetchone()
+            if common is None:
+                raise ReviewConflict('The imported and saved review histories contain conflicting decisions')
+            suffix = incoming.execute('SELECT id, body FROM entries WHERE rowid > ? ORDER BY rowid', (common[0],))
+        stored.executemany('INSERT INTO entries (id, body) VALUES (?, ?)', suffix)
+        stored.execute('UPDATE history SET last_entry = ?', (incoming_head,))
+    if saved_anchor is None and incoming_anchor is not None:
+        stored.execute('UPDATE history SET base_sha256 = ?', (incoming_anchor,))
+
+
 def _import_history(root: Path, target: Path, bundle_id: str, checksum: str | None) -> None:
     with tempfile.TemporaryDirectory(dir=target) as temporary:
         snapshot = Path(temporary)
@@ -175,9 +199,13 @@ def _import_history(root: Path, target: Path, bundle_id: str, checksum: str | No
         with _connect(path) as db:
             db.execute('PRAGMA journal_mode=DELETE').fetchone()
         _recover_binding(root, snapshot, bundle_id, checksum)
-        with _connect(path, mode='ro') as db:
-            _header(db, bundle_id, checksum)
-            _verify_entries(db, bundle_id)
+        with _connect(path, mode='ro') as incoming:
+            head = _header(incoming, bundle_id, checksum)
+            _verify_entries(incoming, bundle_id)
+            if (target / NAME).exists():
+                with _connect(target / NAME) as stored, stored:
+                    _merge_history(stored, incoming, bundle_id, head)
+                return
         path.replace(target / NAME)
 
 
@@ -194,7 +222,7 @@ def _directory(root: Path, bundle_id: str, checksum: str | None, store: Path | N
     except OSError as error:
         raise ReviewStorageError('Could not open the imported decision history') from error
     with locked(target):
-        if not (target / NAME).exists() and ((root / NAME).is_file() or (root / NAME).is_symlink()):
+        if (root / NAME).is_file() or (root / NAME).is_symlink():
             try:
                 _import_history(root, target, bundle_id, checksum)
             except OSError as error:
