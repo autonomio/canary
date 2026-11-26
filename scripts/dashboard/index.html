@@ -2031,7 +2031,7 @@
           const evaluation = row.url && /^https:\/\//i.test(row.url)
             ? `<a href="${esc(row.url)}" target="_blank" rel="noopener">Read the evaluation</a>` : "";
           const passages = (row.passages || []).map(p =>
-            `<blockquote>${esc(p.text)}<footer>${esc(p.source)}</footer></blockquote>`).join("");
+            `<blockquote>${esc(p.text)}<footer>${esc(p.source)}${p.warning ? ` · ${esc(p.warning)}` : ""}</footer></blockquote>`).join("");
           groups.get(row.label).push(`<p class="review-prose">${esc(row.text)}</p>${evaluation}${passages}`);
         }
         const labels = [...groups.keys()];

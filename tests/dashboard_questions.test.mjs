@@ -483,10 +483,12 @@ test("methods appendix shows the saved claim beside its quotation", async () => 
   location.hash = "#research/lake/methods";
   route();
   await respond(200, {question:"Lake water", sections:[{title:"Claims and supporting passages",
-    entries:[{label:"C1", text:"Recorded claim", passages:[{source:"p2", text:"A <measurement>"}]}]}]},
+    entries:[{label:"C1", text:"Recorded claim", passages:[{source:"p1", text:"First quotation", warning:"Unverified <quotation>"},
+      {source:"p2", text:"A <measurement>"}]}]}]},
     "/api/runs/lake/prisma/methods");
   assert.doesNotMatch(elements.get("checklist-content").innerHTML, /Lake water/);
-  assert.match(elements.get("checklist-content").innerHTML, /Recorded claim.*A &lt;measurement&gt;.*p2/s);
+  assert.match(elements.get("checklist-content").innerHTML, /First quotation<footer>p1 · Unverified &lt;quotation&gt;<\/footer>/);
+  assert.match(elements.get("checklist-content").innerHTML, /A &lt;measurement&gt;<footer>p2<\/footer>/);
   assert.equal(elements.get("prisma-methods").attrs["aria-current"], "page");
   location.hash = elements.get("prisma-checklist").href;
   route();

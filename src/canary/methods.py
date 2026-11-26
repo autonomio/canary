@@ -8,7 +8,11 @@ from .methods_automation import ROLES, sessions
 from .methods_search import searches, working_file
 
 
-class Passage(TypedDict):
+class _PassageWarning(TypedDict, total=False):
+    warning: str
+
+
+class Passage(_PassageWarning):
     source: str
     text: str
 
@@ -111,8 +115,14 @@ def claim_entries(graph: dict) -> list[Entry]:
     evidence = {e['id']: e for e in rows(graph.get('evidence')) if e.get('id') and e.get('quote') and not e.get('navigation_id')}
     claims = []
     for claim in rows(graph.get('claims')):
-        passages = [dict(source=evidence[k].get('paragraph_id') or 'Source unknown', text=evidence[k]['quote'])
-                    for k in strings(claim.get('evidence_ids')) if k in evidence]
+        passages: list[Passage] = []
+        for key in strings(claim.get('evidence_ids')):
+            if key in evidence:
+                record = evidence[key]
+                passage = Passage(source=record.get('paragraph_id') or 'Source unknown', text=record['quote'])
+                if record.get('anchored') is False:
+                    passage['warning'] = 'Canary could not verify this quotation against the saved source text.'
+                passages.append(passage)
         missing = any(k not in evidence for k in strings(claim.get('evidence_ids')))
         text = claim.get('text') or 'Claim text was not recorded.'
         if missing:

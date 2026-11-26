@@ -153,3 +153,16 @@ def test_nested_session_uses_its_own_prompt_and_defers_to_root_receipt(tmp_path)
     (tmp_path / receipt).write_text('{"model":"root"}')
     session, = sessions(tmp_path)
     assert (session['configuration']['model'], session['prompt']) == ('root', 'Root instructions')
+
+
+def test_each_claim_quotation_keeps_its_own_source_check():
+    from canary.methods import claim_entries
+    evidence = [dict(id=key, paragraph_id=key, quote='Same wording', **flags) for key, flags in
+                [('p1', {'anchored': False}), ('p2', {'anchored': True}), ('older', {})]]
+    claim = dict(id='c1', text='Recorded claim', evidence_ids=['p1', 'p2', 'older', 'missing'])
+    entry, = claim_entries(dict(claims=[claim], evidence=evidence))
+    first, verified, older = entry['passages']
+    assert first == dict(source='p1', text='Same wording',
+                         warning='Canary could not verify this quotation against the saved source text.')
+    assert 'warning' not in verified and 'warning' not in older
+    assert 'unique passage' in entry['text']
