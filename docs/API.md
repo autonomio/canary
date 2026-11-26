@@ -248,3 +248,39 @@ material, without reading the research filesystem in the client. Its science is
 explicitly synthetic; the subsequent deployment proof records live research separately.
 
 Question submissions also accept optional `research_state` (a JSON object, at most 10 MiB) and `continue_research` (boolean, default false), under `spec` or alongside `kind: question`. A true continuation flag requires a nonempty state. The API preserves the exact starting state; the CLI YAML declaration and MCP contract expose the same fields. See [continuation inputs](RESEARCH_BUNDLE.md#continue-from-supplied-research-state) for paper-coverage and unchanged-workflow semantics.
+
+### PRISMA checklist
+
+For a finished review, open **Research bundle → PRISMA checklist** in the
+dashboard. It opens in a new dashboard tab with the same colour theme. Select
+a status to filter the list. Expand an item to see the question in plain English.
+The recorded passages, their sources and any missing answers appear together.
+Item 2 shows all twelve abstract entries with their answers and groups unreported details under each entry. A path such as `/answer/question` refers to the saved
+research view. An entry ID refers to the review’s decision history.
+
+`canary checklist RUN_KEY` and `GET /api/runs/{key}/prisma/checklist` return
+the same checklist as JSON. The corresponding agent action is
+`canary_prisma_checklist`. Use `GET /api/runs/{key}/prisma/report` to read or
+save the linked HTML report. The saved file includes the cited reviewer decisions and their evidence so readers can follow the links offline. Both views are generated from the saved review
+and its latest decision edition.
+
+Use an accepted review decision to supply an author’s answer. In `decision`,
+use a subject ID of the form `prisma:24a:1` for the first essential element of
+item 24a. Abstract subjects use the same convention, such as
+`prisma:abstract-7:2`. Name the person who decided, give the answer in
+`reason`, and identify the supporting records in `evidence`. Use `reported`
+for an answer the author confirms covers the element, or `partial` for an
+incomplete answer. The report attributes that assessment to the author.
+
+Use `not_used` when the authors know a method was never used, and
+`archive_missing` when the record is unavailable. For `inapplicable`, explain
+which feature of the review question or design rules the element out. For
+example, a review of polymer specimens has no human participants. A blank
+field leaves the element missing. Correct an earlier declaration with
+`replaces`; competing declarations stay visible until resolved.
+
+Current runs count unique candidate records and reviewed publications. They do not count distinct included reports, studies or participants. Reviewers can supply study and participant totals as attributed answers to abstract item 7. Ordinary coverage summaries show the totals recorded by the run. The checklist keeps all five units visible. A candidate record, a
+report, a reviewed publication, an included study and a participant each
+have a separate total. An absent total appears as unknown. Later author
+statements about studies or participants appear beside the recorded counts
+and link to the corresponding decision.

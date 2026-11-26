@@ -102,13 +102,17 @@ def _header(db: sqlite3.Connection, bundle_id: str, checksum: str | None) -> str
     return row[3]
 
 
+def subject_id(entry: Record, inherited: str) -> str:
+    """Resolve the subject recorded on a decision or inherited from its predecessor."""
+    return entry.get('subject_id') or entry['decision'].get('subject_id') or inherited
+
+
 def _index_subject(subjects: dict[str, tuple[str, str]], identifier: str, entry: Record) -> None:
     try:
         parent = entry.get('replaces')
         original = identifier if parent is None else subjects[parent][0]
         decision = entry['decision']
-        subject_id = entry.get('subject_id') or decision.get('subject_id') or original
-        subjects[identifier] = subject_id, decision['subject']
+        subjects[identifier] = subject_id(entry, original), decision['subject']
     except (KeyError, TypeError, AttributeError) as error:
         raise ReviewStorageError('Invalid subject or correction link in the saved history') from error
 

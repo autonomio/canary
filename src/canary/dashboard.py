@@ -31,7 +31,7 @@ from xml.etree import ElementTree
 
 from . import runs
 from .codex_auth import AuthError, CodexAuth
-from . import bundle_connectors, review_history
+from . import bundle_connectors, prisma, review_history
 from . import research_bundle as bundle_store
 from .research_spec import CompileError, compile_research, compile_mapping, verify_compiled, verify_recorded
 from .runtime_paths import resource_root
@@ -1541,6 +1541,28 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             self._send(200, content, kind,
                                        {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
+            elif re.fullmatch(r"/api/runs/[^/]+/prisma/(checklist|report)", parsed.path):
+                _, _, _, key, _, representation = parsed.path.split('/')
+                row = runs.get(unquote(key), self.supervisor.registry)
+                if row is None:
+                    self._send(404, {'error': 'Unknown research run', 'code': 'unknown_run'})
+                    return
+                if not row.get('bundle') or not Path(row['bundle']).is_dir():
+                    self._send(409, {'error': 'The checklist requires a finished review bundle', 'code': 'checklist_unavailable'})
+                    return
+                workspace, store = self._decision_paths(row)
+                with review_history.reading(workspace):
+                    finished = bundle_store.read(workspace)['state'] == 'finished'
+                    view = research_bundle(workspace) if finished else None
+                if view is None:
+                    self._send(409, {'error': 'The checklist requires a finished review bundle', 'code': 'checklist_unavailable'})
+                    return
+                edition = review_history.edition(workspace, store=store)
+                result = prisma.report(view, edition)
+                if representation == 'report':
+                    self._send(200, prisma.html(result, edition['entries']).encode('utf-8'), 'text/html; charset=utf-8')
+                else:
+                    self._send(200, result)
             elif re.fullmatch(r"/api/runs/[^/]+/review-decisions", parsed.path):
                 self._review_decisions(parsed.path, edition=query.get('last_entry', [None])[0])
             elif re.fullmatch(r"/api/runs/[^/]+/revisions/[0-9]+/(research|audit|correction)", parsed.path):
@@ -1633,6 +1655,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"experiments": acceptance_runs(self.supervisor.root)})
             else:
                 self._send(404, {"error": "not found"})
+        except prisma.ChecklistValidationError:
+            self._send(500, {'error': 'Could not validate the generated checklist', 'code': 'invalid_checklist'})
         except review_history.ReviewConflict as error:
             self._send(409, {'error': str(error), 'code': 'review_conflict'})
         except review_history.ReviewStorageError:

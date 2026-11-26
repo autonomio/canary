@@ -3,7 +3,7 @@ from copy import deepcopy
 import types
 import typing
 
-from . import coverage_protocol as protocol, review_decisions
+from . import coverage_protocol as protocol, prisma, review_decisions
 from .claim_freshness import schema as freshness_schema
 from .codex_auth import AuthStatus, AuthUsage, Login
 from .research_spec import CompiledResearch
@@ -275,6 +275,7 @@ def schemas():
             'status':dict(S,description='publication_identity_unverified means no acquired copy satisfied the bibliographic check.'),
             'reason':S,'public_timeout_seen':B,'reference':ref('AgentReference')},['work_id','status'],closed=False))},
             ['attempted','sources_available','receipts']),
+        'PrismaReport':typed(prisma.Report),
         'ReviewDecision':review_decisions.schema(),
         'ReviewEntry':obj({'id':S,'previous':S,'subject_id':S,'request_id':S,'replaces':nullable(S),'recorded_at':S,'decision':ref('ReviewDecision')},
                           ['id','previous','replaces','recorded_at','decision']),
@@ -339,6 +340,8 @@ def document():
     op('revision','get','/api/runs/{key}/revisions/{round}/{kind}','Read a hash-checked original research, audit or correction record after source cleanup','RevisionArtifact',
         params=[key,('round','path',dict(I,minimum=0),True),('kind','path',{'enum':['research','audit','correction']},True)],mcp=True)
     op('bundle','get','/api/runs/{key}/bundle','Read bundle settings, artifact hashes and findings','BundleResponse',params=[key],mcp=True)
+    op('prisma_checklist','get','/api/runs/{key}/prisma/checklist','Read the linked PRISMA checklist','PrismaReport',params=[key],mcp=True)
+    op('prisma_report','get','/api/runs/{key}/prisma/report','Read the PRISMA reporting appendix',params=[key],media='text/html')
     decisions = '/api/runs/{key}/review-decisions'
     op('review_edition','get',decisions,'Read the latest or a named review edition','ReviewEdition',
        params=[key,('last_entry','query',S,False)],mcp=True)

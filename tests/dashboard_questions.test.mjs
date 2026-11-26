@@ -25,7 +25,7 @@ function element() {
   };
 }
 
-function openQuestions({ mobile = false, storage = new Map() } = {}) {
+function openQuestions({ mobile = false, storage = new Map(), href = "http://localhost/" } = {}) {
   // The real boot code binds the actions and fetches the run list.
   const elements = new Map(
     [...markup.matchAll(/\bid="([^"]+)"([^>]*)>/g)].map(([, id, tail]) => [
@@ -43,7 +43,7 @@ function openQuestions({ mobile = false, storage = new Map() } = {}) {
   dialog.showModal = () => { dialog.open = true; };
   dialog.close = () => { dialog.open = false; dialog.listeners.get("close")(); };
   const handlers = new Map(), browser = new Map(), requests = [];
-  const location = { hash: "", href: "http://localhost/" };
+  const location = { hash: new URL(href).hash, href, assign(url) { this.href = url.toString(); } };
   vm.runInNewContext(source, {
     URL, crypto: globalThis.crypto, Option: class { constructor(label, value) { this.label = label; this.value = value; } },
     document: {
@@ -384,4 +384,94 @@ test("review decisions show their evidence and download the selected edition", a
   const sameName = elements.get("review-entries").innerHTML;
   assert.match(sameName, /Report A appears under 2 different subject IDs/);
   assert.doesNotMatch(sameName, /One of 2 current/);
+});
+
+test("checklist route uses the dashboard shell and filters the recorded evidence", async () => {
+  const { elements, respond, location, route } = openQuestions();
+  await respond(200, { runs });
+  location.hash = "#research/lake/checklist";
+  route();
+  const item = {id:"24a", title:"Registration", heading:"Registration and protocol", status:"complete",
+    elements:[{requirement:"Describe registration", status:"complete", basis:"reported",
+      passages:[{supplier:"author", text:"Unregistered <review>", evidence:["entry", "Protocol"]}]},
+      {requirement:"Other detail", status:"inapplicable", basis:"inapplicable", passages:[]}]};
+  await respond(200, {question:"Lake water", citation:"Page et al.", counts:[], items:[item]}, "/api/runs/lake/prisma/checklist");
+  const content = elements.get("checklist-content");
+  assert.equal(elements.get("checklist-view").hidden, false);
+  assert.equal(elements.get("detail").hidden, true);
+  assert.match(content.innerHTML, /Complete · 1/);
+  assert.match(content.innerHTML, /Unregistered &lt;review&gt;/);
+  assert.match(content.innerHTML, /Other detail <small class="hint">\(inapplicable\)/);
+  assert.match(content.innerHTML, /review-decisions\?last_entry=entry/);
+  const empty = element(), filter = element(), all = element(), row = element();
+  elements.set("checklist-empty", empty);
+  filter.dataset = {checklistFilter:"missing"};
+  all.dataset = {checklistFilter:"all"};
+  row.dataset = {checklistStatus:"complete"};
+  content.querySelectorAll = selector => selector.includes("-filter") ? [all, filter] : selector.includes("-status") ? [row] : [];
+  const select = button => content.listeners.get("click")({currentTarget:content, target:{closest:()=>button}});
+  select(filter);
+  assert.equal(row.hidden, true);
+  assert.equal(empty.hidden, false);
+  select(all);
+  assert.equal(row.hidden, false);
+  assert.equal(empty.hidden, true);
+});
+
+test("checklist links inherit the dashboard theme and the toggle keeps the checklist open", () => {
+  for (const theme of ["dark", "light"]) {
+    const overview = new URL(theme === "light" ? "http://localhost/?theme=light" : "http://localhost/");
+    const url = new URL("#research/lake/checklist", overview);
+    const { elements, location } = openQuestions({href:url.href});
+    assert.equal(elements.get("checklist-view").hidden, false);
+    const toggle = elements.get("theme-toggle");
+    assert.equal(toggle.textContent, theme === "light" ? "Dark" : "Light");
+    toggle.listeners.get("click")();
+    const next = new URL(location.href);
+    assert.equal(next.hash, url.hash);
+    assert.equal(next.searchParams.get("theme"), theme === "light" ? null : "light");
+  }
+});
+
+test("item 2 links to an abstract entry and its recorded passage in the dashboard", async () => {
+  const { elements, respond, location, route } = openQuestions();
+  await respond(200, {runs});
+  const endpoint = "/api/runs/lake/prisma/checklist";
+  const report = {question:"Lake water", counts:[], citation:"Page et al.", items:[
+    {id:"2", heading:"Abstract", title:"Structured abstract", status:"partial", elements:[{location:"#answer-2-1",
+      requirement:"Report a structured abstract.", basis:"reported", status:"partial",
+      passages:[{text:"Reviewed abstract wording.", supplier:"author", evidence:["note", "Signed statement"]}]}], see_also:["abstract-2"]},
+    {id:"abstract-2", heading:"Abstract", title:"Objectives", status:"complete", elements:[
+      {requirement:"State the question.", basis:"saved_run", status:"complete", location:"#answer-abstract-2-1",
+       passages:[{text:"What changes in lake water?", supplier:"run", evidence:["/answer/question"]}]}]}
+  ]};
+  const content = elements.get("checklist-content");
+  location.hash = "#research/lake/checklist";
+  route();
+  await respond(200, report, endpoint);
+  assert.equal((content.innerHTML.match(/<details\b/g) || []).length, report.items.length);
+  assert.ok(content.innerHTML.includes("<p class=\"checklist-passage\">What changes in lake water?</p>"));
+  assert.match(content.innerHTML, /Source · The question that started this review/);
+  assert.doesNotMatch(content.innerHTML, /<blockquote>|>(?:Partly answered|Answered)\.<|Canary’s research record|Page et al/);
+  assert.match(content.innerHTML, /Checklist adapted from/);
+  const abstract = content.innerHTML.split('id="checklist-item-2"')[1].split("</details>")[0];
+  assert.match(abstract, /Reviewed abstract wording/);
+  assert.match(abstract, /review-decisions\?last_entry=note/);
+  assert.equal(content.innerHTML.split('id="checklist-answer-2-1"').length, 2);
+  assert.match(abstract, /What changes in lake water\?/);
+  assert.equal(content.innerHTML.split('id="checklist-answer-abstract-2-1"').length, 2);
+  for (const id of ["answer-2-1", "item-abstract-2", "answer-abstract-2-1"]) {
+    const href = "#research/lake/checklist/" + id;
+    assert.equal(content.innerHTML.includes('href="' + href + '"'), id === "item-abstract-2");
+    assert.ok(content.innerHTML.includes('id="checklist-' + id + '"'));
+    const section = {...element(), parentElement:{closest:()=>null}};
+    const target = {...element(), closest:()=>section, matches:()=>id.startsWith("item"), querySelector:()=>section};
+    content.contains = node => node === target;
+    elements.set("checklist-" + id, target);
+    location.hash = href;
+    route();
+    await respond(200, report, endpoint);
+    assert.equal(section.open, true);
+    assert.ok(section.focused || target.focused);
+  }
 });

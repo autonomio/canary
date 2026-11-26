@@ -182,6 +182,12 @@ const archive = 'href="/api/runs/synthetic/bundle/archive" download="research-bu
 const json = 'href="/api/runs/synthetic/exports/resolvent" download="research-bundle.json">Download research bundle';
 const handoff = 'href="/api/runs/synthetic/exports/resolvent" download="resolvent-submission.json">Resolvent handoff';
 const fits = bundleHtml(data);
+const checklist = fits.match(/href="([^"]+)" target="_blank" rel="noopener">PRISMA checklist/)[1];
+for (const query of ['', '?theme=light']) {
+  const target = new URL(checklist, 'http://localhost/' + query + '#research/synthetic/overview');
+  assert.equal(target.hash, '#research/synthetic/checklist');
+  assert.equal(target.search, query);
+}
 assert.ok(fits.includes(json));
 assert.ok(fits.includes(archive + 'Download full bundle (ZIP)'));
 assert.ok(fits.indexOf(json) < fits.indexOf(archive));

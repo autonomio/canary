@@ -471,3 +471,98 @@ def test_import_without_decisions_refuses_a_copy_bound_to_another_compact_file(t
     unversioned = tmp_path / 'unversioned'
     unversioned.mkdir()
     assert client.post('/api/runs/import', json={'server_path': str(unversioned)}).status_code == 201
+
+
+def test_saved_checklist_is_available_to_dashboard_cli_and_agent(tmp_path, monkeypatch, capsys, review_client):
+    client, registry, _, dispatch = review_client
+    workspace = tmp_path / 'review'
+    workspace.mkdir()
+    prepared(workspace)
+    runs.adopt_bundle(workspace, path=registry)
+    response = client.get('/api/runs/review/prisma/checklist')
+    assert response.status_code == 200
+    report = response.json()
+    assert len(report['items']) == 54
+    from test_prisma import declaration
+    decision_url = '/api/runs/review/review-decisions'
+    entry = declaration('abstract-7:2', 'inapplicable', 'This review tested polymer specimens.')
+    recorded = client.post(decision_url, json=dict(expected_last_entry='initial', request_id='participants',
+                                                   decision=entry['decision']))
+    assert recorded.status_code == 200
+    head = recorded.json()['last_entry']
+    page = client.get('/api/runs/review/prisma/report')
+    assert f'href="#decision-{head}"' in page.text
+    saved = tmp_path / 'checklist.html'
+    saved.write_bytes(page.content)
+    assert f'id="decision-{head}"' in saved.read_text()
+    assert 'Reviewer A · inapplicable' in saved.read_text()
+    assert 'Signed methods note, section 2' in saved.read_text()
+    assert '../review-decisions?' not in page.text
+    contract = api_contract.document()
+    tool = mcp_server.tool_catalog(contract)['canary_prisma_checklist']
+    jsonschema.validate(report, tool['tool'].outputSchema)
+    original = httpx.Client
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(dispatch)))
+    assert cli.main(['checklist', 'review']) == 0
+    assert json.loads(capsys.readouterr().out) == client.get('/api/runs/review/prisma/checklist').json()
+
+
+def test_checklist_requires_a_finished_bundle_and_reports_generation_errors(tmp_path, monkeypatch, review_client):
+    from canary import prisma, research_bundle
+
+    client, registry, _, dispatch = review_client
+    workspace = tmp_path / 'review'
+    workspace.mkdir()
+    prepared(workspace)
+    runs.adopt_bundle(workspace, path=registry)
+    research_bundle.seal(workspace, state='running')
+    for representation in ('checklist', 'report'):
+        response = client.get('/api/runs/review/prisma/' + representation)
+        assert response.status_code == 409
+        assert response.json()['code'] == 'checklist_unavailable'
+    research_bundle.seal(workspace)
+
+    def invalidate(report):
+        raise prisma.ChecklistValidationError('Unexpected ID')
+
+    monkeypatch.setattr(prisma, 'validate', invalidate)
+    for representation in ('checklist', 'report'):
+        response = client.get('/api/runs/review/prisma/' + representation)
+        assert response.status_code == 500
+        assert response.json()['code'] == 'invalid_checklist'
+
+
+def test_checklist_reads_the_view_under_the_bundle_lock_before_reading_decisions(tmp_path, review_client, monkeypatch):
+    client, registry, _, _ = review_client
+    workspace = tmp_path / 'locked-review'
+    workspace.mkdir()
+    prepared(workspace)
+    runs.adopt_bundle(workspace, path=registry)
+    read_view = dashboard.research_bundle
+    read_edition = review_history.edition
+    calls = []
+
+    def check_view(path):
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
+        calls.append('view')
+        return read_view(path)
+
+    def check_edition(path, **kwargs):
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
+        calls.append('edition')
+        return read_edition(path, **kwargs)
+
+    monkeypatch.setattr(dashboard, 'research_bundle', check_view)
+    monkeypatch.setattr(review_history, 'edition', check_edition)
+    for representation in ('checklist', 'report'):
+        assert client.get('/api/runs/locked-review/prisma/' + representation).status_code == 200
+    assert calls == ['view', 'edition', 'view', 'edition']
