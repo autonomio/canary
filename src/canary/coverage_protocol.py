@@ -390,6 +390,7 @@ Discovery alone commits the validated question-plan.json; never overwrite that c
 Apply the saved eligibility criteria and follow screening_instructions during screening and full-paper review.
 Choose batches by coverage-guided marginal information gain: direct comparisons, contrasting/adverse/null findings, condition/outcome differences, methods, then needed context.
 Record selection.json as {{method:'coverage', approach, assessed_candidate_ids, decisions:[{{work_id,decision:'include|exclude|defer',evidence_role:'core|supporting|unknown',reason,criterion_matches,unknowns,supporting_abstract_text,priority_rank,coverage_contribution}}], selected_for_review_ids, stopping_reason, selection_limitations}}.
+For each software-only exclusion set decided_by to software_only. In translation_method, record whether translation was used for screening or extraction and how.
 Write selection_limitations for a reader who has not seen the search log. Use one short sentence per limit. Say what happened, how many papers it affected when known, and what the review might have missed. Spell out technical terms and keep file names and error codes in the search log.
 Exact abstract support or null; missing abstracts are uncertainty, not automatic exclusion. All omitted candidates remain unassessed.{citation_scope}
 3. Run {command} acquire --ids SOURCE_ID SOURCE_ID for only your selected batch. Launch acquisition in the background if useful;

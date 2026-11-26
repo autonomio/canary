@@ -17,3 +17,18 @@ def test_search_rounds_keep_overlaps_empty_results_and_interruptions(tmp_path):
     assert interrupted['last_search'] == '2026-01-02'
     assert empty['matched'] == empty['retrieved'] == 0
     assert 'secret' not in json.dumps(first)
+
+
+def test_evaluation_matches_the_recorded_session(tmp_path):
+    from canary.methods_automation import sessions
+    (tmp_path / 'research-prompt.txt').write_text('Screen the abstracts.')
+    (tmp_path / 'research-receipt.json').write_text(json.dumps(dict(cli_version='1.2', model='m', reasoning_effort='high')))
+    session, = sessions(tmp_path)
+    assert session['evaluation'] is None
+    config = session['configuration']
+    (tmp_path / 'methods-evaluations.json').write_text(json.dumps([
+        dict(configuration=dict(config, effort='low'), url='https://example.org/other'),
+        dict(configuration=config, url='https://example.org/evaluation')]))
+    session, = sessions(tmp_path)
+    assert session['evaluation'] == 'https://example.org/evaluation'
+    assert session['prompt'] == 'Screen the abstracts.'

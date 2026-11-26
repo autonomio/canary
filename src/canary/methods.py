@@ -2,6 +2,7 @@
 from pathlib import Path
 from typing import TypedDict
 
+from .methods_automation import ROLES, sessions
 from .methods_search import searches
 
 
@@ -14,6 +15,7 @@ class Entry(TypedDict):
     label: str
     text: str
     passages: list[Passage]
+    url: str | None
 
 
 class Section(TypedDict):
@@ -27,7 +29,7 @@ class Appendix(TypedDict):
 
 
 def entry(label, text, passages=()) -> Entry:
-    return dict(label=label, text=text, passages=list(passages))
+    return dict(label=label, text=text, passages=list(passages), url=None)
 
 
 def report(view: dict, workspace: Path) -> Appendix:
@@ -60,7 +62,8 @@ def report(view: dict, workspace: Path) -> Appendix:
     screening = []
     for decision in selection.get('decisions', []):
         quote = decision.get('supporting_abstract_text')
-        screening.append(entry(f"{decision.get('work_id', 'Record')} · {decision.get('decision', 'Decision unknown')}", decision.get('reason', ''),
+        screening.append(entry(f"{decision.get('work_id', 'Record')} · {decision.get('decision', 'Decision unknown')}", decision.get('reason', '') +
+                               (' · Software made this decision alone.' if decision.get('decided_by') == 'software_only' else ''),
                                [dict(source='Abstract', text=quote)] if quote else []))
     for row in view.get('access', {}).get('excluded', []):
         screening.append(entry(f"{row.get('work_id', 'Report')} · access", row.get('reason') or row.get('status', '')))
@@ -75,7 +78,36 @@ def report(view: dict, workspace: Path) -> Appendix:
         passages = [dict(source=evidence[k].get('paragraph_id') or 'Source unknown', text=evidence[k]['quote'])
                     for k in claim.get('evidence_ids', []) if k in evidence]
         claims.append(entry(claim.get('id') or 'Claim', claim.get('text') or 'Claim text was not recorded.', passages))
+    automation = []
+    for role in ('research', 'audit'):
+        run = view.get('run', {})
+        if run.get(role + '_model'):
+            automation.append(entry(f'Configured {role} settings', run[role + '_model'] +
+                                    ' · reasoning effort ' + (run.get(role + '_effort') or 'not recorded')))
+
+    for session in sessions(workspace):
+        config = session['configuration']
+        name = ROLES[config['role']]
+        if session['round'] is not None:
+            name += f" · Round {int(session['round'])}"
+        details = [f"{label}: {config[key] or 'not recorded'}" for key, label in
+                   [('tool', 'Tool'), ('version', 'Version'), ('model', 'Model'), ('effort', 'Reasoning effort'),
+                    ('prompt_sha256', 'Prompt SHA-256')]]
+        details.append('No matching evaluation was recorded.' if not session['evaluation'] else 'Matching evaluation available.')
+        passages = [dict(source='Saved prompt', text=session['prompt'])] if session['prompt'] else []
+        record = entry(name, '\n'.join(details), passages)
+        record['url'] = session['evaluation']
+        automation.append(record)
+    audit = graph.get('audit', {})
+    if audit:
+        automation.append(entry('Who checked the findings', f"{audit.get('model') or 'Reviewer unknown'} · "
+                                f"{audit.get('checked_claims', 'Unknown number of')} claims checked."))
+    if not any(row.get('passages') or row['label'].startswith(tuple(ROLES.values())) for row in automation):
+        automation.append(entry('Software used', 'No session receipt was saved.'))
+    translation = selection.get('translation_method')
+    automation.append(entry('Translation', translation or 'No translation method was recorded.'))
     return dict(question=graph.get('question') or plan.get('question') or view.get('seed', ''),
                 sections=[dict(title='Eligibility', entries=criteria), dict(title='Searches', entries=search),
                           dict(title='Screening and access', entries=screening),
+                          dict(title='Automation and checks', entries=automation),
                           dict(title='Claims and supporting passages', entries=claims)])

@@ -2033,7 +2033,7 @@
           if (tab === "methods") {
             content.innerHTML = `<p>${esc(report.question)}</p>` + report.sections.map(section =>
               `<details class="checklist-row"><summary>${esc(section.title)}</summary>${(section.entries || []).map(row =>
-                `<p><strong>${esc(row.label)}</strong></p><p class="review-prose">${esc(row.text)}</p>${(row.passages || []).map(p =>
+                `<p><strong>${esc(row.label)}</strong></p><p class="review-prose">${esc(row.text)}</p>${row.url && /^https:\/\//i.test(row.url) ? `<a href="${esc(row.url)}" target="_blank" rel="noopener">Read the evaluation</a>` : ""}${(row.passages || []).map(p =>
                   `<blockquote>${esc(p.text)}<footer>${esc(p.source)}</footer></blockquote>`).join("")}`).join("") || "<p>No details were recorded.</p>"}</details>`).join("");
             return;
           }
