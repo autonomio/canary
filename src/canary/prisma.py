@@ -105,7 +105,10 @@ def _run_answers(view: dict) -> dict:
     outcomes = plan.get('outcomes', [])
     if isinstance(outcomes, list):
         add('10a:1', '\n'.join(o for o in outcomes if isinstance(o, str)), '/query_net/outcomes')
-    add('23c:1', selection.get('selection_limitations'), '/paper_selection/selection/selection_limitations')
+    limitations = selection.get('selection_limitations')
+    if isinstance(limitations, list):
+        limitations = '\n'.join(text for text in limitations if isinstance(text, str) and text.strip())
+    add('23c:1', limitations, '/paper_selection/selection/selection_limitations')
     next_questions = [q['question'] for q in graph.get('next_questions', [])
                       if isinstance(q, dict) and isinstance(q.get('question'), str)]
     add('23d:2', '\n'.join(next_questions), '/answer/next_questions')

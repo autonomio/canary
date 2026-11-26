@@ -110,3 +110,13 @@ def test_abstract_shows_the_reason_participants_do_not_apply():
     assert 'Participants · author statement: <a href="#decision-r1">The experiments used polymer specimens.' in page
     assert 'id="decision-r1" href="../review-decisions?last_entry=r1"' in page
     assert result['counts'][-1]['value'] is None
+
+
+def test_selection_limitations_remain_linked_when_saved_as_a_list():
+    view = {'paper_selection': {'selection': {'selection_limitations': ['Searches were capped.', 'Recall is unknown.']}}}
+    result = prisma.report(view, dict(entries=[], last_entry='initial'))
+    item = next(row for row in result['items'] if row['id'] == '23c')
+    assert item['status'] == 'partial'
+    passage, = item['elements'][0]['passages']
+    assert passage['text'] == 'Searches were capped.\nRecall is unknown.'
+    assert passage['evidence'] == ['/paper_selection/selection/selection_limitations']
