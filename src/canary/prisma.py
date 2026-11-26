@@ -326,7 +326,7 @@ def html(result: Report, entries: list[dict] | None = None) -> str:
             sections.append('<p>' + escape(passage['text']) + '</p><p>' +
                             escape(' · '.join(passage['evidence'])) + '</p></article>')
         sections.append('</section>')
-    return '\n'.join([*lines, '</tbody></table>', *sections, '<footer>', escape(result['citation']),
+    return '\n'.join([*lines, '</tbody></table>', *sections, '<footer>Adapted from ' + escape(result['citation']),
                       ' · '.join('<a href="' + escape(url) + '">' + label + '</a>'
                                  for url, label in zip(result['sources'], ['Main and expanded checklists', 'Abstract checklist'])),
                       '<a href="' + escape(result['license']) + '">CC BY 4.0</a></footer></main></html>'])
