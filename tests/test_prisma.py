@@ -126,3 +126,17 @@ def test_selection_limitations_remain_linked_when_saved_as_a_list():
     passage, = item['elements'][0]['passages']
     assert passage['text'] == 'Searches were capped.\nRecall is unknown.'
     assert passage['evidence'] == ['/paper_selection/selection/selection_limitations']
+
+
+def test_selection_summary_uses_saved_counts_and_keeps_original_wording():
+    selection = dict(method='coverage', selected_for_review_ids=['x', 'x'], selection_limitations=['Original note.'])
+    coverage = dict(discovered_candidates=10, assessed_candidates=3, available_papers=1,
+                    search_progress={'queries': {'first': {'truncated': True}, 'second': {'complete': True}}})
+    result = prisma.report(dict(paper_selection={'selection': selection}, coverage=coverage),
+                           dict(entries=[], last_entry='initial'))
+    assert 'The remaining 7 records may include relevant papers.' in result['selection_summary']
+    assert '1 of 2 searches stopped before reaching the last page of results.' in result['selection_summary']
+    assert prisma.selection_summary({}) == []
+    item = next(row for row in result['items'] if row['id'] == '23c')
+    assert item['reader_question'] == 'What might the review itself have missed?'
+    assert item['elements'][0]['passages'][0]['text'] == 'Original note.'

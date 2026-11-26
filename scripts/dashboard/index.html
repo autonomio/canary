@@ -1953,17 +1953,34 @@
         }).join("");
         const counts = report.counts.map(c => `<div><dt>${esc(c.label)}</dt><dd>${c.value === null ? "Unknown" : esc(c.value.toLocaleString())}</dd></div>`).join("");
         const groups = new Map();
+        const link = "#research/" + encodeURIComponent(key) + "/checklist/";
+        const items = new Map(report.items.map(item => [item.id, item]));
+        const statusText = {complete:"Answered", partial:"Partly answered", missing:"No answer recorded", inapplicable:"Does not apply"};
+        const basisText = {archive_missing:"The archive is missing this information.", not_used:"The team says it did not use this method.",
+          unresolved_decisions:"Reviewers recorded different answers.", inapplicable:"The reviewer explains why this does not apply."};
         for (const item of report.items) {
+          const abstractLinks = (item.see_also || []).map(id => {
+            const row = items.get(id);
+            return row ? `<li><a href="${link}item-${esc(id)}">${esc(row.title)}</a> · ${esc(statusText[row.status])}</li>` : "";
+          }).join("");
+          const overview = item.id === "23c" ? (report.selection_summary || []).map(line => `<p>${esc(line)}</p>`).join("") : "";
           const elements = item.elements.map(element => {
-            const passages = element.passages.map(p => {
-              const attribution = p.supplier === "author"
-                ? `Author · <a href="${edition + encodeURIComponent(p.evidence[0])}">Recorded decision</a>` : "Saved run";
-              return `<blockquote>${esc(p.text)}</blockquote><p class="hint">${attribution} · ${esc(p.evidence.join(" · "))}</p>`;
+            const answer = element.location?.slice(1);
+            const references = element.passages.map(p => {
+              const author = p.supplier === "author";
+              const source = author ? `<a href="${edition + encodeURIComponent(p.evidence[0])}">Reviewer’s decision</a>` : "Canary’s research record";
+              return `<blockquote>${esc(p.text)}</blockquote><details><summary>Source details</summary><p>${source}</p><p>${esc(p.evidence.join(" · "))}</p></details>`;
             }).join("");
-            return `<li><strong>${esc(element.requirement)}</strong><p class="hint">${esc(element.status)} · ${esc(element.basis.replaceAll("_", " "))}</p>${passages}</li>`;
+            const passage = references && answer ? `<a href="${link}${esc(answer)}">Read the recorded answer</a>
+              <details><summary>Original wording</summary><div id="checklist-${esc(answer)}" tabindex="-1">${references}</div></details>` : references;
+            return `<li><p>${esc(element.requirement)}</p><p class="hint">${esc(statusText[element.status])}. ${esc(basisText[element.basis] || "")}</p>${passage}</li>`;
           }).join("");
           if (!groups.has(item.heading)) groups.set(item.heading, []);
-          groups.get(item.heading).push(`<details class="checklist-row" data-checklist-status="${esc(item.status)}"><summary><span>${esc(item.id)} · ${esc(item.title)}</span><span class="checklist-status">${esc(item.status)}</span></summary><ol>${elements}</ol></details>`);
+          const firstAnswer = item.elements.find(e => e.location);
+          const read = firstAnswer ? `<p><a href="${link}${esc(firstAnswer.location.slice(1))}">Read the recorded answer</a></p>` : "";
+          const note = {missing:"The review has no recorded answer to this question.", partial:"The review answers part of this question.", inapplicable:"The reviewer recorded why this question does not apply."}[item.status];
+          const body = abstractLinks ? `<ul>${abstractLinks}</ul>` : `${overview}${note ? `<p>${note}</p>` : ""}${read}<details><summary>What the checklist asks for</summary><ol>${elements}</ol></details>`;
+          groups.get(item.heading).push(`<details class="checklist-row" id="checklist-item-${esc(item.id)}" data-checklist-status="${esc(item.status)}"><summary><span>${esc(item.id)} · ${esc(item.title)}</span><span class="checklist-status">${esc(item.status)}</span></summary><p><strong>${esc(item.reader_question || item.title)}</strong></p>${body}</details>`);
         }
         const rows = Array.from(groups, ([heading, items]) =>
           `<section data-checklist-group><h2>${esc(heading)}</h2>${items.join("")}</section>`).join("");
@@ -1980,7 +1997,14 @@
         content.textContent = "Loading checklist…";
         try {
           const report = await api("/api/runs/" + encodeURIComponent(key) + "/prisma/checklist");
-          if (request === checklistRequest && S.tab === "checklist" && S.selected === key) content.innerHTML = checklistHtml(report, key);
+          if (request !== checklistRequest || S.tab !== "checklist" || S.selected !== key) return;
+          content.innerHTML = checklistHtml(report, key);
+          const fragment = location.hash.split("/")[3];
+          if (!fragment) return;
+          const target = document.getElementById("checklist-" + fragment);
+          if (!target || !content.contains(target)) return;
+          for (let section = target.closest("details"); section; section = section.parentElement.closest("details")) section.open = true;
+          (target.matches("details") ? target.querySelector("summary") : target).focus();
         } catch (error) {
           if (request === checklistRequest && S.tab === "checklist" && S.selected === key) {
             content.innerHTML = `<p role="alert">${esc(error.message)}</p><button class="btn" data-action="retry-checklist">Try again</button>`;

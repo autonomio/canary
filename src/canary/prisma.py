@@ -30,6 +30,7 @@ class Element(TypedDict):
 
 
 class Item(TypedDict):
+    reader_question: str
     heading: str
     id: str
     title: str
@@ -46,6 +47,7 @@ class Count(TypedDict):
 
 
 class Report(TypedDict):
+    selection_summary: list[str]
     counts: list[Count]
     version: str
     citation: str
@@ -72,6 +74,31 @@ def counts(coverage: dict) -> list[Count]:
 def count_text(count: Count) -> str:
     value = count['value']
     return f"{count['label']}: {value:,}" if value is not None else count['label'] + ': unknown'
+
+
+def selection_summary(view: dict) -> list[str]:
+    coverage = view.get('coverage', {})
+    selection = view.get('paper_selection', {}).get('selection', {})
+    lines = []
+    if selection.get('method') == 'coverage':
+        lines.append('Canary chose papers to cover different parts of the question.')
+    total, assessed = coverage.get('discovered_candidates'), coverage.get('assessed_candidates')
+    if type(total) is int and type(assessed) is int and 0 <= assessed <= total:
+        lines.append(f'Canary assessed {assessed:,} of the {total:,} records it found.')
+        if total > assessed:
+            lines.append(f'The remaining {total - assessed:,} records may include relevant papers.')
+    queries = (coverage.get('search_progress') or {}).get('queries', {})
+    if isinstance(queries, dict) and queries and all(isinstance(q, dict) for q in queries.values()):
+        capped = sum(q.get('truncated') is True for q in queries.values())
+        if capped:
+            lines.append(f'{capped} of {len(queries)} searches stopped before reaching the last page of results.')
+    selected = selection.get('selected_for_review_ids')
+    if isinstance(selected, list) and all(isinstance(value, str) and value for value in selected):
+        lines.append(f'Canary selected {len(set(selected)):,} records for full review.')
+    available = coverage.get('available_papers')
+    if type(available) is int and available >= 0:
+        lines.append(f'The review had access to {available:,} full papers.')
+    return lines
 
 
 def _run_answers(view: dict) -> dict:
@@ -162,7 +189,7 @@ def report(view: dict, edition: dict) -> Report:
                     status = 'partial'
             location = f'#answer-{number}-{i}' if passages else None
             elements.append(dict(requirement=requirement, basis=basis, status=status, location=location, passages=passages))
-        items.append(dict(id=number, title=definition['title'], heading=data['headings'][definition['heading']],
+        items.append(dict(reader_question=definition['reader_question'], id=number, title=definition['title'], heading=data['headings'][definition['heading']],
                           status=_status([e['status'] for e in elements]),
                           elements=elements, see_also=definition.get('see_also', []),
                           missing_elements=[e['requirement'] for e in elements if e['status'] in ('partial', 'missing')]))
@@ -177,7 +204,7 @@ def report(view: dict, edition: dict) -> Report:
     abstract_element['location'] = '#answer-2-1'
     abstract_element['passages'] = [Passage(text='See the twelve abstract items below.',
                                             evidence=abstract_item['see_also'], supplier='run')]
-    result = Report(counts=counts(view.get('coverage', {})), version=data['version'], citation=data['citation'], license=data['license'], sources=data['sources'],
+    result = Report(selection_summary=selection_summary(view), counts=counts(view.get('coverage', {})), version=data['version'], citation=data['citation'], license=data['license'], sources=data['sources'],
                 question=view.get('answer', {}).get('question') or 'Research review', edition=edition['last_entry'], items=items)
     validate(result)
     return result

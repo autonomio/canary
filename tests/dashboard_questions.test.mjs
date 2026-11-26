@@ -430,3 +430,32 @@ test("checklist links inherit the dashboard theme and the toggle keeps the check
     assert.equal(next.searchParams.get("theme"), theme === "light" ? null : "light");
   }
 });
+
+test("item 2 links to an abstract entry and its recorded passage in the dashboard", async () => {
+  const { elements, respond, location, route } = openQuestions();
+  await respond(200, {runs});
+  const endpoint = "/api/runs/lake/prisma/checklist";
+  const report = {question:"Lake water", counts:[], citation:"Page et al.", items:[
+    {id:"2", heading:"Abstract", title:"Structured abstract", status:"partial", elements:[], see_also:["abstract-2"]},
+    {id:"abstract-2", heading:"Abstract", title:"Objectives", status:"complete", elements:[
+      {requirement:"State the question.", basis:"saved_run", status:"complete", location:"#answer-abstract-2-1",
+       passages:[{text:"What changes in lake water?", supplier:"run", evidence:["/answer/question"]}]}]}
+  ]};
+  const content = elements.get("checklist-content");
+  location.hash = "#research/lake/checklist";
+  route();
+  await respond(200, report, endpoint);
+  for (const id of ["item-abstract-2", "answer-abstract-2-1"]) {
+    const [, href] = content.innerHTML.match(new RegExp('href="([^"]+/' + id + ')"'));
+    assert.ok(content.innerHTML.includes('id="checklist-' + id + '"'));
+    const section = {...element(), parentElement:{closest:()=>null}};
+    const target = {...element(), closest:()=>section, matches:()=>id.startsWith("item"), querySelector:()=>section};
+    content.contains = node => node === target;
+    elements.set("checklist-" + id, target);
+    location.hash = href;
+    route();
+    await respond(200, report, endpoint);
+    assert.equal(section.open, true);
+    assert.ok(section.focused || target.focused);
+  }
+});

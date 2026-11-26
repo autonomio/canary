@@ -40,6 +40,7 @@
   "items": [
     {
       "id": "1",
+      "reader_question": "Does the title identify this as a systematic review?",
       "title": "Review title",
       "elements": [
         "Identify the report as a systematic review in the title.",
@@ -49,6 +50,7 @@
     },
     {
       "id": "2",
+      "reader_question": "What does the abstract tell readers about the review?",
       "title": "Structured abstract",
       "elements": [
         "Report an abstract addressing each item in the PRISMA 2020 for Abstracts checklist."
@@ -71,6 +73,7 @@
     },
     {
       "id": "3",
+      "reader_question": "Why was this review needed?",
       "title": "Rationale",
       "elements": [
         "Describe the current state of knowledge and its uncertainties.",
@@ -82,6 +85,7 @@
     },
     {
       "id": "4",
+      "reader_question": "What question did the review set out to answer?",
       "title": "Objectives",
       "elements": [
         "Provide an explicit statement of all objective(s) or question(s) the review addresses, expressed in terms of a relevant question formulation framework.",
@@ -91,6 +95,7 @@
     },
     {
       "id": "5",
+      "reader_question": "Which studies qualified for the review?",
       "title": "Eligibility criteria",
       "elements": [
         "Specify all study characteristics used to decide whether a study was eligible for inclusion in the review, that is, components described in the PICO framework or one of its variants, and other characteristics, such as eligible study design(s) and setting(s), and minimum duration of follow-up.",
@@ -102,6 +107,7 @@
     },
     {
       "id": "6",
+      "reader_question": "Where did the team look for studies, and when?",
       "title": "Information sources",
       "elements": [
         "Specify the date when each source (e.g. database, register, website, organisation) was last searched or consulted.",
@@ -118,6 +124,7 @@
     },
     {
       "id": "7",
+      "reader_question": "What did the team search for?",
       "title": "Search strategies",
       "elements": [
         "Provide the full line by line search strategy as run in each database with a sophisticated interface (such as Ovid), or the sequence of terms that were used to search simpler interfaces, such as search engines or websites.",
@@ -133,6 +140,7 @@
     },
     {
       "id": "8",
+      "reader_question": "How did the team decide which papers to include?",
       "title": "Selection process",
       "elements": [
         "Report how many reviewers screened each record (title/abstract) and each report retrieved, whether multiple reviewers worked independently at each stage of screening or not, and any processes used to resolve disagreements between screeners.",
@@ -149,6 +157,7 @@
     },
     {
       "id": "9",
+      "reader_question": "How did the team collect and check the data?",
       "title": "Data collection",
       "elements": [
         "Report how many reviewers collected data from each report, whether multiple reviewers worked independently or not, and any processes used to resolve disagreements between data collectors.",
@@ -162,6 +171,7 @@
     },
     {
       "id": "10a",
+      "reader_question": "Which outcomes did the team look for?",
       "title": "Outcomes",
       "elements": [
         "List and define the outcome domains and time frame of measurement for which data were sought.",
@@ -173,6 +183,7 @@
     },
     {
       "id": "10b",
+      "reader_question": "What else did the team record about each study?",
       "title": "Other variables",
       "elements": [
         "List and define all other variables for which data were sought (e.g. participant and intervention characteristics, funding sources).",
@@ -183,6 +194,7 @@
     },
     {
       "id": "11",
+      "reader_question": "How did the team check for bias in individual studies?",
       "title": "Study risk of bias",
       "elements": [
         "Specify the tool(s) (and version) used to assess risk of bias in the included studies.",
@@ -198,6 +210,7 @@
     },
     {
       "id": "12",
+      "reader_question": "How did the team measure the size of an effect?",
       "title": "Effect measures",
       "elements": [
         "Specify for each outcome (or type of outcome [e.g. binary, continuous]), the effect measure(s) (e.g. risk ratio, mean difference) used in the synthesis or presentation of results.",
@@ -208,6 +221,7 @@
     },
     {
       "id": "13a",
+      "reader_question": "How did the team decide which studies to analyse together?",
       "title": "Eligibility for each synthesis",
       "elements": [
         "Describe the processes used to decide which studies were eligible for each synthesis."
@@ -216,6 +230,7 @@
     },
     {
       "id": "13b",
+      "reader_question": "How did the team prepare the data for comparison?",
       "title": "Preparing data",
       "elements": [
         "Report any methods required to prepare the data collected from studies for presentation or synthesis, such as handling of missing summary statistics, or data conversions."
@@ -224,6 +239,7 @@
     },
     {
       "id": "13c",
+      "reader_question": "How did the team present the results?",
       "title": "Tables and plots",
       "elements": [
         "Report chosen tabular structure(s) used to display results of individual studies and syntheses, along with details of the data presented.",
@@ -233,6 +249,7 @@
     },
     {
       "id": "13d",
+      "reader_question": "How did the team combine findings across studies?",
       "title": "Synthesis methods",
       "elements": [
         "If statistical synthesis methods were used, reference the software, packages and version numbers used to implement synthesis methods.",
@@ -250,6 +267,7 @@
     },
     {
       "id": "13e",
+      "reader_question": "How did the team investigate differences between studies?",
       "title": "Exploring heterogeneity",
       "elements": [
         "If methods were used to explore possible causes of statistical heterogeneity, specify the method used (e.g. subgroup analysis, meta-regression).",
@@ -263,6 +281,7 @@
     },
     {
       "id": "13f",
+      "reader_question": "How did the team test whether its conclusions depended on its choices?",
       "title": "Sensitivity analyses",
       "elements": [
         "If sensitivity analyses were performed, provide details of each analysis (e.g. removal of studies at high risk of bias, use of an alternative meta-analysis model).",
@@ -272,6 +291,7 @@
     },
     {
       "id": "14",
+      "reader_question": "How did the team check whether missing results could skew the findings?",
       "title": "Bias from missing results",
       "elements": [
         "Specify the methods (tool, graphical, statistical or other) used to assess the risk of bias due to missing results in a synthesis (arising from reporting biases).",
@@ -286,6 +306,7 @@
     },
     {
       "id": "15",
+      "reader_question": "How did the team judge its confidence in the evidence?",
       "title": "Certainty assessment",
       "elements": [
         "Specify the tool or system (and version) used to assess certainty (or confidence) in the body of evidence.",
@@ -303,6 +324,7 @@
     },
     {
       "id": "16a",
+      "reader_question": "How many records made it through each stage of selection?",
       "title": "Selection flow",
       "elements": [
         "Report, ideally using a flow diagram, the number of: records identified; records excluded before screening; records screened; records excluded after screening titles or titles and abstracts; reports retrieved for detailed evaluation; potentially eligible reports that were not retrievable; retrieved reports that did not meet inclusion criteria and the primary reasons for exclusion; and the number of studies and reports included in the review. If applicable, also report the number of ongoing studies and associated reports identified.",
@@ -313,6 +335,7 @@
     },
     {
       "id": "16b",
+      "reader_question": "Which studies seemed to qualify but were excluded, and why?",
       "title": "Excluded studies",
       "elements": [
         "Cite studies that might appear to meet the inclusion criteria, but which were excluded, and explain why they were excluded."
@@ -321,6 +344,7 @@
     },
     {
       "id": "17",
+      "reader_question": "What were the included studies like?",
       "title": "Study characteristics",
       "elements": [
         "Cite each included study.",
@@ -330,6 +354,7 @@
     },
     {
       "id": "18",
+      "reader_question": "What risks of bias did the team find in each study?",
       "title": "Bias in individual studies",
       "elements": [
         "Present tables or figures indicating for each study the risk of bias in each domain/component/item assessed (e.g. blinding of outcome assessors, missing outcome data) and overall study-level risk of bias.",
@@ -339,6 +364,7 @@
     },
     {
       "id": "19",
+      "reader_question": "What did each study find?",
       "title": "Individual study results",
       "elements": [
         "For all outcomes, irrespective of whether statistical synthesis was undertaken, present for each study summary statistics for each group (where appropriate). For dichotomous outcomes, report the number of participants with and without the events for each group; or the number with the event and the total for each group (e.g. 12/45). For continuous outcomes, report the mean, standard deviation and sample size of each group.",
@@ -351,6 +377,7 @@
     },
     {
       "id": "20a",
+      "reader_question": "Which studies contributed to each combined finding?",
       "title": "Contributing studies",
       "elements": [
         "Provide a brief summary of the characteristics and risk of bias among studies contributing to each synthesis (meta-analysis or other). The summary should focus only on study characteristics that help in interpreting the results (especially those that suggest the evidence addresses only a restricted part of the review question, or indirectly addresses the question).",
@@ -360,6 +387,7 @@
     },
     {
       "id": "20b",
+      "reader_question": "What did the combined results show?",
       "title": "Statistical synthesis results",
       "elements": [
         "Report results of all statistical syntheses described in the protocol and all syntheses conducted that were not pre-specified.",
@@ -374,6 +402,7 @@
     },
     {
       "id": "20c",
+      "reader_question": "What explained the differences between studies?",
       "title": "Heterogeneity results",
       "elements": [
         "If investigations of possible causes of heterogeneity were conducted: present results regardless of the statistical significance, magnitude, or direction of effect modification.",
@@ -387,6 +416,7 @@
     },
     {
       "id": "20d",
+      "reader_question": "How did the results change when the team varied its assumptions?",
       "title": "Sensitivity results",
       "elements": [
         "If any sensitivity analyses were conducted: report the results for each sensitivity analysis.",
@@ -396,6 +426,7 @@
     },
     {
       "id": "21",
+      "reader_question": "Could missing results have changed a combined finding?",
       "title": "Bias from missing results by synthesis",
       "elements": [
         "Present assessments of risk of bias due to missing results (arising from reporting biases) for each synthesis assessed.",
@@ -408,6 +439,7 @@
     },
     {
       "id": "22",
+      "reader_question": "How confident was the team about each outcome?",
       "title": "Certainty by outcome",
       "elements": [
         "Report the overall level of certainty (or confidence) in the body of evidence for each important outcome.",
@@ -418,6 +450,7 @@
     },
     {
       "id": "23a",
+      "reader_question": "How do the findings fit with earlier research?",
       "title": "Interpretation",
       "elements": [
         "Provide a general interpretation of the results in the context of other evidence."
@@ -426,6 +459,7 @@
     },
     {
       "id": "23b",
+      "reader_question": "What limits the conclusions readers can draw from the studies?",
       "title": "Limitations of the evidence",
       "elements": [
         "Discuss any limitations of the evidence included in the review."
@@ -434,6 +468,7 @@
     },
     {
       "id": "23c",
+      "reader_question": "What might the review itself have missed?",
       "title": "Limitations of the review methods",
       "elements": [
         "Discuss any limitations of the review processes used, and comment on the potential impact of each limitation."
@@ -442,6 +477,7 @@
     },
     {
       "id": "23d",
+      "reader_question": "What do the findings mean for practice, policy or further research?",
       "title": "Implications",
       "elements": [
         "Discuss implications of the results for practice and policy.",
@@ -451,6 +487,7 @@
     },
     {
       "id": "24a",
+      "reader_question": "Was the review registered, and where?",
       "title": "Registration",
       "elements": [
         "Provide registration information for the review, including register name and registration number, or state that the review was not registered."
@@ -459,6 +496,7 @@
     },
     {
       "id": "24b",
+      "reader_question": "Where can readers find the review plan?",
       "title": "Protocol access",
       "elements": [
         "Indicate where the review protocol can be accessed (e.g. by providing a citation, DOI or link), or state that a protocol was not prepared."
@@ -467,6 +505,7 @@
     },
     {
       "id": "24c",
+      "reader_question": "What changed after the team wrote the plan, and why?",
       "title": "Amendments",
       "elements": [
         "Report details of any amendments to information provided at registration or in the protocol, noting: (a) the amendment itself; (b) the reason for the amendment; and (c) the stage of the review process at which the amendment was implemented."
@@ -475,6 +514,7 @@
     },
     {
       "id": "25",
+      "reader_question": "Who supported the review, and what role did they play?",
       "title": "Support",
       "elements": [
         "Describe sources of financial or non-financial support for the review, specifying relevant grant ID numbers for each funder. If no specific financial or non-financial support was received, this should be stated.",
@@ -484,6 +524,7 @@
     },
     {
       "id": "26",
+      "reader_question": "What competing interests did the authors declare?",
       "title": "Competing interests",
       "elements": [
         "Disclose any of the authors’ relationships or activities that readers could consider pertinent or to have influenced the review.",
@@ -493,6 +534,7 @@
     },
     {
       "id": "27",
+      "reader_question": "Where can readers find the data, code and other review materials?",
       "title": "Availability of materials",
       "elements": [
         "Report which of the following are publicly available: template data collection forms; data extracted from included studies; data used for all analyses; analytic code; any other materials used in the review.",
@@ -503,6 +545,7 @@
     },
     {
       "id": "abstract-1",
+      "reader_question": "Does the title identify this as a systematic review?",
       "title": "Title",
       "elements": [
         "Identify the report as a systematic review in the title."
@@ -511,6 +554,7 @@
     },
     {
       "id": "abstract-2",
+      "reader_question": "What question did the review ask?",
       "title": "Objectives",
       "elements": [
         "State the main review question or objective."
@@ -519,6 +563,7 @@
     },
     {
       "id": "abstract-3",
+      "reader_question": "Which studies qualified?",
       "title": "Eligibility",
       "elements": [
         "State the inclusion and exclusion criteria."
@@ -527,6 +572,7 @@
     },
     {
       "id": "abstract-4",
+      "reader_question": "Where and when did the team search?",
       "title": "Information sources",
       "elements": [
         "Name the information sources.",
@@ -536,6 +582,7 @@
     },
     {
       "id": "abstract-5",
+      "reader_question": "How did the team assess bias in the studies?",
       "title": "Risk of bias",
       "elements": [
         "Describe how risk of bias was assessed."
@@ -544,6 +591,7 @@
     },
     {
       "id": "abstract-6",
+      "reader_question": "How did the team bring the findings together?",
       "title": "Synthesis",
       "elements": [
         "Describe how the results were presented and synthesised."
@@ -552,6 +600,7 @@
     },
     {
       "id": "abstract-7",
+      "reader_question": "How many studies and participants did the review cover?",
       "title": "Included studies",
       "elements": [
         "Give the number of included studies.",
@@ -562,6 +611,7 @@
     },
     {
       "id": "abstract-8",
+      "reader_question": "What were the main results?",
       "title": "Results",
       "elements": [
         "Present results for the main outcomes.",
@@ -573,6 +623,7 @@
     },
     {
       "id": "abstract-9",
+      "reader_question": "What limits confidence in the evidence?",
       "title": "Limitations",
       "elements": [
         "Describe limitations of the included evidence."
@@ -581,6 +632,7 @@
     },
     {
       "id": "abstract-10",
+      "reader_question": "What do the results mean?",
       "title": "Interpretation",
       "elements": [
         "Interpret the results and their main implications."
@@ -589,6 +641,7 @@
     },
     {
       "id": "abstract-11",
+      "reader_question": "Who funded the review?",
       "title": "Funding",
       "elements": [
         "Identify the primary funding source for the review."
@@ -597,6 +650,7 @@
     },
     {
       "id": "abstract-12",
+      "reader_question": "Where was the review registered?",
       "title": "Registration",
       "elements": [
         "Name the register.",
