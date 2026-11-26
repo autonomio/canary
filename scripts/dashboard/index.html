@@ -2024,6 +2024,33 @@
           <footer class="hint">Checklist adapted from <a href="https://www.prisma-statement.org/prisma-2020-checklist">PRISMA 2020</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></footer>`;
       }
 
+      function methodsSectionHtml(section) {
+        const groups = new Map();
+        for (const row of section.entries || []) {
+          if (!groups.has(row.label)) groups.set(row.label, []);
+          const evaluation = row.url && /^https:\/\//i.test(row.url)
+            ? `<a href="${esc(row.url)}" target="_blank" rel="noopener">Read the evaluation</a>` : "";
+          const passages = (row.passages || []).map(p =>
+            `<blockquote>${esc(p.text)}<footer>${esc(p.source)}</footer></blockquote>`).join("");
+          groups.get(row.label).push(`<p class="review-prose">${esc(row.text)}</p>${evaluation}${passages}`);
+        }
+        const labels = [...groups.keys()];
+        const fullPaper = labels.indexOf("Full-paper check"), screening = labels.indexOf("Screening instruction");
+        if (screening > fullPaper && fullPaper >= 0) {
+          labels.splice(screening, 1);
+          labels.splice(fullPaper, 0, "Screening instruction");
+        }
+        const titles = new Map([["Screening instruction", "Screening instructions"], ["Full-paper check", "Full-paper checks"],
+          ["Recorded limitation", "Search and screening limits"]]);
+        const body = labels.map(label => {
+          const entries = groups.get(label);
+          const list = titles.has(label) || entries.length > 1;
+          return `<h3>${esc(titles.get(label) || label)}</h3>` +
+            (list ? `<ul>${entries.map(html => `<li>${html}</li>`).join("")}</ul>` : entries[0]);
+        }).join("");
+        return `<details class="checklist-row"><summary>${esc(section.title)}</summary>${body || "<p>No details were recorded.</p>"}</details>`;
+      }
+
       async function loadChecklist(key, tab = "checklist") {
         const request = ++checklistRequest;
         const content = document.getElementById("checklist-content");
@@ -2039,10 +2066,7 @@
           const report = await api("/api/runs/" + encodeURIComponent(key) + "/prisma/" + tab);
           if (request !== checklistRequest || S.tab !== tab || S.selected !== key) return;
           if (tab === "methods") {
-            content.innerHTML = `<p>${esc(report.question)}</p>` + report.sections.map(section =>
-              `<details class="checklist-row"><summary>${esc(section.title)}</summary>${(section.entries || []).map(row =>
-                `<p><strong>${esc(row.label)}</strong></p><p class="review-prose">${esc(row.text)}</p>${row.url && /^https:\/\//i.test(row.url) ? `<a href="${esc(row.url)}" target="_blank" rel="noopener">Read the evaluation</a>` : ""}${(row.passages || []).map(p =>
-                  `<blockquote>${esc(p.text)}<footer>${esc(p.source)}</footer></blockquote>`).join("")}`).join("") || "<p>No details were recorded.</p>"}</details>`).join("");
+            content.innerHTML = `<p>${esc(report.question)}</p>` + report.sections.map(methodsSectionHtml).join("");
             return;
           }
           content.innerHTML = checklistHtml(report, key);

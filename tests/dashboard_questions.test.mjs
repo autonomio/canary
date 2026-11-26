@@ -492,3 +492,22 @@ test("methods appendix shows the saved claim beside its quotation", async () => 
   assert.equal(elements.get("prisma-checklist").attrs["aria-current"], "page");
   assert.equal(elements.get("prisma-methods").attrs["aria-current"], "false");
 });
+
+test("methods groups repeated headings within each section and keeps each entry's evidence", async () => {
+  const { elements, respond, location, route } = openQuestions();
+  await respond(200, { runs });
+  location.hash = "#research/lake/methods";
+  route();
+  await respond(200, {question:"Lake water", sections:[
+    {title:"Eligibility", entries:[{label:"Full-paper check", text:"Measure depth"},
+      {label:"Screening instruction", text:"Read the abstract"}, {label:"Full-paper check", text:"Check the dates"}]},
+    {title:"Searches", entries:[{label:"Recorded limitation", text:"One source"}, {label:"Recorded limitation", text:"One language"}]},
+    {title:"Checks", entries:[{label:"Round one", text:"First", url:"https://example.org/evaluation"},
+      {label:"Other", text:"Separate"}, {label:"Round one", text:"Second", passages:[{text:"Quote", source:"Paper"}]}]}
+  ]}, "/api/runs/lake/prisma/methods");
+  const html = elements.get("checklist-content").innerHTML;
+  assert.match(html, /Screening instructions<\/h3>.*Full-paper checks<\/h3>/s);
+  assert.match(html, /Search and screening limits<\/h3><ul><li>.*One source.*<\/li><li>.*One language/s);
+  assert.equal(html.split("<h3>Round one</h3>").length, 2);
+  assert.match(html, /First<\/p><a href="https:\/\/example.org\/evaluation".*?<\/li><li>.*Second<\/p><blockquote>Quote<footer>Paper/s);
+});
