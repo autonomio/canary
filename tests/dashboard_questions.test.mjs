@@ -445,6 +445,8 @@ test("item 2 links to an abstract entry and its recorded passage in the dashboar
   location.hash = "#research/lake/checklist";
   route();
   await respond(200, report, endpoint);
+  assert.equal((content.innerHTML.match(/<details\b/g) || []).length, report.items.length);
+  assert.ok(content.innerHTML.includes("<blockquote>What changes in lake water?</blockquote>"));
   for (const id of ["item-abstract-2", "answer-abstract-2-1"]) {
     const [, href] = content.innerHTML.match(new RegExp('href="([^"]+/' + id + ')"'));
     assert.ok(content.innerHTML.includes('id="checklist-' + id + '"'));

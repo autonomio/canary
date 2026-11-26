@@ -1969,18 +1969,15 @@
             const references = element.passages.map(p => {
               const author = p.supplier === "author";
               const source = author ? `<a href="${edition + encodeURIComponent(p.evidence[0])}">Reviewer’s decision</a>` : "Canary’s research record";
-              return `<blockquote>${esc(p.text)}</blockquote><details><summary>Source details</summary><p>${source}</p><p>${esc(p.evidence.join(" · "))}</p></details>`;
+              return `<blockquote>${esc(p.text)}</blockquote><p class="hint">${source} · ${esc(p.evidence.join(" · "))}</p>`;
             }).join("");
-            const passage = references && answer ? `<a href="${link}${esc(answer)}">Read the recorded answer</a>
-              <details><summary>Original wording</summary><div id="checklist-${esc(answer)}" tabindex="-1">${references}</div></details>` : references;
-            return `<li><p>${esc(element.requirement)}</p><p class="hint">${esc(statusText[element.status])}. ${esc(basisText[element.basis] || "")}</p>${passage}</li>`;
+            const passage = references && answer ? `<div id="checklist-${esc(answer)}" tabindex="-1">${references}<a class="text-action" href="${link}${esc(answer)}">Link to this passage</a></div>` : references;
+            return `<li><p>${esc(element.requirement)}</p>${passage}<p class="hint">${esc(statusText[element.status])}. ${esc(basisText[element.basis] || "")}</p></li>`;
           }).join("");
           if (!groups.has(item.heading)) groups.set(item.heading, []);
-          const firstAnswer = item.elements.find(e => e.location);
-          const read = firstAnswer ? `<p><a href="${link}${esc(firstAnswer.location.slice(1))}">Read the recorded answer</a></p>` : "";
-          const note = {missing:"The review has no recorded answer to this question.", partial:"The review answers part of this question.", inapplicable:"The reviewer recorded why this question does not apply."}[item.status];
-          const body = abstractLinks ? `<ul>${abstractLinks}</ul>` : `${overview}${note ? `<p>${note}</p>` : ""}${read}<details><summary>What the checklist asks for</summary><ol>${elements}</ol></details>`;
-          groups.get(item.heading).push(`<details class="checklist-row" id="checklist-item-${esc(item.id)}" data-checklist-status="${esc(item.status)}"><summary><span>${esc(item.id)} · ${esc(item.title)}</span><span class="checklist-status">${esc(item.status)}</span></summary><p><strong>${esc(item.reader_question || item.title)}</strong></p>${body}</details>`);
+          const body = abstractLinks ? `<ul>${abstractLinks}</ul>` : `${overview}<ol>${elements}</ol>`;
+          const question = item.reader_question ? `<p><strong>${esc(item.reader_question)}</strong></p>` : "";
+          groups.get(item.heading).push(`<details class="checklist-row" id="checklist-item-${esc(item.id)}" data-checklist-status="${esc(item.status)}"><summary><span>${esc(item.id)} · ${esc(item.title)}</span><span class="checklist-status">${esc(item.status)}</span></summary>${question}${body}</details>`);
         }
         const rows = Array.from(groups, ([heading, items]) =>
           `<section data-checklist-group><h2>${esc(heading)}</h2>${items.join("")}</section>`).join("");
