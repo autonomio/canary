@@ -31,7 +31,7 @@ from xml.etree import ElementTree
 
 from . import runs
 from .codex_auth import AuthError, CodexAuth
-from . import bundle_connectors, review_history
+from . import bundle_connectors, prisma, review_history
 from . import research_bundle as bundle_store
 from .research_spec import CompileError, compile_research, compile_mapping, verify_compiled, verify_recorded
 from .runtime_paths import resource_root
@@ -1541,6 +1541,19 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             self._send(200, content, kind,
                                        {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
+            elif re.fullmatch(r"/api/runs/[^/]+/prisma/(checklist|report)", parsed.path):
+                _, _, _, key, _, representation = parsed.path.split('/')
+                row = runs.get(unquote(key), self.supervisor.registry)
+                if row is None:
+                    self._send(404, {'error': 'Unknown research run', 'code': 'unknown_run'})
+                    return
+                workspace, store = self._decision_paths(row)
+                edition = review_history.edition(workspace, store=store)
+                result = prisma.report(research_bundle(workspace), edition)
+                if representation == 'report':
+                    self._send(200, prisma.html(result).encode('utf-8'), 'text/html; charset=utf-8')
+                else:
+                    self._send(200, result)
             elif re.fullmatch(r"/api/runs/[^/]+/review-decisions", parsed.path):
                 self._review_decisions(parsed.path, edition=query.get('last_entry', [None])[0])
             elif re.fullmatch(r"/api/runs/[^/]+/revisions/[0-9]+/(research|audit|correction)", parsed.path):

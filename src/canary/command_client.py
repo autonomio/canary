@@ -25,6 +25,8 @@ def run(args, port):
                                 json={'query': args.query, 'limit': args.limit})
             elif args.cmd == 'sources':
                 value = request(client, 'POST', '/api/sources/openalex/recheck', json={})
+            elif args.cmd == 'checklist':
+                value = request(client, 'GET', '/api/runs/' + quote(args.key, safe='') + '/prisma/checklist')
             elif args.cmd == 'decisions':
                 path = '/api/runs/' + quote(args.key, safe='') + '/review-decisions'
                 if args.submit:

@@ -113,6 +113,8 @@ def argument_parser():
     sub.add_parser('mcp',help='serve stdio agent tools over the same HTTP API')
     connect = sub.add_parser('connect', help='reuse Codex login or sign in; start the local service if needed')
     connect.add_argument('--device', action='store_true', help='use a device code (headless service)')
+    checklist = sub.add_parser("checklist", help="read the PRISMA checklist for a saved review")
+    checklist.add_argument("key", help="research run key")
     decisions = sub.add_parser("decisions", help="read a review edition or submit a recorded decision")
     decisions.add_argument("key", help="research run key")
     options = decisions.add_mutually_exclusive_group()

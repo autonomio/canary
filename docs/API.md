@@ -248,3 +248,16 @@ material, without reading the research filesystem in the client. Its science is
 explicitly synthetic; the subsequent deployment proof records live research separately.
 
 Question submissions also accept optional `research_state` (a JSON object, at most 10 MiB) and `continue_research` (boolean, default false), under `spec` or alongside `kind: question`. A true continuation flag requires a nonempty state. The API preserves the exact starting state; the CLI YAML declaration and MCP contract expose the same fields. See [continuation inputs](RESEARCH_BUNDLE.md#continue-from-supplied-research-state) for paper-coverage and unchanged-workflow semantics.
+
+### PRISMA checklist
+
+For a finished review, open **Research bundle → PRISMA checklist** in the
+dashboard. Each answer links to the passage reproduced in the report and
+identifies its source. A path such as `/answer/question` refers to the saved
+research view. An entry ID refers to the review’s decision history.
+
+`canary checklist RUN_KEY` and `GET /api/runs/{key}/prisma/checklist` return
+the same checklist as JSON. The corresponding agent action is
+`canary_prisma_checklist`. Use `GET /api/runs/{key}/prisma/report` to read or
+save the linked HTML report. Both views are generated from the saved review
+and its latest decision edition.
