@@ -3501,7 +3501,13 @@
     if(d?.run?.selection_method==='coverage-guided') {
       const c=d.coverage || d.answer?.coverage || d.run.coverage || {};
       const countOf = value => Number.isInteger(value) && value >= 0 ? value : 'unknown';
-      return `${countOf(c.reviewed_papers)} reviewed publications · ${countOf(c.core_papers)} core · ${countOf(c.supporting_papers)} supporting · target ${countOf(c.target_papers)} publications · unique candidate records: ${countOf(c.discovered_candidates)} · included reports: ${countOf(c.included_report_count)} · included studies: ${countOf(c.included_study_count)} · participants: ${countOf(c.participant_count)}`;
+      const summary = [`${countOf(c.reviewed_papers)} reviewed publications`, `${countOf(c.core_papers)} core`,
+        `${countOf(c.supporting_papers)} supporting`, `target ${countOf(c.target_papers)} publications`];
+      for (const [label, value] of [["unique candidate records", c.discovered_candidates], ["included reports", c.included_report_count],
+                                     ["included studies", c.included_study_count], ["participants", c.participant_count]]) {
+        if (Number.isInteger(value) && value >= 0) summary.push(`${label}: ${value}`);
+      }
+      return summary.join(" · ");
     }
     return `${count} cited source${count===1 ? '' : 's'}${Number.isInteger(available) && available>=0 ? ` · ${available} available` : ''}`;
   }

@@ -274,7 +274,9 @@ def test_below_target_coverage_exposes_reported_scarcity_without_certifying_it(t
     run_dashboard(tmp_path, coverage, r"""
 const before=JSON.stringify(graph),data={run:{selection_method:'coverage-guided'},coverage:graph};
 const html=coverageSelectionHtml(data);
-assert.match(html,/27 reviewed publications · 9 core · 18 supporting · target 50 publications · unique candidate records: unknown · included reports: unknown · included studies: unknown · participants: unknown/);
+assert.match(html,/27 reviewed publications · 9 core · 18 supporting · target 50 publications/);
+assert.doesNotMatch(cliSourceCounts(data), /included reports|included studies|participants/);
+assert.match(cliSourceCounts({...data,coverage:{...graph,participant_count:0}}), /participants: 0/);
 assert.match(html,/Reported scarcity; not independently verified\./);
 assert.match(html,/No further eligible publications in the assessed pool\./);
 assert.match(html,/Two copies remain inaccessible\./);

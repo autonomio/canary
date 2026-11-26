@@ -221,20 +221,24 @@ def _declarations(entries: list[dict]) -> dict[str, list[tuple[str, Passage]]]:
     return declarations
 
 
+class ChecklistValidationError(ValueError):
+    """The generated checklist disagrees with the published catalogue."""
+
+
 def validate(result: Report) -> None:
     """Check exported rows and their answer targets against the published catalogue."""
     expected = {r['id']: r for r in catalogue()['items']}
     ids = [r['id'] for r in result['items']]
     if len(ids) != len(expected) or set(ids) != set(expected):
-        raise ValueError('Missing, duplicate or unexpected PRISMA checklist ID')
+        raise ChecklistValidationError('Missing, duplicate or unexpected PRISMA checklist ID')
     for row in result['items']:
         requirements = expected[row['id']]['elements']
         if [e['requirement'] for e in row['elements']] != requirements:
-            raise ValueError(f"Incorrect essential elements for PRISMA item {row['id']}")
+            raise ChecklistValidationError(f"Incorrect essential elements for PRISMA item {row['id']}")
         for i, element in enumerate(row['elements'], 1):
             target = f"#answer-{row['id']}-{i}" if element['passages'] else None
             if element['location'] != target or (element['status'] in ('complete', 'inapplicable') and not target):
-                raise ValueError(f"Missing or incorrect answer location for PRISMA item {row['id']}")
+                raise ChecklistValidationError(f"Missing or incorrect answer location for PRISMA item {row['id']}")
 
 
 def html(result: Report, entries: list[dict] | None = None) -> str:

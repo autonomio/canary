@@ -505,3 +505,28 @@ def test_saved_checklist_is_available_to_dashboard_cli_and_agent(tmp_path, monke
     monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(dispatch)))
     assert cli.main(['checklist', 'review']) == 0
     assert json.loads(capsys.readouterr().out) == client.get('/api/runs/review/prisma/checklist').json()
+
+
+def test_checklist_requires_a_finished_bundle_and_reports_generation_errors(tmp_path, monkeypatch, review_client):
+    from canary import prisma, research_bundle
+
+    client, registry, _, dispatch = review_client
+    workspace = tmp_path / 'review'
+    workspace.mkdir()
+    prepared(workspace)
+    runs.adopt_bundle(workspace, path=registry)
+    research_bundle.seal(workspace, state='running')
+    for representation in ('checklist', 'report'):
+        response = client.get('/api/runs/review/prisma/' + representation)
+        assert response.status_code == 409
+        assert response.json()['code'] == 'checklist_unavailable'
+    research_bundle.seal(workspace)
+
+    def invalidate(report):
+        raise prisma.ChecklistValidationError('Unexpected ID')
+
+    monkeypatch.setattr(prisma, 'validate', invalidate)
+    for representation in ('checklist', 'report'):
+        response = client.get('/api/runs/review/prisma/' + representation)
+        assert response.status_code == 500
+        assert response.json()['code'] == 'invalid_checklist'

@@ -279,7 +279,7 @@ example, a review of polymer specimens has no human participants. A blank
 field leaves the element missing. Correct an earlier declaration with
 `replaces`; competing declarations stay visible until resolved.
 
-The abstract labels the counts saved by the run. A candidate record, a
+Current runs count unique candidate records and reviewed publications. They do not count distinct included reports, studies or participants. Reviewers can supply study and participant totals as attributed answers to abstract item 7. Ordinary coverage summaries show the totals recorded by the run. The checklist keeps all five units visible. A candidate record, a
 report, a reviewed publication, an included study and a participant each
 have a separate total. An absent total appears as unknown. Later author
 statements about studies or participants appear beside the recorded counts

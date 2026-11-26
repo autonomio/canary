@@ -165,3 +165,15 @@ def test_abstract_overview_keeps_author_evidence_and_uses_child_status():
     assert passage['text'] in section
     assert 'href="#decision-review-note"' in section
     assert 'id="decision-review-note"' in page
+
+
+def test_markdown_shows_only_recorded_counts():
+    from canary.coverage_export import render_markdown
+
+    record = {'claim': {'id': 'C1', 'text': 'Example claim'}, 'status': 'withheld', 'reason': 'Insufficient evidence'}
+    graph = {'withheld_claims': [record], 'coverage': {'discovered_candidates': 10, 'reviewed_papers': 4}}
+    markdown = render_markdown(graph)
+    assert 'Unique candidate records: 10 · Reviewed publications: 4' in markdown
+    assert 'Participants: unknown' not in markdown
+    graph['coverage'] = {}
+    assert 'Counts recorded by the run' not in render_markdown(graph)

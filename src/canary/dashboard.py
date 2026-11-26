@@ -1547,6 +1547,9 @@ class Handler(BaseHTTPRequestHandler):
                 if row is None:
                     self._send(404, {'error': 'Unknown research run', 'code': 'unknown_run'})
                     return
+                if bundle_store.read(row.get('bundle'))['state'] != 'finished':
+                    self._send(409, {'error': 'The checklist requires a finished review bundle', 'code': 'checklist_unavailable'})
+                    return
                 workspace, store = self._decision_paths(row)
                 edition = review_history.edition(workspace, store=store)
                 result = prisma.report(research_bundle(workspace), edition)
@@ -1646,6 +1649,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"experiments": acceptance_runs(self.supervisor.root)})
             else:
                 self._send(404, {"error": "not found"})
+        except prisma.ChecklistValidationError:
+            self._send(500, {'error': 'Could not validate the generated checklist', 'code': 'invalid_checklist'})
         except review_history.ReviewConflict as error:
             self._send(409, {'error': str(error), 'code': 'review_conflict'})
         except review_history.ReviewStorageError:

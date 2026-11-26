@@ -213,7 +213,9 @@ def render_markdown(graph: dict):
     lines = ["# " + str(graph.get("question", "?")), "", str(graph.get("scope_note", "")), ""]
     if 'coverage' in graph:
         from .prisma import counts, count_text
-        lines.extend(['Counts recorded by the run', '', ' · '.join(count_text(c) for c in counts(graph['coverage'])), ''])
+        recorded = [count_text(c) for c in counts(graph['coverage']) if c['value'] is not None]
+        if recorded:
+            lines.extend(['Counts recorded by the run', '', ' · '.join(recorded), ''])
     verification = graph.get("verification", {})
     if verification.get("version"):
         lines.extend([f"Verification: {verification['supported_claims']} supported claims; {verification['withheld_claims']} withheld "
