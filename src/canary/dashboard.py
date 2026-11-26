@@ -1547,12 +1547,18 @@ class Handler(BaseHTTPRequestHandler):
                 if row is None:
                     self._send(404, {'error': 'Unknown research run', 'code': 'unknown_run'})
                     return
-                if bundle_store.read(row.get('bundle'))['state'] != 'finished':
+                if not row.get('bundle') or not Path(row['bundle']).is_dir():
                     self._send(409, {'error': 'The checklist requires a finished review bundle', 'code': 'checklist_unavailable'})
                     return
                 workspace, store = self._decision_paths(row)
+                with review_history.reading(workspace):
+                    finished = bundle_store.read(workspace)['state'] == 'finished'
+                    view = research_bundle(workspace) if finished else None
+                if view is None:
+                    self._send(409, {'error': 'The checklist requires a finished review bundle', 'code': 'checklist_unavailable'})
+                    return
                 edition = review_history.edition(workspace, store=store)
-                result = prisma.report(research_bundle(workspace), edition)
+                result = prisma.report(view, edition)
                 if representation == 'report':
                     self._send(200, prisma.html(result, edition['entries']).encode('utf-8'), 'text/html; charset=utf-8')
                 else:

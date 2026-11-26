@@ -530,3 +530,39 @@ def test_checklist_requires_a_finished_bundle_and_reports_generation_errors(tmp_
         response = client.get('/api/runs/review/prisma/' + representation)
         assert response.status_code == 500
         assert response.json()['code'] == 'invalid_checklist'
+
+
+def test_checklist_reads_the_view_under_the_bundle_lock_before_reading_decisions(tmp_path, review_client, monkeypatch):
+    client, registry, _, _ = review_client
+    workspace = tmp_path / 'locked-review'
+    workspace.mkdir()
+    prepared(workspace)
+    runs.adopt_bundle(workspace, path=registry)
+    read_view = dashboard.research_bundle
+    read_edition = review_history.edition
+    calls = []
+
+    def check_view(path):
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
+        calls.append('view')
+        return read_view(path)
+
+    def check_edition(path, **kwargs):
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
+        calls.append('edition')
+        return read_edition(path, **kwargs)
+
+    monkeypatch.setattr(dashboard, 'research_bundle', check_view)
+    monkeypatch.setattr(review_history, 'edition', check_edition)
+    for representation in ('checklist', 'report'):
+        assert client.get('/api/runs/locked-review/prisma/' + representation).status_code == 200
+    assert calls == ['view', 'edition', 'view', 'edition']
