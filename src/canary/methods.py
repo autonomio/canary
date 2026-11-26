@@ -176,3 +176,18 @@ def report(view: dict, workspace: Path | None) -> Appendix:
                           dict(title='Screening and access', entries=screening_entries(view, selection, coverage)),
                           dict(title='Automation and checks', entries=automation_entries(view, selection, workspace)),
                           dict(title='Claims and supporting passages', entries=claim_entries(graph))])
+
+
+def for_bundle(workspace, manifest, store=None):
+    """Read a finished bundle while the caller holds its read lock."""
+    from . import compact_bundle, dashboard, review_history
+    if compact_bundle.exists(workspace):
+        checksum = (workspace / compact_bundle.CHECKSUM).read_text().strip()
+        saved = review_history.retained_methods(workspace, manifest['id'], checksum, store)
+        if saved is not None:
+            return saved
+        result = report(compact_bundle.projection(workspace), None)
+        result['sections'].insert(0, dict(title='Limits of the saved record', entries=[
+            entry('Older bundle', 'Detailed search receipts, access decisions and session prompts were not retained.')]))
+        return result
+    return report(dashboard.research_bundle(workspace), workspace)

@@ -187,6 +187,9 @@ def _merge_history(stored: sqlite3.Connection, incoming: sqlite3.Connection, bun
             suffix = incoming.execute('SELECT id, body FROM entries WHERE rowid > ? ORDER BY rowid', (common[0],))
         stored.executemany('INSERT INTO entries (id, body) VALUES (?, ?)', suffix)
         stored.execute('UPDATE history SET last_entry = ?', (incoming_head,))
+    appendix = _methods(incoming, bundle_id)
+    if appendix is not None:
+        _store_methods(stored, bundle_id, appendix)
     if saved_anchor is None and incoming_anchor is not None:
         stored.execute('UPDATE history SET base_sha256 = ?', (incoming_anchor,))
 
@@ -395,20 +398,82 @@ def append(workspace: str | Path, decision: Record, *, request_id: str, expected
     return identifier
 
 
-def bind(workspace: Path, bundle_id: str, checksum: str) -> None:
-    """Verify the recorded decisions and link them to the stored contribution."""
+def _methods(db: sqlite3.Connection, bundle_id: str) -> Record | None:
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='methods'").fetchone():
+        return None
+    row = db.execute('SELECT body, sha256 FROM methods WHERE id=1').fetchone()
+    if row is None:
+        raise ReviewStorageError('Missing saved methods appendix')
+    value = json.loads(row[0])
+    if digest([bundle_id, value]) != row[1]:
+        raise ReviewStorageError('The saved methods appendix has changed')
+    return value
+
+
+def _store_methods(db: sqlite3.Connection, bundle_id: str, value: Record) -> None:
+    previous = _methods(db, bundle_id)
+    if previous is not None:
+        if previous != value:
+            raise ReviewConflict('This bundle already has a different methods appendix')
+        return
+    db.execute('CREATE TABLE methods(id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL, sha256 TEXT NOT NULL)')
+    db.execute('INSERT INTO methods VALUES (1, ?, ?)', (json.dumps(value, ensure_ascii=False), digest([bundle_id, value])))
+
+
+def has_methods(workspace: Path) -> bool:
     path = workspace / NAME
     if not path.exists():
+        return False
+    with _connect(path, mode=_read_mode(path)) as db:
+        return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='methods'").fetchone() is not None
+
+
+def retained_methods(workspace: Path, bundle_id: str, checksum: str, store: Path | None) -> Record | None:
+    """Read the compact review under the caller's bundle lock."""
+    with _directory(workspace, bundle_id, checksum, store) as directory:
+        path = directory / NAME
+        if not path.exists():
+            return None
+        _recover_binding(workspace, directory, bundle_id, checksum)
+        with _connect(path, mode=_read_mode(path)) as db:
+            _header(db, bundle_id, checksum)
+            result = _methods(db, bundle_id)
+    if result is None and store is not None and has_methods(workspace):
+        with _connect(workspace / NAME, mode=_read_mode(workspace / NAME)) as source:
+            _header(source, bundle_id, checksum)
+            result = _methods(source, bundle_id)
+        with _directory(workspace, bundle_id, checksum, store, write=True) as directory:
+            bind(directory, bundle_id, checksum, result)
+    return result
+
+
+def bind(workspace: Path, bundle_id: str, checksum: str, appendix: Record | None = None) -> None:
+    """Save the appendix under the bundle lock before releasing working files."""
+    path = workspace / NAME
+    new = not path.exists()
+    if new and appendix is None:
         return
-    with _connect(path) as db, db:
-        db.execute('BEGIN IMMEDIATE')
-        stored = db.execute('SELECT base_sha256 FROM history').fetchone()
-        if not stored or stored[0] not in (None, checksum):
-            raise ReviewStorageError('Review history is bound to another contribution')
-        _header(db, bundle_id, stored[0])
-        _verify_entries(db, bundle_id)
-        if stored[0] is None:
+    target = workspace / ('.' + NAME + '.tmp') if new else path
+    if new:
+        target.unlink(missing_ok=True)
+    try:
+        with _connect(target, mode='rwc' if new else 'rw') as db, db:
+            db.execute('BEGIN IMMEDIATE')
+            if new:
+                _initialize(db, bundle_id, None)
+            stored = db.execute('SELECT base_sha256 FROM history').fetchone()
+            if not stored or stored[0] not in (None, checksum):
+                raise ReviewStorageError('Review history is bound to another contribution')
+            _header(db, bundle_id, stored[0])
+            _verify_entries(db, bundle_id)
+            if appendix is not None:
+                _store_methods(db, bundle_id, appendix)
             db.execute('UPDATE history SET base_sha256 = ?', (checksum,))
+        if new:
+            target.replace(path)
+    finally:
+        if new:
+            target.unlink(missing_ok=True)
 
 
 def archive(workspace: Path, output: ZipFile, manifest: Mapping[str, Any], *, store: Path | None = None) -> None:

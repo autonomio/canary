@@ -1547,18 +1547,25 @@ class Handler(BaseHTTPRequestHandler):
                 if row is None:
                     self._send(404, {'error': 'Unknown research run', 'code': 'unknown_run'})
                     return
+                label = 'methods appendix' if representation == 'methods' else 'checklist'
+                unavailable = {'error': f'The {label} requires a finished review bundle',
+                               'code': 'methods_unavailable' if representation == 'methods' else 'checklist_unavailable'}
                 if not row.get('bundle') or not Path(row['bundle']).is_dir():
-                    self._send(409, {'error': 'The checklist requires a finished review bundle', 'code': 'checklist_unavailable'})
+                    self._send(409, unavailable)
                     return
                 workspace, store = self._decision_paths(row)
                 with review_history.reading(workspace):
-                    finished = bundle_store.read(workspace)['state'] == 'finished'
-                    view = research_bundle(workspace) if finished else None
-                    if view is not None and representation == 'methods':
-                        self._send(200, methods.report(view, workspace))
-                        return
+                    manifest = bundle_store.read(workspace)
+                    finished = manifest['state'] == 'finished'
+                    if finished and representation == 'methods':
+                        view = methods.for_bundle(workspace, manifest, store)
+                    else:
+                        view = research_bundle(workspace) if finished else None
                 if view is None:
-                    self._send(409, {'error': 'The checklist requires a finished review bundle', 'code': 'checklist_unavailable'})
+                    self._send(409, unavailable)
+                    return
+                if representation == 'methods':
+                    self._send(200, view)
                     return
                 edition = review_history.edition(workspace, store=store)
                 result = prisma.report(view, edition)

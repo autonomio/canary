@@ -8,7 +8,7 @@ import zipfile
 import jsonschema
 import pytest
 
-from canary import bundle_connectors, bundle_encoding, compact_bundle, coverage_export, dashboard, research_bundle, research_tools, runs
+from canary import bundle_connectors, bundle_encoding, compact_bundle, coverage_export, dashboard, research_bundle, research_tools, review_history, runs
 from test_research_bundle import completed, api, wait_bundle
 from test_coverage_evidence_ui import run_dashboard
 
@@ -25,7 +25,7 @@ def test_release_retains_exact_findings_and_standalone_consumer_contract(tmp_pat
     original = prepared(tmp_path)
     before = bundle_connectors.resolvent(tmp_path)
     manifest = compact_bundle.retain(tmp_path)
-    assert {p.name for p in tmp_path.iterdir()} == {compact_bundle.NAME, compact_bundle.CHECKSUM}
+    assert {p.name for p in tmp_path.iterdir()} == {compact_bundle.NAME, compact_bundle.CHECKSUM, review_history.NAME}
     after = bundle_connectors.resolvent(tmp_path)
     for field in ('sources','claims','evidence'):
         assert after[field] == before[field]
@@ -45,7 +45,8 @@ def test_release_retains_exact_findings_and_standalone_consumer_contract(tmp_pat
     assert hashlib.sha256(data).hexdigest() == manifest['artifacts'][0]['sha256']
     archive = io.BytesIO(); research_bundle.archive(tmp_path, archive)
     with zipfile.ZipFile(archive) as zipped:
-        assert set(zipped.namelist()) == {'bundle.json','resolvent.json', compact_bundle.CHECKSUM}
+        assert set(zipped.namelist()) == {'bundle.json','resolvent.json', compact_bundle.CHECKSUM,
+                                        review_history.NAME, 'review-decisions.json', 'methods-appendix.json'}
     assert compact_bundle.retain(tmp_path) == manifest
 
 
@@ -355,3 +356,44 @@ def test_verification_failure_never_releases_full_working_sources(tmp_path):
         compact_bundle.retain(tmp_path)
     assert (tmp_path/'papers/W1.txt').is_file()
     assert not compact_bundle.exists(tmp_path)
+
+
+def test_methods_and_receipts_survive_release_and_import(tmp_path):
+    from canary import methods
+    workspace = tmp_path / 'working'
+    workspace.mkdir()
+    prepared(workspace)
+    (workspace / 'research-prompt.txt').write_text('Check the measurements.')
+    (workspace / 'research-receipt.json').write_text(json.dumps(dict(model='m', reasoning_effort='high', cli_version='1')))
+    research_bundle.seal(workspace)
+    original = methods.report(dashboard.research_bundle(workspace), workspace)
+    manifest = compact_bundle.retain(workspace)
+    checksum = (workspace / compact_bundle.CHECKSUM).read_text().strip()
+    store = tmp_path / 'service'
+    review_history.import_history(workspace, store)
+    assert review_history.retained_methods(workspace, manifest['id'], checksum, store) == original
+    assert 'Check the measurements.' in json.dumps(original)
+    assert not (workspace / 'research-prompt.txt').exists()
+    archive = io.BytesIO()
+    research_bundle.archive(workspace, archive, review_store=store)
+    with zipfile.ZipFile(archive) as saved:
+        assert json.loads(saved.read('methods-appendix.json')) == original
+
+
+def test_methods_endpoint_reads_an_older_review_without_session_records(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    prepared(tmp_path)
+    manifest = compact_bundle.retain(tmp_path)
+    (tmp_path / review_history.NAME).unlink()
+    row = {'bundle': str(tmp_path), 'key': 'older'}
+    monkeypatch.setattr(runs, 'get', lambda key, registry: row)
+    handler = object.__new__(dashboard.Handler)
+    handler.supervisor = SimpleNamespace(root=tmp_path.parent, registry=None)
+    handler.path = '/api/runs/older/prisma/methods'
+    sent = []
+    handler._send = lambda *response: sent.append(response)
+    handler.do_GET()
+    status, report = sent[0]
+    assert status == 200
+    assert report['sections'][0]['entries'][0]['label'] == 'Older bundle'
+    assert manifest['id']
