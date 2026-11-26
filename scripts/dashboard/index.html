@@ -1968,6 +1968,7 @@
         };
         function answersHtml(item, inline = false) {
           const missing = [];
+          const mixed = new Set(item.elements.map(element => element.status)).size > 1;
           const elements = item.elements.map(element => {
             if (element.status === "missing" && !element.passages.length && !basisText[element.basis]) {
               missing.push(element.requirement);
@@ -1984,7 +1985,8 @@
             const target = answer && !inline ? ` id="checklist-${esc(answer)}" tabindex="-1"` : "";
             const passage = references ? `<div${target} class="checklist-answer"><span class="checklist-answer-label">Answer</span>${references}</div>` : "";
             const note = basisText[element.basis];
-            return `<li><p>${esc(element.requirement)}</p>${passage}${note ? `<p class="hint">${esc(note)}</p>` : ""}</li>`;
+            const status = mixed ? ` <small class="hint">(${esc(element.status)})</small>` : "";
+            return `<li><p>${esc(element.requirement)}${status}</p>${passage}${note ? `<p class="hint">${esc(note)}</p>` : ""}</li>`;
           }).join("");
           const conditional = missing.some(requirement => /^(if |for a meta-analysis|for comparisons)/i.test(requirement));
           if (inline && item.id === "abstract-4" && missing.length === item.elements.length && missing.length) {

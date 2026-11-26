@@ -177,3 +177,18 @@ def test_markdown_shows_only_recorded_counts():
     assert 'Participants: unknown' not in markdown
     graph['coverage'] = {}
     assert 'Counts recorded by the run' not in render_markdown(graph)
+
+
+def test_abstract_results_include_saved_string_and_object_paragraphs():
+    summary = ['First result.', None, {'text': 'Second result.'}, {'text': '  '}]
+    result = prisma.report({'answer': {'executive_summary': summary}}, {'entries': [], 'last_entry': 'initial'})
+    element = next(row for row in result['items'] if row['id'] == 'abstract-8')['elements'][0]
+    assert element['status'] == 'partial'
+    assert element['passages'][0]['text'] == 'First result.\nSecond result.'
+
+
+def test_abstract_registration_accepts_explicit_nonregistration():
+    entries = [declaration(f'abstract-12:{i}', 'not_used', 'The review was not registered.', str(i)) for i in (1, 2)]
+    assert declared_item('abstract-12')['status'] == 'missing'
+    assert declared_item('abstract-12', entries[0])['status'] == 'partial'
+    assert declared_item('abstract-12', *entries)['status'] == 'complete'

@@ -393,13 +393,15 @@ test("checklist route uses the dashboard shell and filters the recorded evidence
   route();
   const item = {id:"24a", title:"Registration", heading:"Registration and protocol", status:"complete",
     elements:[{requirement:"Describe registration", status:"complete", basis:"reported",
-      passages:[{supplier:"author", text:"Unregistered <review>", evidence:["entry", "Protocol"]}]}]};
+      passages:[{supplier:"author", text:"Unregistered <review>", evidence:["entry", "Protocol"]}]},
+      {requirement:"Other detail", status:"inapplicable", basis:"inapplicable", passages:[]}]};
   await respond(200, {question:"Lake water", citation:"Page et al.", counts:[], items:[item]}, "/api/runs/lake/prisma/checklist");
   const content = elements.get("checklist-content");
   assert.equal(elements.get("checklist-view").hidden, false);
   assert.equal(elements.get("detail").hidden, true);
   assert.match(content.innerHTML, /Complete · 1/);
   assert.match(content.innerHTML, /Unregistered &lt;review&gt;/);
+  assert.match(content.innerHTML, /Other detail <small class="hint">\(inapplicable\)/);
   assert.match(content.innerHTML, /review-decisions\?last_entry=entry/);
   const empty = element(), filter = element(), all = element(), row = element();
   elements.set("checklist-empty", empty);

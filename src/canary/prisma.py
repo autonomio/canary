@@ -116,8 +116,11 @@ def _run_answers(view: dict) -> dict:
     if isinstance(queries, dict):
         lines = [q['search'] for q in queries.values() if isinstance(q, dict) and isinstance(q.get('search'), str)]
         add('7:1', '\n'.join(lines), '/coverage/search_progress/queries')
-    summaries = [row['text'] for row in graph.get('executive_summary', [])
-                 if isinstance(row, dict) and isinstance(row.get('text'), str)]
+    summaries = []
+    for paragraph in graph.get('executive_summary', []):
+        text = paragraph.get('text') if isinstance(paragraph, dict) else paragraph
+        if isinstance(text, str) and text.strip():
+            summaries.append(text)
     add('abstract-8:1', '\n'.join(summaries), '/answer/executive_summary')
     outcomes = plan.get('outcomes', [])
     if isinstance(outcomes, list):
@@ -169,7 +172,7 @@ def report(view: dict, edition: dict) -> Report:
                 statements = declarations[key]
                 passages = [*passages, *(p for _, p in statements)]
                 basis = statements[0][0] if len(statements) == 1 else 'unresolved_decisions'
-                if basis == 'reported' or (basis == 'not_used' and number in ('24a', '24b')):
+                if basis == 'reported' or (basis == 'not_used' and number in ('24a', '24b', 'abstract-12')):
                     status = 'complete'
                 elif basis == 'inapplicable' or (basis == 'not_used' and i in definition.get('conditional_elements', ())):
                     status = 'inapplicable'
