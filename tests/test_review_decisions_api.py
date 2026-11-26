@@ -471,3 +471,35 @@ def test_import_without_decisions_refuses_a_copy_bound_to_another_compact_file(t
     unversioned = tmp_path / 'unversioned'
     unversioned.mkdir()
     assert client.post('/api/runs/import', json={'server_path': str(unversioned)}).status_code == 201
+
+
+def test_saved_checklist_is_available_to_dashboard_cli_and_agent(tmp_path, monkeypatch, capsys, review_client):
+    client, registry, _, dispatch = review_client
+    workspace = tmp_path / 'review'
+    workspace.mkdir()
+    prepared(workspace)
+    runs.adopt_bundle(workspace, path=registry)
+    response = client.get('/api/runs/review/prisma/checklist')
+    assert response.status_code == 200
+    report = response.json()
+    assert len(report['items']) == 54
+    from urllib.parse import urljoin
+    from test_prisma import declaration
+    decision_url = '/api/runs/review/review-decisions'
+    entry = declaration('abstract-7:2', 'inapplicable', 'This review tested polymer specimens.')
+    recorded = client.post(decision_url, json=dict(expected_last_entry='initial', request_id='participants',
+                                                   decision=entry['decision']))
+    assert recorded.status_code == 200
+    head = recorded.json()['last_entry']
+    page = client.get('/api/runs/review/prisma/report')
+    assert f'href="#decision-{head}"' in page.text
+    edition_link = f'../review-decisions?last_entry={head}'
+    assert f'href="{edition_link}"' in page.text
+    assert client.get(urljoin(str(page.url), edition_link)).json()['last_entry'] == head
+    contract = api_contract.document()
+    tool = mcp_server.tool_catalog(contract)['canary_prisma_checklist']
+    jsonschema.validate(report, tool['tool'].outputSchema)
+    original = httpx.Client
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(dispatch)))
+    assert cli.main(['checklist', 'review']) == 0
+    assert json.loads(capsys.readouterr().out) == client.get('/api/runs/review/prisma/checklist').json()

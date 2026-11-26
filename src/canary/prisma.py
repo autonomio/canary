@@ -2,6 +2,7 @@
 from functools import lru_cache
 from html import escape
 from typing import Literal, TypedDict
+from urllib.parse import quote
 from importlib.resources import files
 import json
 
@@ -37,7 +38,14 @@ class Item(TypedDict):
     see_also: list[str]
 
 
+class Count(TypedDict):
+    label: str
+    value: int | None
+    evidence: str | None
+
+
 class Report(TypedDict):
+    counts: list[Count]
     version: str
     citation: str
     license: str
@@ -45,6 +53,24 @@ class Report(TypedDict):
     question: str
     edition: str
     items: list[Item]
+
+
+def counts(coverage: dict) -> list[Count]:
+    result = []
+    for label, field in [('Unique candidate records', 'discovered_candidates'),
+                         ('Included reports', 'included_report_count'),
+                         ('Reviewed publications', 'reviewed_papers'),
+                         ('Included studies', 'included_study_count'),
+                         ('Participants', 'participant_count')]:
+        value = coverage.get(field)
+        known = type(value) is int and value >= 0
+        result.append(Count(label=label, value=value if known else None, evidence='/coverage/'+field if known else None))
+    return result
+
+
+def count_text(count: Count) -> str:
+    value = count['value']
+    return f"{count['label']}: {value:,}" if value is not None else count['label'] + ': unknown'
 
 
 def _run_answers(view: dict) -> dict:
@@ -91,6 +117,10 @@ def _run_answers(view: dict) -> dict:
                 path = f'/answer/study_results/{index}/fields/{field}/value'
                 _, passages = answers.setdefault(key, ('partial', []))
                 passages.append(dict(text=value['value'], evidence=[path, *value.get('paragraph_ids', [])], supplier='run'))
+    for key, field in [('abstract-7:1', 'included_study_count'), ('abstract-7:2', 'participant_count')]:
+        total = view.get('coverage', {}).get(field)
+        if type(total) is int and total >= 0:
+            add(key, str(total), '/coverage/'+field, 'complete')
     return answers
 
 
@@ -138,10 +168,11 @@ def report(view: dict, edition: dict) -> Report:
     abstract_item['status'] = abstract_element['status'] = abstract_status
     abstract_item['missing_elements'] = [row['id'] + ' · ' + row['title'] for row in abstract
                                         if row['status'] in ('partial', 'missing')]
-    abstract_element.update(basis='abstract_checklist', location='#answer-2-1',
-                            passages=[dict(text='See the twelve abstract items below.',
-                                           evidence=abstract_item['see_also'], supplier='run')])
-    result = Report(version=data['version'], citation=data['citation'], license=data['license'], sources=data['sources'],
+    abstract_element['basis'] = 'abstract_checklist'
+    abstract_element['location'] = '#answer-2-1'
+    abstract_element['passages'] = [Passage(text='See the twelve abstract items below.',
+                                            evidence=abstract_item['see_also'], supplier='run')]
+    result = Report(counts=counts(view.get('coverage', {})), version=data['version'], citation=data['citation'], license=data['license'], sources=data['sources'],
                 question=view.get('answer', {}).get('question') or 'Research review', edition=edition['last_entry'], items=items)
     validate(result)
     return result
@@ -180,13 +211,19 @@ def validate(result: Report) -> None:
                 raise ValueError(f"Missing or incorrect answer location for PRISMA item {row['id']}")
 
 
-
 def html(result: Report) -> str:
     lines = ['<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">',
              '<title>PRISMA checklist</title><style>body{font:1rem/1.5 system-ui;max-width:68rem;margin:2rem auto;padding:0 1rem}'
              'td,th{padding:.4rem .7rem;text-align:left;vertical-align:top}article{margin:1rem 0}blockquote{white-space:pre-wrap}</style><main>',
              '<h1>PRISMA checklist</h1>', '<p>' + escape(result['question']) + '</p>',
-             '<table><thead><tr><th>Item</th><th>Reporting status</th><th>Recorded answers</th></tr></thead><tbody>']
+             '<h2>Abstract</h2>', '<p>Counts recorded by the run</p>', '<p>' + ' · '.join(escape(count_text(c)) for c in result['counts']) + '</p>']
+    included = next(item for item in result['items'] if item['id'] == 'abstract-7')
+    for label, element in zip(('Included studies', 'Participants'), included['elements'][:2]):
+        for passage in element['passages']:
+            if passage['supplier'] == 'author':
+                lines.append('<p>' + label + ' · author statement: <a href="' + '#decision-' + escape(passage['evidence'][0])
+                             + '">' + escape(passage['text']) + '</a></p>')
+    lines.append('<table><thead><tr><th>Item</th><th>Reporting status</th><th>Recorded answers</th></tr></thead><tbody>')
     sections = []
     for item in result['items']:
         links = []
@@ -199,7 +236,12 @@ def html(result: Report) -> str:
             sections.append(f'<article id="{anchor}"><strong>{escape(element["status"].capitalize())}</strong> · '
                             + escape(element['requirement']))
             for p in element['passages']:
-                sections.append('<blockquote>' + escape(p['text']) + '</blockquote><p>' + escape(p['supplier'].capitalize())
+                attribution = ''
+                if p['supplier'] == 'author':
+                    entry = p['evidence'][0]
+                    attribution = (f'<a id="decision-{escape(entry)}" href="../review-decisions?last_entry='
+                                   + quote(entry, safe='') + '">Recorded decision</a>')
+                sections.append(attribution + '<blockquote>' + escape(p['text']) + '</blockquote><p>' + escape(p['supplier'].capitalize())
                                 + ' · ' + escape(' · '.join(p['evidence'])) + '</p>')
             if element['basis'] not in ('saved_run', 'reported', 'abstract_checklist'):
                 sections.append('<p>' + escape(element['basis'].replace('_', ' ').capitalize()) + '</p>')

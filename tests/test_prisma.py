@@ -1,5 +1,4 @@
 from canary import prisma
-from test_review_decisions_api import review_client
 
 
 def test_catalogue_contains_each_official_item_once():
@@ -23,32 +22,6 @@ def test_saved_question_links_to_the_actual_passage():
     assert f'href="{answer["location"]}"' in page
     assert f'id="{answer["location"][1:]}"' in page
     assert '<blockquote>What changes tensile strength?</blockquote>' in page
-
-
-def test_saved_checklist_is_available_to_dashboard_cli_and_agent(tmp_path, monkeypatch, capsys, review_client):
-    import json
-    import httpx
-    import jsonschema
-    from canary import api_contract, cli, mcp_server, runs
-    from test_compact_bundle import prepared
-
-    client, registry, _, dispatch = review_client
-    workspace = tmp_path / 'review'
-    workspace.mkdir()
-    prepared(workspace)
-    runs.adopt_bundle(workspace, path=registry)
-    response = client.get('/api/runs/review/prisma/checklist')
-    assert response.status_code == 200
-    report = response.json()
-    assert len(report['items']) == 54
-    assert client.get('/api/runs/review/prisma/report').status_code == 200
-    contract = api_contract.document()
-    tool = mcp_server.tool_catalog(contract)['canary_prisma_checklist']
-    jsonschema.validate(report, tool['tool'].outputSchema)
-    original = httpx.Client
-    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(dispatch)))
-    assert cli.main(['checklist', 'review']) == 0
-    assert json.loads(capsys.readouterr().out) == report
 
 
 def declaration(item, judgement, reason, ident='r1'):
@@ -114,3 +87,26 @@ def test_corrected_author_answer_keeps_its_subject_and_the_run_evidence():
     passages = row['elements'][0]['passages']
     assert [p['text'] for p in passages] == ['Original research question', 'Corrected objective']
     assert passages[1]['evidence'] == ['two', *correction['evidence']]
+
+
+def test_abstract_counts_only_use_the_recorded_unit():
+    view = {'coverage': dict(discovered_candidates=93, retrieved_sources=52, reviewed_papers=50,
+                             related_report_groups={'group': ['r1', 'r2']}, participant_count=False)}
+    result = prisma.report(view, dict(entries=[], last_entry='initial'))
+    assert [c['value'] for c in result['counts']] == [93, None, 50, None, None]
+    assert 'Reviewed publications: 50 · Included studies: unknown · Participants: unknown' in prisma.html(result)
+    view['coverage'].update(included_report_count=48, included_study_count=40, participant_count=0)
+    result = prisma.report(view, dict(entries=[], last_entry='initial'))
+    assert [c['value'] for c in result['counts']] == [93, 48, 50, 40, 0]
+    studies = next(row for row in result['items'] if row['id'] == 'abstract-7')
+    assert [e['status'] for e in studies['elements']] == ['complete', 'complete', 'missing']
+
+
+def test_abstract_shows_the_reason_participants_do_not_apply():
+    entry = declaration('abstract-7:2', 'inapplicable', 'The experiments used polymer specimens.')
+    result = prisma.report({}, dict(entries=[entry], last_entry=entry['id']))
+    page = prisma.html(result)
+    assert 'Participants: unknown' in page
+    assert 'Participants · author statement: <a href="#decision-r1">The experiments used polymer specimens.' in page
+    assert 'id="decision-r1" href="../review-decisions?last_entry=r1"' in page
+    assert result['counts'][-1]['value'] is None

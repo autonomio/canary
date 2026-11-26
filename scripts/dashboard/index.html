@@ -3390,7 +3390,8 @@
     const count=d?.answer?.references?.length ?? 0, available=d?.run?.available_unique_sources;
     if(d?.run?.selection_method==='coverage-guided') {
       const c=d.coverage || d.answer?.coverage || d.run.coverage || {};
-      return `${c.reviewed_papers ?? '—'} reviewed · ${c.core_papers ?? '—'} core · ${c.supporting_papers ?? '—'} supporting · target ${c.target_papers ?? 50}`;
+      const countOf = value => Number.isInteger(value) && value >= 0 ? value : 'unknown';
+      return `${countOf(c.reviewed_papers)} reviewed publications · ${countOf(c.core_papers)} core · ${countOf(c.supporting_papers)} supporting · target ${countOf(c.target_papers)} publications · unique candidate records: ${countOf(c.discovered_candidates)} · included reports: ${countOf(c.included_report_count)} · included studies: ${countOf(c.included_study_count)} · participants: ${countOf(c.participant_count)}`;
     }
     return `${count} cited source${count===1 ? '' : 's'}${Number.isInteger(available) && available>=0 ? ` · ${available} available` : ''}`;
   }

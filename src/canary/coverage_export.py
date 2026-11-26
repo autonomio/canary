@@ -211,6 +211,9 @@ def render_markdown(graph: dict):
     if not has_native_findings(graph) and not _rows(graph.get("withheld_claims")):
         return
     lines = ["# " + str(graph.get("question", "?")), "", str(graph.get("scope_note", "")), ""]
+    if 'coverage' in graph:
+        from .prisma import counts, count_text
+        lines.extend(['Counts recorded by the run', '', ' · '.join(count_text(c) for c in counts(graph['coverage'])), ''])
     verification = graph.get("verification", {})
     if verification.get("version"):
         lines.extend([f"Verification: {verification['supported_claims']} supported claims; {verification['withheld_claims']} withheld "
