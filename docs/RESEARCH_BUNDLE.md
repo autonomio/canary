@@ -329,7 +329,9 @@ two queries counts in each query. Older reviews can show a match count
 without a retrieval count or date.
 
 A session receipt identifies the software that ran. The appendix includes
-the saved prompt and its SHA-256. A review can supply
+the saved prompt and its SHA-256. Prompts in a compact review and its ZIP
+can reveal the operator’s username through the path to the Python interpreter.
+A review can supply
 `methods-evaluations.json`, an array with one HTTPS `url` and one
 `configuration` per evaluation. The role, tool, version, model, effort
 and prompt SHA-256 must all match the session for its citation to appear.

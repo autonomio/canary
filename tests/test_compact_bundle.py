@@ -380,6 +380,22 @@ def test_methods_and_receipts_survive_release_and_import(tmp_path):
         assert json.loads(saved.read('methods-appendix.json')) == original
 
 
+def test_compaction_accepts_non_string_full_paper_notes(tmp_path):
+    prepared(tmp_path)
+    path = tmp_path / 'paper-selection.json'
+    ledger = json.loads(path.read_text())
+    ledger['reviewed_papers'] = [dict(work_id='W1', eligibility=['eligible'],
+                                      substantive_review_note={'reason': 'Measured directly'})]
+    research_bundle.write_json(path, ledger)
+    research_bundle.seal(tmp_path)
+    manifest = compact_bundle.retain(tmp_path)
+    checksum = (tmp_path / compact_bundle.CHECKSUM).read_text().strip()
+    appendix = review_history.retained_methods(tmp_path, manifest['id'], checksum, None)
+    entry, = [item for section in appendix['sections'] for item in section['entries']
+              if item['label'] == 'W1 · full-paper review']
+    assert 'eligible' in entry['text'] and 'Measured directly' in entry['text']
+
+
 def test_methods_endpoint_reads_an_older_review_without_session_records(tmp_path, monkeypatch):
     from types import SimpleNamespace
     prepared(tmp_path)
