@@ -190,10 +190,11 @@ def report(view: dict, edition: dict) -> Report:
     abstract_item['status'] = abstract_element['status'] = abstract_status
     abstract_item['missing_elements'] = [row['id'] + ' · ' + row['title'] for row in abstract
                                         if row['status'] in ('partial', 'missing')]
-    abstract_element['basis'] = 'abstract_checklist'
-    abstract_element['location'] = '#answer-2-1'
-    abstract_element['passages'] = [Passage(text='See the twelve abstract items below.',
-                                            evidence=abstract_item['see_also'], supplier='run')]
+    if not abstract_element['passages']:
+        abstract_element['basis'] = 'abstract_checklist'
+        abstract_element['location'] = '#answer-2-1'
+        abstract_element['passages'] = [Passage(text='See the twelve abstract items below.',
+                                                evidence=abstract_item['see_also'], supplier='run')]
     result = Report(selection_summary=selection_summary(view), counts=counts(view.get('coverage', {})), version=data['version'], citation=data['citation'], license=data['license'], sources=data['sources'],
                 question=view.get('answer', {}).get('question') or 'Research review', edition=edition['last_entry'], items=items)
     validate(result)

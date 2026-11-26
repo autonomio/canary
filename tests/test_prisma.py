@@ -146,3 +146,22 @@ def test_unused_conditional_abstract_methods():
         assert row['elements'][index - 1]['status'] == 'inapplicable'
     row = declared_item('abstract-8', declaration('abstract-8:1', 'not_used', 'No results were reported.'))
     assert row['elements'][0]['status'] == 'partial'
+
+
+def test_abstract_overview_keeps_author_evidence_and_uses_child_status():
+    entry = declaration('2:1', 'reported', 'Reviewer checked the abstract.', 'review-note')
+    report = prisma.report({'answer': {'question': 'What changes tensile strength?'}},
+                           {'entries': [entry], 'last_entry': entry['id']})
+    item = next(row for row in report['items'] if row['id'] == '2')
+    element, = item['elements']
+    assert item['status'] == element['status'] == 'partial'
+    assert element['basis'] == 'reported'
+    assert element['location'] == '#answer-2-1'
+    passage, = element['passages']
+    assert passage == dict(text=entry['decision']['reason'], evidence=[entry['id'], *entry['decision']['evidence']],
+                           supplier='author')
+    page = prisma.html(report, [entry])
+    section = page.split('<section id="item-2">')[1].split('</section>')[0]
+    assert passage['text'] in section
+    assert 'href="#decision-review-note"' in section
+    assert 'id="decision-review-note"' in page

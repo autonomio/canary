@@ -2001,9 +2001,11 @@
           const overview = item.id === "23c" && report.selection_summary?.length
             ? `<p>${esc(report.selection_summary.join(" "))}</p>` : "";
           if (!groups.has(item.heading)) groups.set(item.heading, []);
-          const abstractTarget = item.elements[0]?.location?.slice(1);
+          const abstractElement = item.elements[0];
+          const abstractTarget = abstractElement?.location?.slice(1);
+          const authorNotes = abstract && abstractElement?.passages?.some(p => p.supplier === "author") ? answersHtml(item, true) : "";
           const body = abstract && abstractTarget
-            ? `<div id="checklist-${esc(abstractTarget)}" tabindex="-1">${abstract}</div>`
+            ? `<div id="checklist-${esc(abstractTarget)}" tabindex="-1">${authorNotes}${abstract}</div>`
             : abstract || overview + answersHtml(item);
           const question = item.reader_question ? `<p><strong>${esc(item.reader_question)}</strong></p>` : "";
           groups.get(item.heading).push(`<details class="checklist-row" id="checklist-item-${esc(item.id)}" data-checklist-status="${esc(item.status)}"><summary><span>${esc(item.id)} · ${esc(item.title)}</span><span class="checklist-status">${esc(item.status)}</span></summary>${question}${body}</details>`);
