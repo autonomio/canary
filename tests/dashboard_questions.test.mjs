@@ -475,3 +475,15 @@ test("item 2 links to an abstract entry and its recorded passage in the dashboar
     assert.ok(section.focused || target.focused);
   }
 });
+
+test("methods appendix shows the saved claim beside its quotation", async () => {
+  const { elements, respond, location, route } = openQuestions();
+  await respond(200, { runs });
+  location.hash = "#research/lake/methods";
+  route();
+  await respond(200, {question:"Lake water", sections:[{title:"Claims and supporting passages",
+    entries:[{label:"C1", text:"Recorded claim", passages:[{source:"p2", text:"A <measurement>"}]}]}]},
+    "/api/runs/lake/prisma/methods");
+  assert.match(elements.get("checklist-content").innerHTML, /Recorded claim.*A &lt;measurement&gt;.*p2/s);
+  assert.equal(elements.get("checklist-title").textContent, "Methods appendix");
+});

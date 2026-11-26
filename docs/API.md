@@ -284,3 +284,10 @@ report, a reviewed publication, an included study and a participant each
 have a separate total. An absent total appears as unknown. Later author
 statements about studies or participants appear beside the recorded counts
 and link to the corresponding decision.
+
+### Methods appendix
+
+Open **Methods appendix** in the dashboard’s research bundle, or run
+`canary methods RUN_KEY`. The API serves the same sections at
+`GET /api/runs/{key}/prisma/methods`. Each claim appears beside the passages
+cited in the saved review. Reading the appendix makes no provider requests.
