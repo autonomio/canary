@@ -444,3 +444,30 @@ def test_full_history_extension_preserves_the_compact_receipt(tmp_path, review_c
     compact_edition = client.get('/api/runs/compact/review-decisions').json()
     assert compact_edition == dict(edition, base_sha256=checksum)
     assert review_history.edition(compact)['last_entry'] == first
+
+
+def test_import_without_decisions_refuses_a_copy_bound_to_another_compact_file(tmp_path, review_client):
+    client, registry, _, _ = review_client
+    compact = tmp_path / 'compact'
+    compact.mkdir()
+    prepared(compact)
+    compact_bundle.retain(compact)
+    assert client.post('/api/runs/import', json={'server_path': str(compact)}).status_code == 201
+    saved = client.post('/api/runs/compact/review-decisions', json={
+        'request_id': 'first', 'expected_last_entry': 'initial', 'decision': decision()}).json()['last_entry']
+    altered = tmp_path / 'altered'
+    shutil.copytree(compact, altered)
+    stored = altered / compact_bundle.NAME
+    stored.write_bytes(stored.read_bytes() + b'\n')
+    (altered / compact_bundle.CHECKSUM).write_text(file_hash(stored))
+    assert not (altered / review_history.NAME).exists()
+    rejected = client.post('/api/runs/import', json={'server_path': str(altered)})
+    assert rejected.status_code == 409 and rejected.json()['code'] == 'review_conflict'
+    assert runs.get('altered', registry) is None
+    same = tmp_path / 'same'
+    shutil.copytree(compact, same)
+    assert client.post('/api/runs/import', json={'server_path': str(same)}).status_code == 201
+    assert client.get('/api/runs/same/review-decisions').json()['last_entry'] == saved
+    unversioned = tmp_path / 'unversioned'
+    unversioned.mkdir()
+    assert client.post('/api/runs/import', json={'server_path': str(unversioned)}).status_code == 201

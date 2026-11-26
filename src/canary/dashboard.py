@@ -1681,11 +1681,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not path.is_dir(): raise ValueError('Server-side bundle directory does not exist')
                 existing = next((r for r in runs.load(self.supervisor.registry)
                     if r.get('bundle') and Path(r['bundle']).resolve() == path), None)
-                history = path / review_history.NAME
-                if history.is_file() or history.is_symlink():
-                    store = self._decision_paths(existing)[1] if existing else self.supervisor.root / 'review-decisions'
-                    if store is not None:
-                        review_history.import_history(path, store)
+                store = self._decision_paths(existing)[1] if existing else self.supervisor.root / 'review-decisions'
+                if store is not None:
+                    review_history.import_history(path, store)
                 self._send(200 if existing else 201, existing or runs.adopt_bundle(
                     path, body.get('name',''), body.get('brief',''), self.supervisor.registry))
             elif parsed.path == "/api/runs/compile" or (parsed.path == "/api/runs" and ('yaml' in body or 'spec' in body)):

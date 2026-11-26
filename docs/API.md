@@ -142,8 +142,11 @@ and downloads then use the service’s copy alone. To bring in decisions that
 were added to the bundle folder later, import the folder again. If the
 folder’s history continues the saved one, Canary adds the new entries. If
 the two disagree, the import returns HTTP 409. Both histories remain intact,
-and the run keeps reading the service’s copy. The download includes the
-saved decisions and the original research.
+and the run keeps reading the service’s copy. An import also returns HTTP 409
+when the saved decisions are tied to a different `resolvent.json`, even if the
+folder holds no decisions of its own. A folder imported for the first time
+then stays unregistered. The download includes the saved decisions and the
+original research.
 
 Save an edition’s last entry ID separately if you need to check that the
 edition is still present after restoring a backup.

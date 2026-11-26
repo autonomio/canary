@@ -248,9 +248,23 @@ def import_history(workspace: str | Path, store: Path) -> None:
     """Merge the bundle's own decisions into the service's copy when the bundle is imported."""
     root = Path(workspace).resolve()
     with reading(root):
-        bundle_id, checksum = _base(root)
+        source = (root / NAME).is_file() or (root / NAME).is_symlink()
+        try:
+            bundle_id, checksum = _base(root)
+        except ValueError:
+            if source:
+                raise
+            return
+        if not source and not (store / digest(bundle_id) / NAME).is_file():
+            return
         with _directory(root, bundle_id, checksum, store, merge=True) as directory:
             _recover_binding(root, directory, bundle_id, checksum)
+            path = directory / NAME
+            if checksum is not None and path.is_file():
+                with _connect(path, mode=_read_mode(path)) as db:
+                    saved = db.execute('SELECT base_sha256 FROM history').fetchone()
+                if saved and saved[0] not in (None, checksum):
+                    raise ReviewConflict('The saved decisions refer to a different compact copy')
 
 
 def _recover_binding(root: Path, directory: Path, bundle_id: str, checksum: str | None) -> None:
