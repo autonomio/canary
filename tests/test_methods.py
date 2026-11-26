@@ -126,3 +126,30 @@ def test_counts_stay_with_their_source_when_logs_share_a_query_id(tmp_path):
     assert fallback['attempted']
     assert openalex['search'] == 'lake' and openalex['ended'] == 'The source returned its final page.'
     assert pubmed['ended'] is None and pubmed['search'] == 'Search terms were not recorded.'
+
+
+def test_full_paper_review_includes_the_reason_and_distinct_note():
+    from canary.methods import screening_entries
+    row = dict(work_id='p', eligibility='excluded', reason='Only a preview was available.')
+    for note in (None, row['reason'], 'Only page one was visible.'):
+        row['substantive_review_note'] = note
+        review = screening_entries({'paper_selection': {'reviewed_papers': [row]}}, {}, {})[0]
+        assert review['text'].splitlines() == ['excluded', row['reason']] + (
+            [note] if note and note != row['reason'] else [])
+
+
+def test_nested_session_uses_its_own_prompt_and_defers_to_root_receipt(tmp_path):
+    from canary.methods_automation import sessions
+    folder = tmp_path / 'research'
+    folder.mkdir()
+    receipt = 'research-receipt.json'
+    prompt = 'research-prompt.txt'
+    (folder / receipt).write_text('{"model":"nested"}')
+    (folder / prompt).write_text('Nested instructions')
+    (tmp_path / prompt).write_text('Root instructions')
+    session, = sessions(tmp_path)
+    assert (session['configuration']['model'], session['prompt'], session['round']) == (
+        'nested', 'Nested instructions', None)
+    (tmp_path / receipt).write_text('{"model":"root"}')
+    session, = sessions(tmp_path)
+    assert (session['configuration']['model'], session['prompt']) == ('root', 'Root instructions')

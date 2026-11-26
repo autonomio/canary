@@ -48,12 +48,14 @@ def sessions(workspace: Path) -> list[dict]:
     for directory in [workspace, *rounds]:
         for role in ROLES:
             path = directory / f'{role}-receipt.json'
+            if directory == workspace and not saved(path):
+                path = workspace / 'research' / path.name
             if not saved(path):
                 continue
             if role == 'audit' and directory == workspace and any(saved(d / path.name) for d in rounds):
                 continue
             receipt = load_record(path, {})
-            prompt_path = directory / f'{role}-prompt.txt'
+            prompt_path = path.parent / f'{role}-prompt.txt'
             prompt = prompt_path.read_bytes() if saved(prompt_path) else None
             config = dict(role=role, tool='Codex CLI', version=receipt.get('cli_version'), model=receipt.get('model'),
                           effort=receipt.get('reasoning_effort'),

@@ -96,8 +96,8 @@ def screening_entries(view: dict, selection: dict, coverage: dict) -> list[Entry
     ledger = view.get('paper_selection') or {}
     for row in rows(ledger.get('reviewed_papers')):
         eligibility = row.get('eligibility') or 'Eligibility unknown'
-        note = row.get('substantive_review_note') or ''
-        screening.append(entry(f"{row.get('work_id', 'Report')} · full-paper review", f'{eligibility}\n{note}'))
+        details = [str(value) for value in (eligibility, row.get('reason'), row.get('substantive_review_note')) if value]
+        screening.append(entry(f"{row.get('work_id', 'Report')} · full-paper review", '\n'.join(dict.fromkeys(details))))
     found, assessed = coverage.get('discovered_candidates'), coverage.get('assessed_candidates')
     if type(found) is int and type(assessed) is int and found >= assessed >= 0:
         screening.append(entry('Records left unscreened', str(found - assessed)))

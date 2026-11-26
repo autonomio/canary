@@ -469,6 +469,8 @@ def bind(workspace: Path, bundle_id: str, checksum: str, appendix: Record | None
             _verify_entries(db, bundle_id)
             if appendix is not None:
                 _store_methods(db, bundle_id, appendix)
+            else:
+                _methods(db, bundle_id)
             db.execute('UPDATE history SET base_sha256 = ?', (checksum,))
         if new:
             target.replace(path)

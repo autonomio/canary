@@ -413,3 +413,17 @@ def test_methods_endpoint_reads_an_older_review_without_session_records(tmp_path
     assert status == 200
     assert report['sections'][0]['entries'][0]['label'] == 'Older bundle'
     assert manifest['id']
+
+
+@pytest.mark.parametrize('change', ["UPDATE methods SET sha256='damaged'", 'DELETE FROM methods'])
+def test_resumed_cleanup_keeps_working_files_if_the_appendix_is_damaged(tmp_path, monkeypatch, change):
+    import sqlite3
+    prepared(tmp_path)
+    with monkeypatch.context() as patch:
+        patch.setattr(compact_bundle, '_release', lambda workspace: None)
+        compact_bundle.retain(tmp_path)
+    with sqlite3.connect(tmp_path / review_history.NAME) as db:
+        db.execute(change)
+    with pytest.raises(review_history.ReviewStorageError, match='methods appendix'):
+        compact_bundle.retain(tmp_path)
+    assert (tmp_path / 'papers/W1.txt').is_file()
