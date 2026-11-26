@@ -216,11 +216,12 @@ assert.match(html,/data-qa="contribution-too-large"/);
 assert.match(html,/Canary does not export it/);
 assert.match(html,/href="\\/api\\/runs\\/refused\\/bundle\\/archive"/);
 assert.match(html,/Download retained bundle archive/);
-assert.doesNotMatch(html,/Download research bundle/);
+assert.doesNotMatch(html,/Resolvent handoff/);
 const fits=Object.assign({}, """ + json.dumps(view) + """, {compiled_bundle:Object.assign({}, """ + json.dumps(bundle) + """,
   {contribution:{bytes:4210000,limit_bytes:10485760,within_limit:true}})});
 assert.match(bundleHtml(fits),/Resolvent contribution · 4.21 MB of the 10.49 MB \\(10 MiB\\) file limit/);
 assert.match(bundleHtml(fits),/Download research bundle/);
+assert.ok(bundleHtml(fits).includes("Download full bundle (ZIP)"));
 """)
 
 

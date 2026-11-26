@@ -59,6 +59,104 @@ records. The service requires an explicit `CANARY_LOCAL_TEXT_ROOTS` allowlist.
 See [local input, provenance and retrieval limits](LOCAL_TEXT.md). The live
 OpenAPI declaration and MCP submission schema publish these fields.
 
+## Review decisions
+
+To see why a paper was excluded, open **Research bundle → Review decisions**.
+Each entry gives the reason and cites the evidence. It shows who proposed,
+made or checked the decision and whether a person or software did the work.
+Reviewers supply their own names and roles.
+
+Each new decision or correction creates an edition. Choose an earlier edition
+to see what the record said at the time. You can download any edition as JSON.
+
+| Action | Command |
+| --- | --- |
+| Read the latest edition | `canary decisions RUN_KEY` |
+| Read an earlier edition | `canary decisions RUN_KEY --edition ENTRY_ID` |
+| Submit a decision or correction | `canary decisions RUN_KEY --submit FILE` |
+
+The dashboard accepts the same JSON file, or a file holding only the
+`decision` object. For such a file it adds a new `request_id` and the
+latest edition’s `last_entry`. In this example, a review requires
+a measure of tensile strength. Report 17 measures stiffness alone, so the
+reviewer excludes it.
+
+```json
+{
+  "request_id": "screen-report-17",
+  "expected_last_entry": "initial",
+  "replaces": null,
+  "decision": {
+    "subject": "Report 17",
+    "judgement": "exclude",
+    "status": "accepted",
+    "reason": "The review requires tensile strength. This paper reports stiffness alone.",
+    "evidence": ["Report 17, Methods, paragraph 2"],
+    "proposed_by": null,
+    "decided_by": {"kind": "person", "name": "A. Lee", "role": "screener", "identity": "self_declared"},
+    "checked_by": null
+  }
+}
+```
+
+Canary returns the new entry’s ID in `last_entry`. Pass that value to
+`--edition` to reopen the edition. If you lose the response, send the same
+request again to recover the ID.
+
+For each new request, choose a new `request_id` and copy the latest edition’s
+`last_entry` into `expected_last_entry`. To correct an earlier decision, put
+that decision’s ID in `replaces`. The original stays on record. If Canary
+returns HTTP 409, read the latest edition and check your request against it.
+
+Two reviewers can record independent decisions about the same paper. Give
+both decisions the same `subject_id` and leave `replaces` null. The dashboard
+shows both as current. To correct a decision, put its entry ID in `replaces`.
+
+If a new decision has neither a subject ID nor a decision to replace, Canary
+uses its entry ID as its subject ID. Two such decisions called “Report A”
+therefore have different IDs. The dashboard flags the shared name and keeps
+the decisions separate.
+
+Uploading the same decision-only file again after the dashboard refreshes
+creates a new request. To retry an upload after losing the response, use
+the original full request, including its request ID and expected edition.
+
+Use the same subject for a correction. To fix a spelling error or change a
+display name, include `subject_id` inside `decision`. Copy the subject ID shown
+in the dashboard. For older entries that omit this field, follow `replaces`
+back to the first decision and use its entry ID. For a new decision, you can
+use the permanent ID of the report or study.
+
+A decision request can contain up to 65,536 bytes of JSON. A larger request
+returns HTTP 413. Reading decisions from a bundle with no versioned manifest
+returns HTTP 400. HTTP 404 means the bundle or edition could not be found.
+HTTP 411 means the request needs a Content-Length header. HTTP 500 means
+Canary could not read or save the review history.
+
+When you review an imported bundle, Canary keeps your decisions in its own
+data directory under the bundle’s permanent ID. If you move the original
+and import it again, its decisions follow that ID. Canary reads the bundle’s
+own decisions when you import it with `POST /api/runs/import`, or on first
+use if the service holds no decisions for that ID yet. Reads, new decisions
+and downloads then use the service’s copy alone. To bring in decisions that
+were added to the bundle folder later, import the folder again. If the
+folder’s history continues the saved one, Canary adds the new entries. If
+the two disagree, the import returns HTTP 409. Both histories remain intact,
+and the run keeps reading the service’s copy. An import also returns HTTP 409
+when the saved decisions are tied to a different `resolvent.json`, even if the
+folder holds no decisions of its own. A folder imported for the first time
+then stays unregistered. The download includes the saved decisions and the
+original research.
+
+Save an edition’s last entry ID separately if you need to check that the
+edition is still present after restoring a backup.
+
+Both HTTP actions use `/api/runs/{key}/review-decisions`. GET reads the latest
+edition, or an earlier one if you pass `last_entry`. POST accepts the JSON
+shown above. The corresponding MCP tools are `canary_review_edition` and
+`canary_record_review_decision`. For the original research and audit rounds,
+use `GET /api/runs/{key}/revisions/{round}/{kind}`.
+
 ## Findings and exact source reconstruction
 
 `research.answer` is the researcher-facing graph. Follow these IDs:

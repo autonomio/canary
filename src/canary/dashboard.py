@@ -31,7 +31,7 @@ from xml.etree import ElementTree
 
 from . import runs
 from .codex_auth import AuthError, CodexAuth
-from . import bundle_connectors
+from . import bundle_connectors, review_history
 from . import research_bundle as bundle_store
 from .research_spec import CompileError, compile_research, compile_mapping, verify_compiled, verify_recorded
 from .runtime_paths import resource_root
@@ -1431,6 +1431,62 @@ class Handler(BaseHTTPRequestHandler):
             if path: path.unlink(missing_ok=True)
             self._send(400, {'error':str(error),'code':'invalid_input'})
 
+    def _decision_paths(self, row: dict) -> tuple[Path, Path | None]:
+        root = self.supervisor.root.resolve()
+        workspace = Path(row['bundle']).resolve()
+        owned = (row.get('adopted') is not True and bool(row.get('run_spec_path'))
+                 and workspace.parent == (root / 'container-out').resolve() and workspace.name == row['key'])
+        return workspace, None if owned else root / 'review-decisions'
+
+    def _submit_review_decision(self, path: str) -> None:
+        if 'Content-Length' not in self.headers or self.headers.get('Transfer-Encoding'):
+            self._send(411, {'error': 'Send the JSON byte count in Content-Length', 'code': 'length_required'})
+            return
+        try:
+            size = int(self.headers['Content-Length'])
+            if size < 0:
+                raise ValueError
+        except ValueError:
+            self._send(400, {'error': 'Invalid Content-Length', 'code': 'invalid_request'})
+            return
+        if size > MAX_BODY:
+            self._send(413, {'error': 'A decision request exceeds the 64 KiB limit',
+                             'code': 'decision_too_large', 'limit_bytes': MAX_BODY})
+            return
+        try:
+            body = json.loads(self.rfile.read(size))
+        except (ValueError, RecursionError):
+            self._send(400, {'error': 'Could not read the request as JSON', 'code': 'invalid_json'})
+            return
+        if not isinstance(body, dict):
+            self._send(400, {'error': 'Expected a JSON object', 'code': 'invalid_request'})
+            return
+        self._review_decisions(path, body=body)
+
+    def _review_decisions(self, path: str, *, edition: str | None = None, body: dict | None = None) -> None:
+        row = runs.get(unquote(path.split('/')[3]), self.supervisor.registry)
+        if not row or not row.get('bundle'):
+            self._send(404, {'error': 'Unknown research bundle'})
+            return
+        workspace, store = self._decision_paths(row)
+        if not workspace.is_dir():
+            self._send(404, {'error': 'Unknown research bundle'})
+            return
+        try:
+            if body is None:
+                record = review_history.edition(workspace, edition, store=store)
+                self._send(200, record, headers={'Cache-Control': 'no-store'})
+            else:
+                fields = {'request_id', 'expected_last_entry', 'decision'}
+                if not fields <= body.keys() or body.keys() - fields - {'replaces'}:
+                    raise ValueError('Expected a request ID, last entry and recorded decision')
+                last_entry = review_history.append(workspace, store=store, **body)
+                self._send(200, {'last_entry': last_entry})
+        except review_history.UnknownEdition:
+            self._send(404, {'error': 'Unknown review edition', 'code': 'unknown_review_edition'})
+        except (review_history.ReviewStorageError, OSError):
+            self._send(500, {'error': 'Could not read or save the recorded review history', 'code': 'review_storage_error'})
+
     def do_GET(self):  # noqa: N802
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
@@ -1485,6 +1541,8 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             self._send(200, content, kind,
                                        {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
+            elif re.fullmatch(r"/api/runs/[^/]+/review-decisions", parsed.path):
+                self._review_decisions(parsed.path, edition=query.get('last_entry', [None])[0])
             elif re.fullmatch(r"/api/runs/[^/]+/revisions/[0-9]+/(research|audit|correction)", parsed.path):
                 parts = parsed.path.split('/')
                 row = runs.get(unquote(parts[3]), self.supervisor.registry)
@@ -1514,7 +1572,13 @@ class Handler(BaseHTTPRequestHandler):
                 if parsed.path.endswith('/bundle/archive'):
                     with tempfile.TemporaryDirectory(prefix='canary-bundle-export-') as directory:
                         path = Path(directory) / 'research-bundle.zip'
-                        bundle_store.archive(row['bundle'], path)
+                        workspace, store = self._decision_paths(row)
+                        try:
+                            bundle_store.archive(workspace, path, review_store=store)
+                        except OSError:
+                            self._send(500, {'error': 'Could not create the research archive',
+                                             'code': 'archive_storage_error'})
+                            return
                         self._send_file(path, 'application/zip')
                 elif len(parts) > 5:
                     path = bundle_store.artifact(row['bundle'], unquote('/'.join(parts[6:])))
@@ -1569,6 +1633,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"experiments": acceptance_runs(self.supervisor.root)})
             else:
                 self._send(404, {"error": "not found"})
+        except review_history.ReviewConflict as error:
+            self._send(409, {'error': str(error), 'code': 'review_conflict'})
+        except review_history.ReviewStorageError:
+            self._send(500, {'error': 'Could not read the recorded review history', 'code': 'review_storage_error'})
         except KeyError:
             self._send(404, {"error": "Unknown source"})
         except ValueError as e:
@@ -1587,8 +1655,11 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == '/api/inputs':
             self._upload_input()
             return
-        body = self._read_json()
         try:
+            if re.fullmatch(r'/api/runs/[^/]+/review-decisions', parsed.path):
+                self._submit_review_decision(parsed.path)
+                return
+            body = self._read_json()
             if not isinstance(body, dict):
                 raise ValueError("Expected a JSON object")
             if parsed.path == '/api/actions':
@@ -1610,6 +1681,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not path.is_dir(): raise ValueError('Server-side bundle directory does not exist')
                 existing = next((r for r in runs.load(self.supervisor.registry)
                     if r.get('bundle') and Path(r['bundle']).resolve() == path), None)
+                store = self._decision_paths(existing)[1] if existing else self.supervisor.root / 'review-decisions'
+                if store is not None:
+                    review_history.import_history(path, store)
                 self._send(200 if existing else 201, existing or runs.adopt_bundle(
                     path, body.get('name',''), body.get('brief',''), self.supervisor.registry))
             elif parsed.path == "/api/runs/compile" or (parsed.path == "/api/runs" and ('yaml' in body or 'spec' in body)):
@@ -1655,6 +1729,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(202, self.supervisor.cancel(unquote(parsed.path.split('/')[3])))
             else:
                 self._send(404, {"error": "not found"})
+        except review_history.ReviewConflict as error:
+            self._send(409, {'error': str(error), 'code': 'review_conflict'})
+        except review_history.ReviewStorageError:
+            self._send(500, {'error': 'Could not read the recorded review history', 'code': 'review_storage_error'})
         except KeyError as e:
             self._send(404, {"error": f"unknown run {e}"})
         except CompileError as e:

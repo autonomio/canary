@@ -45,7 +45,7 @@ function openQuestions({ mobile = false, storage = new Map() } = {}) {
   const handlers = new Map(), browser = new Map(), requests = [];
   const location = { hash: "", href: "http://localhost/" };
   vm.runInNewContext(source, {
-    URL,
+    URL, crypto: globalThis.crypto, Option: class { constructor(label, value) { this.label = label; this.value = value; } },
     document: {
       body: element(),
       documentElement: element(),
@@ -309,4 +309,79 @@ test("YAML import fills the same draft controls without submitting a run", async
   assert.equal(elements.get("f-target").value, 40);
   assert.equal(elements.get("f-corrections").value, 1);
   assert.equal(requests.length, 0);
+});
+
+test("review decisions show their evidence and download the selected edition", async () => {
+  const { elements, respond, click, route, requests } = openQuestions();
+  await respond(200, { runs });
+  click({ open: "lake" });
+  route();
+  while (requests.length) {
+    const path = requests[0].path;
+    await respond(200, path.endsWith("/bundle") ? {bundle: {state:"running"}, research: {kind:"question"}} : {}, path);
+  }
+  const dialog = elements.get("review-dialog"), select = elements.get("review-edition");
+  dialog.showModal = () => { dialog.open = true; };
+  select.replaceChildren = () => {};
+  elements.get("review-entries").replaceChildren = () => {};
+  click({ action: "review-decisions" });
+  const endpoint = "/api/runs/lake/review-decisions";
+  const record = {id:"one", recorded_at:"2026-01-01", decision:{subject:"Report A", judgement:"include",
+    status:"accepted", reason:"Methods meet criteria", evidence:["Methods <2>"],
+    proposed_by:null, decided_by:{kind:"person",name:"S. Lee",role:"screener"}, checked_by:null}};
+  const correction = {...record, id:"two", replaces:"one", decision:{...record.decision, judgement:"exclude"}};
+  await respond(200, {last_entry:"two", entries:[record, correction]}, endpoint);
+  const entries = elements.get("review-entries").innerHTML;
+  assert.match(entries, /<summary>Replaced · Report A · include \(accepted\)<\/summary>/);
+  assert.match(entries, /<dt>Replaced by<\/dt><dd><code>two<\/code>/);
+  assert.match(entries, /<summary>Report A · exclude \(accepted\)<\/summary>/);
+  assert.equal(entries.split("<dt>Subject ID</dt><dd><code>one</code>").length - 1, 2);
+  assert.equal(elements.get("review-status").textContent, "This copy has no compact bundle file to verify.");
+  assert.match(elements.get("review-entries").innerHTML, /Methods &lt;2&gt;/);
+  assert.match(elements.get("review-entries").innerHTML, /S. Lee · screener \(self-declared\)/);
+  assert.equal(elements.get("review-download").href, endpoint + "?last_entry=two");
+  select.value = "one";
+  select.listeners.get("change")();
+  await respond(200, {last_entry:"one", entries:[record]}, endpoint + "?last_entry=one");
+  assert.doesNotMatch(elements.get("review-entries").innerHTML, /Replaced/);
+  assert.match(elements.get("review-entries").innerHTML, /<summary>Report A · include \(accepted\)<\/summary>/);
+  select.value = "initial";
+  select.listeners.get("change")();
+  await respond(200, {last_entry:"initial",entries:[]}, endpoint + "?last_entry=initial");
+  assert.match(elements.get("review-entries").innerHTML, /No decisions/);
+  const input = elements.get("review-input");
+  const request = {request_id:"correct", expected_last_entry:"one", decision:record.decision, replaces:"one"};
+  input.files = [{text: async () => JSON.stringify(request)}];
+  input.listeners.get("change")();
+  await new Promise(setImmediate);
+  const sent = await respond(409, {error:"Another edition was saved"}, endpoint, "POST");
+  assert.deepEqual(sent, request);
+  assert.equal(elements.get("review-status").textContent, "Another edition was saved");
+  const parallel = {...record, id:"three", decision:{...record.decision, subject_id:"one", judgement:"exclude"}};
+  input.files = [{text: async () => JSON.stringify(parallel.decision)}];
+  input.listeners.get("change")();
+  await new Promise(setImmediate);
+  const filled = await respond(200, {last_entry:"three"}, endpoint, "POST");
+  assert.deepEqual(filled.decision, parallel.decision);
+  assert.equal(filled.expected_last_entry, "two");
+  assert.match(filled.request_id, /^dashboard-[0-9a-f]{32}$/);
+  assert.equal("replaces" in filled, false);
+  await respond(200, {last_entry:"three", entries:[record, correction, parallel]}, endpoint);
+  const current = elements.get("review-entries").innerHTML;
+  assert.equal(current.split("One of 2 current · ").length - 1, 2);
+  assert.match(current, /<summary>Replaced · Report A · include/);
+  assert.match(current, /Also current for this subject<\/dt><dd><code>three<\/code>/);
+  assert.match(current, /Also current for this subject<\/dt><dd><code>two<\/code>/);
+  input.listeners.get("change")();
+  await new Promise(setImmediate);
+  const repeated = await respond(200, {last_entry:"four"}, endpoint, "POST");
+  assert.notEqual(repeated.request_id, filled.request_id);
+  assert.equal(repeated.expected_last_entry, "three");
+  await respond(200, {last_entry:"four", entries:[record, correction, parallel, {...parallel, id:"four"}]}, endpoint);
+  click({ action: "review-decisions" });
+  const separate = {...record, id:"other"};
+  await respond(200, {last_entry:"other", entries:[record, separate]}, endpoint);
+  const sameName = elements.get("review-entries").innerHTML;
+  assert.match(sameName, /Report A appears under 2 different subject IDs/);
+  assert.doesNotMatch(sameName, /One of 2 current/);
 });

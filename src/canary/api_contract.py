@@ -3,7 +3,7 @@ from copy import deepcopy
 import types
 import typing
 
-from . import coverage_protocol as protocol
+from . import coverage_protocol as protocol, review_decisions
 from .claim_freshness import schema as freshness_schema
 from .codex_auth import AuthStatus, AuthUsage, Login
 from .research_spec import CompiledResearch
@@ -275,6 +275,15 @@ def schemas():
             'status':dict(S,description='publication_identity_unverified means no acquired copy satisfied the bibliographic check.'),
             'reason':S,'public_timeout_seen':B,'reference':ref('AgentReference')},['work_id','status'],closed=False))},
             ['attempted','sources_available','receipts']),
+        'ReviewDecision':review_decisions.schema(),
+        'ReviewEntry':obj({'id':S,'previous':S,'subject_id':S,'request_id':S,'replaces':nullable(S),'recorded_at':S,'decision':ref('ReviewDecision')},
+                          ['id','previous','replaces','recorded_at','decision']),
+        'ReviewEdition':obj({'version':I,'bundle_id':S,'base_sha256':nullable(S),'last_entry':S,
+                             'entries':arr(ref('ReviewEntry'))}, ['version','bundle_id','base_sha256','last_entry','entries']),
+        'ReviewReceipt':obj({'last_entry':S}, ['last_entry']),
+        'ReviewDecisionRequest':obj({'decision':ref('ReviewDecision'),'replaces':nullable(S),
+            'request_id':{'type':'string','minLength':1,'maxLength':128,'not':{'pattern':r'\s'}},'expected_last_entry':dict(S,minLength=1)},
+            ['decision','request_id','expected_last_entry']),
         'ReadSourceRequest':obj({'reference_id':S,'match':nullable(S),'page':nullable(dict(I,minimum=1)),
                                  'context':dict(I,minimum=0,default=2),'limit':dict(I,minimum=1,default=8)},['reference_id']),
         'FinalizeRequest':obj({'investigation':ref('GeneratedInvestigation')})}
@@ -330,6 +339,21 @@ def document():
     op('revision','get','/api/runs/{key}/revisions/{round}/{kind}','Read a hash-checked original research, audit or correction record after source cleanup','RevisionArtifact',
         params=[key,('round','path',dict(I,minimum=0),True),('kind','path',{'enum':['research','audit','correction']},True)],mcp=True)
     op('bundle','get','/api/runs/{key}/bundle','Read bundle settings, artifact hashes and findings','BundleResponse',params=[key],mcp=True)
+    decisions = '/api/runs/{key}/review-decisions'
+    op('review_edition','get',decisions,'Read the latest or a named review edition','ReviewEdition',
+       params=[key,('last_entry','query',S,False)],mcp=True)
+    op('record_review_decision','post',decisions,'Record or correct a review decision','ReviewReceipt',
+       params=[key],body='ReviewDecisionRequest',mcp=True)
+    for method, status, description in (
+        ('get', '400', 'Review decisions require a versioned research bundle'),
+        ('get', '404', 'Unknown bundle or edition'),
+        ('post', '400', 'Invalid decision request'),
+        ('post', '404', 'Unknown research bundle'), ('post', '409', 'Conflicting decision or request ID'),
+        ('post', '411', 'Content-Length required'), ('post', '413', 'Decision request exceeds 65536 bytes'), ('post', '500', 'Review storage error'),
+        ('get', '500', 'Review storage error'),
+    ):
+        result['paths'][decisions][method]['responses'][status] = {
+            'description':description, 'content':{'application/json':{'schema':ref('Error')}}}
     op('archive','get','/api/runs/{key}/bundle/archive','Download a finished bundle with exact saved materials',params=[key],media='application/zip')
     op('artifact','get','/api/runs/{key}/bundle/artifacts/{artifact_path}','Download one hash-checked inventoried artifact',params=[key,('artifact_path','path',S,True)],media='application/octet-stream')
     op('export','get','/api/runs/{key}/exports/{connector}',
@@ -354,6 +378,9 @@ def document():
     op('openalex_recheck','post','/api/sources/openalex/recheck','Operator-requested bounded recheck of the actual allowance recorded hold; a successful fresh response releases only that allowance hold','OpenAlexRecheck',body='OpenAlexRecheckRequest')
     op('import_run','post','/api/runs/import','Register an explicit service-host bundle directory','Run',body='ImportRequest',status=201)
     result['paths']['/api/runs/import']['post']['responses']['200'] = deepcopy(result['paths']['/api/runs/import']['post']['responses']['201'])
+    result['paths']['/api/runs/import']['post']['responses']['409'] = {
+        'description':'Conflicting imported review history', 'content':{'application/json':{'schema':ref('Error')}}}
+    result['paths']['/api/runs/import']['post']['responses']['500'] = deepcopy(result['paths'][decisions]['get']['responses']['500'])
     op('action','post','/api/actions','Run a retained compatibility workflow','RunStarted',body='ActionRequest',status=201)
     result['paths']['/api/actions']['post']['responses']['200'] = {'description':'Synchronous inspection result','content':{'application/json':{'schema':ref('Object')}}}
     op('input','post','/api/inputs','Upload an input body; returned ID is used by actions','InputReceipt',status=201)

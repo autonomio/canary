@@ -159,9 +159,9 @@ def register_finish(key: str, status: str = "done", bundle: str = "",
 
 def adopt_bundle(bundle: str | Path, name: str = "", brief: str = "",
                  path: str | Path = REGISTRY) -> dict:
-    bundle = Path(bundle)
+    bundle = Path(bundle).resolve()
     parsed = parse_bundle(bundle)
-    row = {"key": bundle.name,
+    row = {"key": bundle.name, "adopted": True,
            "name": name or f"{bundle.name} — {parsed['kind']} run",
            "brief": brief or f"Seed: {parsed['seed']} (backfilled, no brief recorded)",
            "launch": "", "container": parsed.pop("container", None)}

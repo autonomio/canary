@@ -9,8 +9,9 @@ import datetime
 import zipfile
 import os
 from pathlib import Path
-from typing import TypedDict
+from typing import BinaryIO, TypedDict
 
+from . import review_history
 from .research_spec import verify_compiled, digest
 from .runtime_paths import resource_root
 from .bundle_encoding import BundleEncoding
@@ -101,17 +102,23 @@ def _artifact_paths(workspace):
         for name in sorted(names):
             path = base / name
             if (name.startswith('.') or name in excluded_files or name.endswith(('.tmp', '.pyc'))
-                    or path == workspace / 'bundle.json' or path.is_symlink()):
+                    or path == workspace / 'bundle.json' or path.is_symlink()
+                    or (base == workspace and (name in review_history.DATABASE_FILES or name == 'review-decisions.json'))):
                 continue
             if path.is_file():
                 yield path
 
 
 def seal(workspace, *, state='finished') -> ResearchBundle:
+    workspace = Path(workspace).resolve()
+    with review_history.locked(workspace):
+        return _seal(workspace, state)
+
+
+def _seal(workspace, state):
     from . import compact_bundle
     if compact_bundle.exists(workspace):
         return compact_bundle.manifest(workspace)
-    workspace = Path(workspace).resolve()
     report = json.loads((workspace / 'compile-report.json').read_text(encoding='utf-8'))
     artifacts = []
     for path in _artifact_paths(workspace):
@@ -179,8 +186,14 @@ def read(workspace) -> ResearchBundle:
     return value
 
 
-def archive(workspace, target):
+def archive(workspace: str | Path, target: str | Path | BinaryIO, *, review_store: Path | None = None) -> None:
+    """Write a verified research archive with the decisions held for this bundle."""
     workspace = Path(workspace)
+    with review_history.reading(workspace):
+        _archive(workspace, target, review_store)
+
+
+def _archive(workspace: Path, target: str | Path | BinaryIO, review_store: Path | None) -> None:
     manifest = read(workspace)
     if manifest['state'] != 'finished':
         raise ValueError('Only a finished versioned bundle can be archived')
@@ -193,6 +206,7 @@ def archive(workspace, target):
             output.write(workspace / 'bundle.json', 'bundle.json')
         for entry in manifest['artifacts']:
             output.write(verified_artifact(workspace, entry), entry['path'])
+        review_history.archive(workspace, output, manifest, store=review_store)
 
 
 def verified_artifact(workspace, record):
