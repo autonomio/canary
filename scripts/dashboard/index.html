@@ -1960,7 +1960,7 @@
         const sourceNames = {
           "/answer/question":"The question that started this review", "/query_net/outcomes":"Outcomes listed in the review plan",
           "/query_net/eligibility":"Eligibility criteria in the review plan", "/run/search_scope":"Search settings",
-          "/coverage/search_progress/queries":"Search terms used in this review", "/answer/executive_summary":"The review summary",
+          "/answer/executive_summary":"The review summary",
           "/paper_selection/selection/approach":"The review’s paper selection method",
           "/paper_selection/selection/selection_limitations":"Notes on which papers the review may have missed",
           "/answer/next_questions":"Follow-up questions in the review", "/coverage/included_study_count":"Count of included studies",
@@ -1978,7 +1978,7 @@
             const references = element.passages.map(p => {
               const author = p.supplier === "author";
               const path = p.evidence[0];
-              const label = sourceNames[path] || (path?.startsWith("/answer/study_results/") ? "Results recorded for an individual study" : "The saved review");
+              const label = path?.startsWith("/coverage/search_progress/queries/") ? "Search log" : sourceNames[path] || (path?.startsWith("/answer/study_results/") ? "Results recorded for an individual study" : "The saved review");
               const source = author ? `<a href="${edition + encodeURIComponent(p.evidence[0])}">Reviewer’s decision</a>` : esc(label);
               return `<p class="checklist-passage">${esc(p.text)}</p><p class="hint" title="${esc(p.evidence.join(" · "))}">Source · ${source}</p>`;
             }).join("");

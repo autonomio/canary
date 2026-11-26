@@ -192,3 +192,38 @@ def test_abstract_registration_accepts_explicit_nonregistration():
     assert declared_item('abstract-12')['status'] == 'missing'
     assert declared_item('abstract-12', entries[0])['status'] == 'partial'
     assert declared_item('abstract-12', *entries)['status'] == 'complete'
+
+
+def test_search_strategy_distinguishes_plans_from_attempts():
+    queries = {'q/1': {'search': 'first', 'pages': 0, 'complete': False}}
+    view = {'coverage': {'search_progress': {'queries': queries}}}
+
+    def strategy():
+        report = prisma.report(view, {'entries': [], 'last_entry': 'initial'})
+        return next(row for row in report['items'] if row['id'] == '7')['elements'][0]
+
+    assert strategy()['status'] == 'missing'
+    queries.update(q2={'search': 'second', 'pages': 0, 'failure_status': 429},
+                   q3={'search': 'third', 'pages': 2, 'complete': False, 'failure_status': 429},
+                   q4={'search': 'fourth', 'pages': 1, 'complete': True})
+    element = strategy()
+    assert element['status'] == 'partial'
+    assert [p['text'] for p in element['passages']] == [
+        'q/1 · Planned (no recorded attempt) · 0 pages\nfirst', 'q2 · Attempted · 0 pages · HTTP 429\nsecond',
+        'q3 · Started · 2 pages · HTTP 429\nthird', 'q4 · Completed · 1 page\nfourth']
+    assert element['passages'][0]['evidence'] == ['/coverage/search_progress/queries/q~11']
+
+
+def test_unused_statistical_methods_do_not_answer_synthesis_rationale():
+    entries = [declaration(f'13d:{n}', 'not_used', 'This method was not used.', str(n)) for n in range(1, 11)]
+    row = declared_item('13d', *entries)
+    assert [element['status'] for element in row['elements']] == ['inapplicable'] * 10 + ['missing']
+    assert row['missing_elements'] == [row['elements'][-1]['requirement']]
+    entries.append(declaration('13d:11', 'reported', 'We grouped findings by outcome because the measures differed.', '11'))
+    assert declared_item('13d', *entries)['status'] == 'complete'
+
+
+def test_manual_screening_explains_why_automation_does_not_apply():
+    row = declared_item('8', declaration('8:4', 'not_used', 'Reviewers screened each record manually.'))
+    assert row['elements'][3]['status'] == 'inapplicable'
+    assert row['elements'][3]['requirement'] not in row['missing_elements']

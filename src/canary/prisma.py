@@ -111,16 +111,40 @@ def _run_answers(view: dict) -> dict:
         text = '\n'.join(f'{role}: {rule}' for role, rule in eligibility.items() if isinstance(rule, str) and rule.strip())
         add('5:1', text, '/query_net/eligibility')
         add('abstract-3:1', text, '/query_net/eligibility')
-    progress = view.get('coverage', {}).get('search_progress') or {}
-    queries = progress.get('queries', {})
+    queries = (view.get('coverage', {}).get('search_progress') or {}).get('queries', {})
     if isinstance(queries, dict):
-        lines = [q['search'] for q in queries.values() if isinstance(q, dict) and isinstance(q.get('search'), str)]
-        add('7:1', '\n'.join(lines), '/coverage/search_progress/queries')
+        passages = []
+        attempted = False
+        for identifier, query in queries.items():
+            if not isinstance(query, dict) or not isinstance(query.get('search'), str) or not query['search'].strip():
+                continue
+            pages = query.get('pages')
+            if query.get('complete') is True:
+                state = 'Completed'
+            elif type(pages) is int and pages > 0:
+                state = 'Started'
+            elif query.get('failure_status') or query.get('failure'):
+                state = 'Attempted'
+            else:
+                state = 'Planned (no recorded attempt)'
+            if state != 'Planned (no recorded attempt)':
+                attempted = True
+            if type(pages) is int and pages >= 0:
+                state += f' · {pages} page' + ('' if pages == 1 else 's')
+            if query.get('failure_status'):
+                state += f" · HTTP {query['failure_status']}"
+            elif isinstance(query.get('failure'), str) and query['failure']:
+                state += ' · ' + query['failure']
+            pointer = identifier.replace('~', '~0').replace('/', '~1')
+            passages.append(Passage(text=f"{identifier} · {state}\n{query['search']}",
+                                    evidence=['/coverage/search_progress/queries/' + pointer], supplier='run'))
+        if passages:
+            answers['7:1'] = ('partial' if attempted else 'missing', passages)
     summaries = []
     for paragraph in graph.get('executive_summary', []):
-        text = paragraph.get('text') if isinstance(paragraph, dict) else paragraph
-        if isinstance(text, str) and text.strip():
-            summaries.append(text)
+        summary = paragraph.get('text') if isinstance(paragraph, dict) else paragraph
+        if isinstance(summary, str) and summary.strip():
+            summaries.append(summary)
     add('abstract-8:1', '\n'.join(summaries), '/answer/executive_summary')
     outcomes = plan.get('outcomes', [])
     if isinstance(outcomes, list):

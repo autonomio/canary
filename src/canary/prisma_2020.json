@@ -144,14 +144,14 @@
     },
     {
       "id": "8",
-      "conditional_elements": [3, 5, 6, 7, 8, 9],
+      "conditional_elements": [3, 4, 5, 6, 7, 8, 9],
       "reader_question": "How did the team decide which papers to include?",
       "title": "Selection process",
       "elements": [
         "Report how many reviewers screened each record (title/abstract) and each report retrieved, whether multiple reviewers worked independently at each stage of screening or not, and any processes used to resolve disagreements between screeners.",
         "Report any processes used to obtain or confirm relevant information from study investigators.",
         "If abstracts or articles required translation into another language to determine their eligibility, report how these were translated.",
-        "Report how automation tools were integrated within the overall study selection process.",
+        "If automation tools were used to select studies, describe how they were used.",
         "If an externally derived machine learning classifier was applied (e.g. Cochrane RCT Classifier), either to eliminate records or to replace a single screener, include a reference or URL to the version used. If the classifier was used to eliminate records before screening, report the number eliminated in the PRISMA flow diagram as ‘Records marked as ineligible by automation tools’.",
         "If an internally derived machine learning classifier was used to assist with the screening process, identify the software/classifier and version, describe how it was used (e.g. to remove records or replace a single screener) and trained (if relevant), and what internal or external validation was done to understand the risk of missed studies or incorrect classifications.",
         "If machine learning algorithms were used to prioritise screening (whereby unscreened records are continually re-ordered based on screening decisions), state the software used and provide details of any screening rules applied.",
@@ -272,7 +272,8 @@
         "If a random-effects meta-analysis model was used: specify the method used to calculate the confidence interval for the summary effect (e.g. Wald-type confidence interval, Hartung-Knapp-Sidik-Jonkman).",
         "If a Bayesian approach to meta-analysis was used, describe the prior distributions about quantities of interest (e.g. intervention effect being analysed, amount of heterogeneity in results across studies).",
         "If multiple effect estimates from a study were included in a meta-analysis, describe the method(s) used to model or account for the statistical dependency (e.g. multivariate meta-analysis, multilevel models or robust variance estimation).",
-        "If a planned synthesis was not considered possible or appropriate, report this and the reason for that decision."
+        "If a planned synthesis was not considered possible or appropriate, report this and the reason for that decision.",
+        "Describe how the results were brought together and explain why that approach was chosen."
       ],
       "heading": "13"
     },
