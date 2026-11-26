@@ -11,7 +11,10 @@ import os
 from pathlib import Path
 from typing import BinaryIO, TypedDict
 
+from httpx import InvalidURL, URL
+
 from . import review_history
+from .methods_search import request_address
 from .research_spec import verify_compiled, digest
 from .runtime_paths import resource_root
 from .bundle_encoding import BundleEncoding
@@ -193,19 +196,76 @@ def archive(workspace: str | Path, target: str | Path | BinaryIO, *, review_stor
         _archive(workspace, target, review_store)
 
 
+REQUEST_LOGS = {'openalex-requests.json', 'openalex-request-log.json', 'public-network.jsonl',
+                'additional-source-requests.jsonl', 'local-search-requests.jsonl'}
+
+
+def archive_log(name: str, raw: bytes) -> bytes | None:
+    """Return replacement bytes when a request log needs redaction."""
+    lines = name.endswith('.jsonl')
+    changed = False
+    unreadable = {'error': 'This request record could not be safely exported.'}
+    if lines:
+        records = []
+        for line in raw.splitlines():
+            if line.strip():
+                try:
+                    records.append(json.loads(line))
+                except ValueError:
+                    records.append(unreadable)
+                    changed = True
+    else:
+        try:
+            saved = json.loads(raw)
+        except ValueError:
+            saved = None
+        if isinstance(saved, list):
+            records = saved
+        else:
+            records = [unreadable]
+            changed = True
+    for index, record in enumerate(records):
+        if not isinstance(record, dict):
+            records[index] = unreadable
+            changed = True
+        elif 'url' in record:
+            try:
+                url = URL(record['url'])
+                endpoint = request_address(url) if url.scheme in ('http', 'https') and url.host else None
+            except (TypeError, InvalidURL):
+                endpoint = None
+            if record['url'] != endpoint:
+                record['url'] = endpoint
+                changed = True
+    if not changed:
+        return None
+    content = '\n'.join(json.dumps(row) for row in records) if lines else json.dumps(records)
+    return (content + '\n').encode()
+
+
 def _archive(workspace: Path, target: str | Path | BinaryIO, review_store: Path | None) -> None:
     manifest = read(workspace)
     if manifest['state'] != 'finished':
         raise ValueError('Only a finished versioned bundle can be archived')
     with zipfile.ZipFile(target, 'w', compression=zipfile.ZIP_STORED) as output:
-        if manifest.get('retention', {}).get('mode') == 'bundle_only':
+        changed = False
+        for entry in manifest['artifacts']:
+            path = verified_artifact(workspace, entry)
+            replacement = archive_log(entry['path'], path.read_bytes()) if Path(entry['path']).name in REQUEST_LOGS else None
+            if replacement is None:
+                output.write(path, entry['path'])
+            else:
+                output.writestr(entry['path'], replacement)
+                entry.update(bytes=len(replacement), sha256=hashlib.sha256(replacement).hexdigest())
+                changed = True
+        compact = manifest.get('retention', {}).get('mode') == 'bundle_only'
+        if compact:
             from .compact_bundle import CHECKSUM
-            output.writestr('bundle.json', json.dumps(manifest, ensure_ascii=False))
             output.write(workspace / CHECKSUM, CHECKSUM)
+        if compact or changed:
+            output.writestr('bundle.json', json.dumps(manifest, ensure_ascii=False))
         else:
             output.write(workspace / 'bundle.json', 'bundle.json')
-        for entry in manifest['artifacts']:
-            output.write(verified_artifact(workspace, entry), entry['path'])
         if 'methods-appendix.json' not in output.namelist():
             from . import methods
             appendix = methods.for_bundle(workspace, manifest, review_store)

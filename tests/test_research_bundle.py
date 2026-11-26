@@ -492,3 +492,36 @@ def test_api_explicit_empty_optional_sources_remain_readable_after_release(api):
     assert bundle['retention']['mode'] == 'bundle_only'
     assert client.get('/api/runs/'+created['key']+'/bundle/archive').status_code == 200
     assert client.get('/api/runs/'+created['key']+'/exports/resolvent').status_code == 200
+
+
+def test_archiving_legacy_request_urls_changes_only_the_exported_inventory(tmp_path):
+    completed(tmp_path)
+    folder = tmp_path / 'research'
+    folder.mkdir(exist_ok=True)
+    row = {'url': 'https://user:password@example.org/search?api_key=private#fragment', 'status': 200}
+    for name in research_bundle.REQUEST_LOGS:
+        (folder / name).write_text(json.dumps(row if name.endswith('.jsonl') else [row]))
+    before = research_bundle.seal(tmp_path)
+    output = io.BytesIO()
+    research_bundle.archive(tmp_path, output)
+    assert research_bundle.read(tmp_path) == before
+    from scripts.verify_resolvent_receiver import verify_archive
+    assert verify_archive(before, output.getvalue(), bundle_connectors.export(tmp_path, 'resolvent'),
+                          lambda name: (tmp_path / name).read_bytes()) == 1
+    with zipfile.ZipFile(output) as archive:
+        entries = {r['path']: r for r in json.loads(archive.read('bundle.json'))['artifacts']}
+        for name in research_bundle.REQUEST_LOGS:
+            path = 'research/' + name
+            data = archive.read(path)
+            saved = json.loads(data)
+            assert (saved if name.endswith('.jsonl') else saved[0]) == dict(row, url='https://example.org/search')
+            assert entries[path]['sha256'] == hashlib.sha256(data).hexdigest()
+            assert entries[path]['bytes'] == len(data)
+            assert 'api_key=private' in (tmp_path / path).read_text()
+
+
+def test_export_redacts_an_unreadable_request_line_and_keeps_readable_records(tmp_path):
+    log = tmp_path / 'public-network.jsonl'
+    log.write_bytes(b'{"status":200}\n{"url":"https://example.org/?token=private')
+    records = [json.loads(line) for line in research_bundle.archive_log(log.name, log.read_bytes()).splitlines()]
+    assert records == [{'status': 200}, {'error': 'This request record could not be safely exported.'}]

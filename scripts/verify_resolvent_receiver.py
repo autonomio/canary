@@ -11,7 +11,7 @@ import zipfile
 import httpx
 import yaml
 
-from canary import compact_bundle
+from canary import compact_bundle, research_bundle
 from canary.bundle_connectors import RESOLVENT_REVISION
 
 # The receiver's own research-state reader must decode the exact preserved research artifact.
@@ -32,14 +32,22 @@ def canonical_sha(value):
     return sha(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8'))
 
 
-def verify_archive(manifest, content, handoff):
+def verify_archive(manifest, content, handoff, read_original=None):
     """Verify transport; reconstruct whole-text slices only when bytes are retained."""
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         names = archive.namelist()
         assert len(names) == len(set(names)), 'Duplicate archive paths'
+        inventory = {r['path']: r for r in json.loads(archive.read('bundle.json'))['artifacts']}
         for artifact in manifest['artifacts']:
-            body = archive.read(artifact['path'])
-            assert len(body) == artifact['bytes'] and sha(body) == artifact['sha256'], artifact['path']
+            name = artifact['path']
+            body = archive.read(name)
+            exported = inventory[name]
+            assert len(body) == exported['bytes'] and sha(body) == exported['sha256'], name
+            if exported != artifact:
+                assert Path(name).name in research_bundle.REQUEST_LOGS and read_original is not None, name
+                original = read_original(name)
+                assert len(original) == artifact['bytes'] and sha(original) == artifact['sha256'], name
+                assert body == research_bundle.archive_log(name, original), name
         assert handoff['method_metadata']['bundle_id'] == manifest['id']
         if manifest.get('retention', {}).get('mode') == 'bundle_only':
             from canary import bundle_encoding, compact_bundle
@@ -90,7 +98,7 @@ def verify(api_url, run, receiver, decisions, output):
         exported = get('/exports/resolvent')
         handoff = exported.json()
         archive = get('/bundle/archive').content
-    excerpts = verify_archive(manifest, archive, handoff)
+        excerpts = verify_archive(manifest, archive, handoff, lambda name: get('/bundle/artifacts/' + name).content)
     output.mkdir(parents=True, exist_ok=False)
     (output/'research-bundle.zip').write_bytes(archive)
     incoming = receiver/'input-artefacts'/(handoff['id']+'.json')
