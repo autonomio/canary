@@ -30,6 +30,7 @@ class Element(TypedDict):
 
 
 class Item(TypedDict):
+    heading: str
     id: str
     title: str
     status: Status
@@ -161,7 +162,8 @@ def report(view: dict, edition: dict) -> Report:
                     status = 'partial'
             location = f'#answer-{number}-{i}' if passages else None
             elements.append(dict(requirement=requirement, basis=basis, status=status, location=location, passages=passages))
-        items.append(dict(id=number, title=definition['title'], status=_status([e['status'] for e in elements]),
+        items.append(dict(id=number, title=definition['title'], heading=data['headings'][definition['heading']],
+                          status=_status([e['status'] for e in elements]),
                           elements=elements, see_also=definition.get('see_also', []),
                           missing_elements=[e['requirement'] for e in elements if e['status'] in ('partial', 'missing')]))
     abstract = [row for row in items if row['id'].startswith('abstract-')]
@@ -228,8 +230,12 @@ def html(result: Report) -> str:
                              + '">' + escape(passage['text']) + '</a></p>')
     lines.append('<table><thead><tr><th>Item</th><th>Reporting status</th><th>Recorded answers</th></tr></thead><tbody>')
     sections = []
+    last_heading = None
     for item in result['items']:
         links = []
+        if item['heading'] != last_heading:
+            last_heading = item['heading']
+            lines.append('<tr><th colspan="3">' + escape(item['heading']) + '</th></tr>')
         title = escape(item['id'] + ' · ' + item['title'])
         sections.append(f'<section id="item-{item["id"]}"><h2>{title}</h2>')
         for i, element in enumerate(item['elements'], 1):
@@ -255,4 +261,6 @@ def html(result: Report) -> str:
         lines.append(f'<tr><td><a href="#item-{item["id"]}">{title}</a></td><td>{item["status"].capitalize()}</td>'
                      + '<td>' + ' · '.join(links) + '</td></tr>')
     return '\n'.join([*lines, '</tbody></table>', *sections, '<footer>', escape(result['citation']),
+                      ' · '.join('<a href="' + escape(url) + '">' + label + '</a>'
+                                 for url, label in zip(result['sources'], ['Main and expanded checklists', 'Abstract checklist'])),
                       '<a href="' + escape(result['license']) + '">CC BY 4.0</a></footer></main></html>'])

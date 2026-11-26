@@ -8,7 +8,13 @@ def test_catalogue_contains_each_official_item_once():
     items = prisma.catalogue()['items']
     assert [item['id'] for item in items] == main + abstract
     assert all(item['title'] and all(item['elements']) and item['elements'] for item in items)
+    page = prisma.html(prisma.report({}, dict(entries=[], last_entry='initial')))
+    for heading in prisma.catalogue()['headings'].values():
+        assert page.count(f'<th colspan="3">{heading}</th>') == 1
     assert items[1]['see_also'] == abstract
+    assert [*prisma.catalogue()['headings']] == [str(i) for i in range(1, 28)] + ['abstract']
+    assert [item['heading'] for item in items[:42]] == [n.rstrip('abcdef') for n in main]
+    assert {item['heading'] for item in items[42:]} == {'abstract'}
 
 
 def test_saved_question_links_to_the_actual_passage():
