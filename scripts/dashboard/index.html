@@ -3608,15 +3608,24 @@
 
       function reviewEntries(entries) {
         if (!entries.length) return "<p>No decisions in this edition.</p>";
-        const subjects = new Map(), current = new Map();
+        const subjects = new Map(), current = new Map(), idsByName = new Map();
         const replacements = new Map(entries.filter(entry => entry.replaces).map(entry => [entry.replaces, entry.id]));
         const rows = entries.map(entry => {
           const subject = entry.subject_id || entry.decision.subject_id || subjects.get(entry.replaces) || entry.id;
           subjects.set(entry.id, subject);
-          if (!replacements.has(entry.id)) current.set(subject, [...(current.get(subject) || []), entry.id]);
+          if (!replacements.has(entry.id)) {
+            current.set(subject, [...(current.get(subject) || []), entry.id]);
+            const name = entry.decision.subject;
+            if (!idsByName.has(name)) idsByName.set(name, new Set());
+            idsByName.get(name).add(subject);
+          }
           return {...entry, subject};
         });
-        return rows.map(({id, subject, recorded_at, replaces, decision: d}) => {
+        const warnings = [];
+        for (const [name, ids] of idsByName) {
+          if (ids.size > 1) warnings.push(`<p>${esc(name)} appears under ${ids.size} different subject IDs. Check the IDs before using these decisions together.</p>`);
+        }
+        return warnings.join("") + rows.map(({id, subject, recorded_at, replaces, decision: d}) => {
           const replacement = replacements.get(id);
           const others = replacement ? [] : current.get(subject).filter(other => other !== id);
           return `<details>

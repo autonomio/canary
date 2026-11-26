@@ -372,4 +372,16 @@ test("review decisions show their evidence and download the selected edition", a
   assert.match(current, /<summary>Replaced · Report A · include/);
   assert.match(current, /Also current for this subject<\/dt><dd><code>three<\/code>/);
   assert.match(current, /Also current for this subject<\/dt><dd><code>two<\/code>/);
+  input.listeners.get("change")();
+  await new Promise(setImmediate);
+  const repeated = await respond(200, {last_entry:"four"}, endpoint, "POST");
+  assert.notEqual(repeated.request_id, filled.request_id);
+  assert.equal(repeated.expected_last_entry, "three");
+  await respond(200, {last_entry:"four", entries:[record, correction, parallel, {...parallel, id:"four"}]}, endpoint);
+  click({ action: "review-decisions" });
+  const separate = {...record, id:"other"};
+  await respond(200, {last_entry:"other", entries:[record, separate]}, endpoint);
+  const sameName = elements.get("review-entries").innerHTML;
+  assert.match(sameName, /Report A appears under 2 different subject IDs/);
+  assert.doesNotMatch(sameName, /One of 2 current/);
 });

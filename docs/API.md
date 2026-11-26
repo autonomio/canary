@@ -108,11 +108,18 @@ For each new request, choose a new `request_id` and copy the latest edition’s
 that decision’s ID in `replaces`. The original stays on record. If Canary
 returns HTTP 409, read the latest edition and check your request against it.
 
-A decision sent with `replaces` set to null stands beside any earlier decision
-for the same subject, and both remain current. Use this when separate reviewers
-each record a decision. To supersede a decision, name it in `replaces`. The
-dashboard marks a subject with more than one current decision and lists the
-others under each one.
+Two reviewers can record independent decisions about the same paper. Give
+both decisions the same `subject_id` and leave `replaces` null. The dashboard
+shows both as current. To correct a decision, put its entry ID in `replaces`.
+
+If a new decision has neither a subject ID nor a decision to replace, Canary
+uses its entry ID as its subject ID. Two such decisions called “Report A”
+therefore have different IDs. The dashboard flags the shared name and keeps
+the decisions separate.
+
+Uploading the same decision-only file again after the dashboard refreshes
+creates a new request. To retry an upload after losing the response, use
+the original full request, including its request ID and expected edition.
 
 Use the same subject for a correction. To fix a spelling error or change a
 display name, include `subject_id` inside `decision`. Copy the subject ID shown
