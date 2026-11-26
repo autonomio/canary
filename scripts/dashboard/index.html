@@ -1982,7 +1982,8 @@
               const source = author ? `<a href="${edition + encodeURIComponent(p.evidence[0])}">Reviewer’s decision</a>` : esc(label);
               return `<p class="checklist-passage">${esc(p.text)}</p><p class="hint" title="${esc(p.evidence.join(" · "))}">Source · ${source}</p>`;
             }).join("");
-            const passage = references && answer ? `<div id="checklist-${esc(answer)}" tabindex="-1">${references}</div>` : references;
+            const target = answer ? ` id="checklist-${esc(answer)}" tabindex="-1"` : "";
+            const passage = references ? `<div${target} class="checklist-answer"><span class="checklist-answer-label">Answer</span>${references}</div>` : "";
             const note = basisText[element.basis] || (element.status === "missing" && item.status === "partial" ? "The review does not report this detail." : "");
             return `<li><p>${esc(element.requirement)}</p>${passage}${note ? `<p class="hint">${esc(note)}</p>` : ""}</li>`;
           }).join("");
