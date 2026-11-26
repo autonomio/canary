@@ -261,3 +261,18 @@ the same checklist as JSON. The corresponding agent action is
 `canary_prisma_checklist`. Use `GET /api/runs/{key}/prisma/report` to read or
 save the linked HTML report. Both views are generated from the saved review
 and its latest decision edition.
+
+Use an accepted review decision to supply an author’s answer. In `decision`,
+use a subject ID of the form `prisma:24a:1` for the first essential element of
+item 24a. Abstract subjects use the same convention, such as
+`prisma:abstract-7:2`. Name the person who decided, give the answer in
+`reason`, and identify the supporting records in `evidence`. Use `reported`
+for an answer the author confirms covers the element, or `partial` for an
+incomplete answer. The report attributes that assessment to the author.
+
+Use `not_used` when the authors know a method was never used, and
+`archive_missing` when the record is unavailable. For `inapplicable`, explain
+which feature of the review question or design rules the element out. For
+example, a review of polymer specimens has no human participants. A blank
+field leaves the element missing. Correct an earlier declaration with
+`replaces`; competing declarations stay visible until resolved.

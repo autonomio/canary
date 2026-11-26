@@ -51,6 +51,57 @@ def test_saved_checklist_is_available_to_dashboard_cli_and_agent(tmp_path, monke
     assert json.loads(capsys.readouterr().out) == report
 
 
+def declaration(item, judgement, reason, ident='r1'):
+    from test_review_history import decision, PERSON
+    return dict(id=ident, replaces=None, decision=decision(reason, subject_id='prisma:'+item,
+                judgement=judgement, decided_by=PERSON, evidence=['Signed methods note, section 2']))
+
+
+def declared_item(number, *entries):
+    result = prisma.report({}, dict(entries=list(entries), last_entry=entries[-1]['id'] if entries else 'initial'))
+    return next(row for row in result['items'] if row['id'] == number)
+
+
+def test_unregistered_missing_and_unrecorded_have_different_meanings():
+    assert declared_item('24a')['status'] == 'missing'
+    entry = declaration('24a:1', 'not_used', 'The authors did not register this review.')
+    item = declared_item('24a', entry)
+    assert item['status'] == 'complete'
+    assert item['elements'][0]['passages'][0]['supplier'] == 'author'
+    lost = declaration('24a:1', 'archive_missing', 'The register receipt was lost.')
+    assert declared_item('24a', lost)['elements'][0]['basis'] == 'archive_missing'
+
+
+def test_inapplicable_needs_a_reason_and_missing_elements_are_named():
+    entry = declaration('abstract-7:2', 'inapplicable', 'The review tested polymer specimens. It enrolled no people.')
+    records = [declaration('abstract-7:1', 'reported', 'Four studies.', 'a'), entry,
+               declaration('abstract-7:3', 'reported', 'Each study tested tensile specimens.', 'c')]
+    item = declared_item('abstract-7', *records)
+    assert item['status'] == 'complete'
+    assert item['elements'][1]['passages'][0]['text'] == entry['decision']['reason']
+    partial = declared_item('abstract-7', *records[:-1])
+    assert partial['status'] == 'partial'
+    assert partial['missing_elements'] == ['Summarise relevant study characteristics.']
+    assert declared_item('20d', declaration('20d:1', 'inapplicable', ' '))['status'] == 'missing'
+
+
+def test_an_amended_or_disputed_declaration_is_not_counted_twice():
+    old = declaration('24a:1', 'reported', 'Registered under protocol 123.')
+    updated = declaration('24a:1', 'not_used', 'The authors did not register this review.', 'r2')
+    assert declared_item('24a', old, updated)['status'] == 'partial'
+    updated['replaces'] = old['id']
+    assert declared_item('24a', old, updated)['status'] == 'complete'
+
+
+def test_export_rejects_missing_duplicate_and_unknown_item_ids():
+    import pytest
+    result = prisma.report({}, dict(entries=[], last_entry='initial'))
+    items = result['items']
+    for invalid in [items[:-1], [*items[:-1], items[0]], [*items[:-1], dict(items[-1], id='unknown')]]:
+        with pytest.raises(ValueError, match='checklist ID'):
+            prisma.validate(dict(result, items=invalid))
+
+
 def test_corrected_author_answer_keeps_its_subject_and_the_run_evidence():
     from test_review_history import decision, PERSON
     answer = decision('Original objective', subject_id='prisma:abstract-2:1', judgement='reported', decided_by=PERSON)
