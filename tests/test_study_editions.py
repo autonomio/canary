@@ -26,11 +26,11 @@ def test_an_edition_is_recorded_only_when_the_table_changes(tmp_path):
     editions = study_editions.history(tmp_path)
     assert second == {'number': 2, 'sha256': editions[1]['sha256']} and editions[1]['previous'] == first['sha256']
     change, = editions[1]['changes']
-    assert change['fields'] == ['values.group G1 denominator']
-    assert change['before']['values']['group G1 denominator'] == '40'
-    assert change['after']['values']['group G1 denominator'] == '38'
+    assert change['fields'] == ['group G1 denominator'] and not change['added']
+    assert change['before']['group G1 denominator']['text'] == '40'
+    assert change['after']['group G1 denominator']['text'] == '38'
     assert change['claim_ids'] == ['C1'] and change['unrevised_claim_ids'] == ['C1'] and change['summary_indexes'] == [2]
-    assert editions[0]['results']['SR1']['values']['group G1 denominator'] == '40'
+    assert editions[0]['results']['SR1']['group G1 denominator']['text'] == '40'
 
 
 def test_a_claim_revised_after_the_change_is_no_longer_flagged(tmp_path):
@@ -39,7 +39,7 @@ def test_a_claim_revised_after_the_change_is_no_longer_flagged(tmp_path):
     editions = study_editions.history(tmp_path)
     assert study_editions.stale_claims(editions, investigation(value='3.9')) == [
         {'kind': 'claim_uses_changed_value', 'claim_id': 'C1', 'study_result_id': 'SR1', 'edition': 2,
-         'fields': ['values.estimate']}]
+         'fields': ['estimate'], 'summary_indexes': [2]}]
     revised = investigation(value='3.9', claim='Breaking force rose by 3.9 N in Rivera 2020.')
     assert study_editions.stale_claims(editions, revised) == []
     study_editions.record(tmp_path, dict(revised, study_results=[]), REFERENCES)
@@ -79,10 +79,12 @@ def test_the_dashboard_lists_each_edition_and_the_claims_a_change_affects(tmp_pa
 const html=studyTableHtml(graph);
 assert.match(html,/Study table edition 2 · <code>/);
 assert.match(html,/Editions and changes \(2\)/);
-assert.match(html,/SR1 · values.estimate/);
+assert.match(html,/SR1 · estimate/);
 assert.match(html,/data-qa-claim="C1">C1 · not revised</);
 assert.match(html,/Summary paragraphs 2/);
-assert.match(html,/Claim C1 was not revised after edition 2 changed result SR1 \(values.estimate\)\./);
+assert.match(html,/estimate: \{&quot;text&quot;:&quot;4.2&quot;.*\} → \{&quot;text&quot;:&quot;3.9&quot;/);
+assert.doesNotMatch(html,/Before:/);
+assert.match(html,/Claim C1 was not revised after edition 2 changed result SR1 \(estimate\)\. Summary paragraphs 2 use it\./);
 ''')
 
 
@@ -104,3 +106,44 @@ def test_the_export_carries_the_editions_and_the_current_one(tmp_path):
     assert [e['number'] for e in graph['study_table_editions']] == [1, 2]
     assert graph['study_table_edition']['number'] == 2
     assert [i['claim_id'] for i in graph['binding_issues'] if i['kind'] == 'claim_uses_changed_value'] == [claim['id']]
+
+
+def test_qualitative_availability_and_calculation_changes_are_editions(tmp_path):
+    study_editions.record(tmp_path, investigation(), REFERENCES)
+    for change in ({'qualitative': {'text': 'Fewer fractures.', 'passage_ids': []}},
+                   {'availability': {'status': 'unclear', 'basis': 'Two reports disagree.', 'passage_ids': []}},
+                   {'estimate': {'text': '4.2', 'passage_ids': [], 'origin': 'calculated', 'calculation': {
+                       'inputs': [{'name': 'mean', 'value': '4.2', 'unit': 'N', 'passage_ids': []}],
+                       'formula': 'mean', 'assumptions': []}}}):
+        changed = investigation()
+        changed['study_results'][0]['outcome_result'].update(change)
+        study_editions.record(tmp_path, changed, REFERENCES)
+        assert study_editions.history(tmp_path)[-1]['changes'][0]['fields'] == sorted(change)
+        study_editions.record(tmp_path, investigation(), REFERENCES)
+
+
+def test_added_results_and_study_counts_are_listed(tmp_path):
+    study_editions.record(tmp_path, dict(investigation(), study_results=[]), REFERENCES)
+    study_editions.record(tmp_path, dict(investigation(), studies=[{'id': 'S1', 'subject_count': 38}]), REFERENCES)
+    added, counted = study_editions.history(tmp_path)[1]['changes']
+    assert added['study_result_id'] == 'SR1' and added['added'] and added['claim_ids'] == ['C1']
+    assert counted == {'study_id': 'S1', 'added': False, 'removed': False, 'fields': ['subject_count'],
+                       'before': {'subject_count': 40}, 'after': {'subject_count': 38}}
+
+
+def test_an_unrevised_claim_is_in_the_mechanical_audit(tmp_path):
+    research_bundle.initialize(tmp_path, research_spec.compile_mapping(
+        {'question': 'Synthetic fixture question?', 'retrieval': {'target_papers': 1}}))
+    researched(tmp_path)
+    engine.write(tmp_path / 'run.json', dict(engine.read(tmp_path / 'run.json'), minimum_papers=1, study_table_version=1))
+    raw = dict(json.loads((tmp_path / 'investigation.json').read_text()), studies=[])
+    claim = dict(raw['claims'][0], study_result_ids=['SR1'])
+    results = [{'id': 'SR1', 'reference_ids': [], 'fields': {'value': {'text': '4', 'passage_ids': []}}}]
+    engine.write(tmp_path / 'investigation.json', dict(raw, claims=[claim], study_results=results))
+    engine.bind_payload(tmp_path, record_edition=True)
+    results[0]['fields']['value']['text'] = '5'
+    engine.write(tmp_path / 'investigation.json', dict(raw, claims=[claim], study_results=results))
+    issues = engine.bind_payload(tmp_path, record_edition=True)['mechanical_audit']['issues']
+    assert [i for i in issues if i.startswith('Study table: claim uses changed value')] == [
+        f"Study table: claim uses changed value (claim id {claim['id']}, study result id SR1, edition 2, "
+        f"fields ['value'], summary indexes {[i for i, e in enumerate(raw['executive_summary'], 1) if isinstance(e, dict) and claim['id'] in e.get('claim_ids', [])]})"]

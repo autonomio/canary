@@ -948,8 +948,10 @@ def bind_payload(workspace, *, investigation=None, record_edition=False):
         issues.extend(message(issue) for issue in result_issues(
             raw.get("study_results"), raw.get("studies"), versions=None if unreadable else recorded, passages=passages))
         if record_edition:
-            from .study_editions import record
-            payload["study_table_edition"] = record(workspace, raw, references)
+            from .study_editions import history, record, stale_claims
+            owners = {pid: row["reference_id"] for pid, row in passages.items()}
+            payload["study_table_edition"] = record(workspace, raw, references, owners)
+            issues.extend(message(issue) for issue in stale_claims(history(workspace), raw))
     mechanical = {"at": now(), "pass": not issues, "issues": issues,
                   "claim_blocking_issues": claim_blocking_issues,
                   "claim_issues": {identifier: found for identifier, found in claim_issues.items() if found},
