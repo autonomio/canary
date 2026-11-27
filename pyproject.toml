@@ -1,6 +1,6 @@
 [project]
 name = "canary"
-version = "0.4.0"
+version = "0.5.0"
 description = "API-first full-paper research with traceable findings and independent audits."
 requires-python = ">=3.10"
 license = "MIT AND OFL-1.1"
