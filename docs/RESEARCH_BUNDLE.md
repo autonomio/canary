@@ -403,3 +403,8 @@ re-runs formulas written with `+ - * / **` and `sqrt`, `log`, `log10`, `exp` or 
 the result at the precision of the recorded value. A value it cannot reproduce is listed with the
 study table. Any other calculation keeps its inputs and formula and is shown as pending
 verification.
+
+Every study has a result for every outcome in the latest protocol version. Its status is
+reported, not measured, measured but not reported, or unclear, with the basis and passages.
+Not measured and measured but not reported need a passage. A result given in words keeps the
+study's wording. A planned outcome without a result in a study is listed with the study table.

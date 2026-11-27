@@ -234,7 +234,8 @@ def test_a_result_that_departs_from_the_protocol_definition_is_flagged():
                       'field': 'time_point', 'protocol_value': '24 hours', 'recorded_value': '48 hours'}]
     assert result_kinds([result(fields={'units': {'text': 'mN', 'passage_ids': ['R1-p1']}})]) == [
         ('outcome_definition_mismatch', 'unit')]
-    assert result_kinds([result(outcome={'id': 'O9', 'protocol_version': 'V1'})]) == [('unknown_protocol_outcome', 'O9')]
+    assert result_kinds([result(outcome={'id': 'O9', 'protocol_version': 'V1'})]) == [
+        ('missing_planned_outcome', 'O1'), ('unknown_protocol_outcome', 'O9')]
     assert result_kinds([result(outcome={'id': 'O1', 'protocol_version': 'V0'})]) == [('unknown_protocol_version', 'V0')]
     assert result_kinds([result(outcome_result=None)]) == [('missing_outcome_result', 'O1')]
 
@@ -243,9 +244,9 @@ def test_a_result_stays_within_its_study_groups_and_reports():
     recorded = dict(result()['outcome_result'], groups=[{'group_id': 'G4', 'value': field('R3-p1'), 'denominator': None}])
     assert result_kinds([result(reference_ids=['R1', 'R3'], outcome_result=recorded)]) == [
         ('result_outside_study', 'S1'), ('unknown_result_group', 'G4')]
-    assert result_kinds([result(study_id='S8')]) == [('unknown_result_study', 'S8')]
+    assert result_kinds([result(study_id='S8')]) == [('missing_planned_outcome', 'O1'), ('unknown_result_study', 'S8')]
     unplanned = result(outcome=None, outcome_result=None)
-    assert result_kinds([unplanned]) == []
+    assert result_kinds([unplanned]) == [('missing_planned_outcome', 'O1')]
 
 
 def test_the_dashboard_shows_an_outcome_result_with_its_protocol_version(tmp_path):
@@ -348,7 +349,8 @@ def test_calculated_values_are_re_run_and_mismatches_listed():
         record = result(outcome_result=dict(result()['outcome_result'], estimate=value))
         jsonschema.Draft202012Validator(shape).validate(dict(record, result_type='measured', version_or_cohort_note='',
             fields={k: None for k in shape['properties']['fields']['properties']},
-            outcome_result=dict(record['outcome_result'], groups=[], time_point=None, effect_measure=None,
+            outcome_result=dict(record['outcome_result'], groups=[], time_point=None, effect_measure=None, qualitative=None,
+                                availability={'status': 'reported', 'basis': 'Table 2.', 'passage_ids': ['R1-p1']},
                                 precision={'text': '0.1', 'passage_ids': ['R1-p1'], 'origin': 'reported', 'calculation': None},
                                 larger_value_favours=None)))
         assert result_kinds([record]) == kinds_found
@@ -383,4 +385,44 @@ assert.match(html,/Assumption: Standard gravity./);
 assert.match(html,/Canary computes 0.122625, which does not match the recorded value/);
 assert.match(html,/Calculation · verification pending/);
 assert.match(html,/Verification pending: Formula uses unsupported syntax: Call/);
+''')
+
+
+def availability(status, *passage_ids):
+    return {'status': status, 'basis': 'Methods section.', 'passage_ids': list(passage_ids)}
+
+
+def test_each_planned_outcome_is_recorded_with_its_availability():
+    empty = dict(result()['outcome_result'], groups=[], estimate=None, precision=None, larger_value_favours=None)
+    cases = ((dict(empty, availability=availability('not_measured', 'R1-p1')), []),
+             (dict(empty, availability=availability('measured_not_reported')),
+              [('missing_availability_evidence', 'S1')]),
+             (dict(empty, availability=availability('unclear')), []),
+             (dict(empty, availability=availability('reported', 'R1-p1')), [('reported_result_without_value', 'S1')]),
+             (dict(empty, availability=availability('reported', 'R1-p1'), qualitative=field('R1-p1')), []),
+             (dict(result()['outcome_result'], availability=availability('not_measured', 'R1-p1')),
+              [('unavailable_result_with_value', 'S1')]),
+             (dict(empty, availability=availability('unclear', 'R3-p1')), [('undeclared_result_reference', 'availability')]))
+    for recorded, expected in cases:
+        assert result_kinds([result(outcome_result=recorded)]) == expected
+    found = study_table.result_issues([], [study()], versions=VERSIONS, passages=PASSAGES)
+    assert found == [{'kind': 'missing_planned_outcome', 'study_id': 'S1', 'outcome_id': 'O1', 'outcome': 'Breaking force'}]
+
+
+def test_the_dashboard_shows_missing_results_in_words(tmp_path):
+    from test_coverage_evidence_ui import run_dashboard
+
+    record = result(outcome_result=dict(result()['outcome_result'], groups=[], estimate=None, precision=None,
+                                        larger_value_favours=None, qualitative=field('R1-p1') | {'text': 'Fewer fractures.'},
+                                        availability=availability('measured_not_reported', 'R1-p1')))
+    exported = dict(record, fields={}, **study_table.export_result(record))
+    graph = {'passages': [{'id': 'R1-p1', 'source_id': 'R1'}], 'study_results': [exported],
+             'studies': study_table.export([study()]), 'study_summary': study_table.summary([study()]),
+             'binding_issues': [{'kind': 'missing_planned_outcome', 'section': 'studies', 'study_id': 'S1',
+                                 'outcome_id': 'O1', 'outcome': 'Breaking force'}]}
+    run_dashboard(tmp_path, graph, r'''
+const html=outcomeResultHtml(graph,graph.study_results[0]);
+assert.match(html,/Result<\/dt><dd><p>Measured but not reported<\/p><p class="hint">Methods section.<\/p>/);
+assert.match(html,/Result in words<\/dt><dd><p>Fewer fractures.<\/p>/);
+assert.match(studyTableHtml(graph),/No result is recorded for planned outcome Breaking force\./);
 ''')

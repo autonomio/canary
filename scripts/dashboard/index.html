@@ -3357,6 +3357,10 @@
       undeclared_result_reference:()=>`Result ${i.study_result_id} ${i.field} cites ${i.reference_id}, which is not among the result's references.`,
       calculation_missing:()=>`Result ${i.study_result_id} ${i.field} is marked calculated but records no inputs or formula.`,
       calculation_not_reproduced:()=>`Result ${i.study_result_id} ${i.field} is recorded as ${i.recorded_value}; its formula gives ${i.computed_value}.`,
+      reported_result_without_value:()=>`Result ${i.study_result_id} is marked reported but records no value or words.`,
+      unavailable_result_with_value:()=>`Result ${i.study_result_id} is marked ${i.status.replaceAll('_',' ')} but records values.`,
+      missing_availability_evidence:()=>`Result ${i.study_result_id} is marked ${i.status.replaceAll('_',' ')} without a source passage.`,
+      missing_planned_outcome:()=>`No result is recorded for planned outcome ${i.outcome || i.outcome_id}.`,
       superseded_protocol_version:()=>`Result ${i.study_result_id} cites protocol version ${i.version_number}; the latest is version ${i.latest_version_number}.`,
       protocol_unreadable:()=>`The review protocol could not be read: ${i.reason}.`}[i.kind]?.())
       || String(i.kind || 'Study record issue').replaceAll('_',' ');
@@ -3435,7 +3439,8 @@
     const outcome=r.outcome ? `<dt>Planned outcome</dt><dd><p>${esc(definition?.name || r.outcome.id)}</p><p class="hint">Protocol version ${esc(String(r.outcome.protocol_version || '').slice(0,12))}${definition ? ` · ${['unit','time_point','effect_measure'].filter(k=>definition[k]!=null).map(k=>`${k.replace('_',' ')}: ${esc(definition[k])}`).join(' · ')}` : ''}</p></dd>` : '';
     const groups=(x?.groups || []).map(gr=>`${value(gr.value,`${gr.group_id} value`)}${value(gr.denominator,`${gr.group_id} denominator`)}`).join('');
     const favours=x?.larger_value_favours ? `<dt>A larger value favours</dt><dd><p>${esc(x.larger_value_favours.group_id ?? 'Neither group')}</p><p class="hint">${esc(x.larger_value_favours.basis || '')}</p><div class="source-actions">${studyPassageLinks(g,r,x.larger_value_favours.paragraph_ids,'A larger value favours')}</div></dd>` : '';
-    return `<h3>Outcome result</h3>${r.study_id ? `<p class="hint">Study ${esc(r.study_id)}</p>` : ''}${alerts}<dl class="study-fields">${outcome}${x ? `${value(x.time_point,'Time point')}${value(x.effect_measure,'Effect measure')}${groups}${value(x.estimate,'Effect estimate')}${value(x.precision,'Precision')}${favours}` : ''}</dl>`;
+    const availability=x?.availability ? `<dt>Result</dt><dd><p>${esc({reported:'Reported',not_measured:'Not measured',measured_not_reported:'Measured but not reported',unclear:'Unclear whether measured or reported'}[x.availability.status] || x.availability.status)}</p><p class="hint">${esc(x.availability.basis || '')}</p><div class="source-actions">${studyPassageLinks(g,r,x.availability.paragraph_ids,'Result availability')}</div></dd>` : '';
+    return `<h3>Outcome result</h3>${r.study_id ? `<p class="hint">Study ${esc(r.study_id)}</p>` : ''}${alerts}<dl class="study-fields">${outcome}${availability}${x?.qualitative ? value(x.qualitative,'Result in words') : ''}${x ? `${value(x.time_point,'Time point')}${value(x.effect_measure,'Effect measure')}${groups}${value(x.estimate,'Effect estimate')}${value(x.precision,'Precision')}${favours}` : ''}</dl>`;
   }
   function calculationHtml(g,r,f,label) {
     if(f?.origin!=='calculated') return '';

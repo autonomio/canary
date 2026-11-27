@@ -94,7 +94,7 @@ def _values(result):
 
 def _result_fields(result):
     recorded = result.get('outcome_result') if isinstance(result.get('outcome_result'), dict) else {}
-    for name in ('time_point', 'effect_measure'):
+    for name in ('qualitative', 'time_point', 'effect_measure'):
         yield name, recorded.get(name)
     for name, value in _values(result):
         if not isinstance(value, dict):
@@ -198,6 +198,8 @@ def result_issues(results, studies, *, versions, passages):
             if isinstance(field, dict):
                 found.extend(_cited(owner, name, field.get('passage_ids', []), passages, declared,
                                     'undeclared_result_reference'))
+        if isinstance(recorded, dict):
+            found.extend(_availability_issues(owner, result, recorded, passages))
         for name, value in _values(result):
             check = calculation_check(value)
             if check is not None and value.get('calculation') is None:
@@ -205,7 +207,28 @@ def result_issues(results, studies, *, versions, passages):
             elif check is not None and check['status'] == 'not_reproduced':
                 found.append({'kind': 'calculation_not_reproduced', **owner, 'field': name,
                               'recorded_value': value.get('text'), 'computed_value': check['computed']})
+    if versions is not None and latest is not None:
+        cited = {(r.get('study_id'), (r.get('outcome') or {}).get('id')) for r in _rows(results) if isinstance(r.get('outcome'), dict)}
+        found.extend({'kind': 'missing_planned_outcome', 'study_id': identifier, 'outcome_id': o.get('id'),
+                      'outcome': o.get('name')}
+                     for identifier in studies for o in _rows(latest.get('outcomes')) if (identifier, o.get('id')) not in cited)
     return found
+
+
+def _availability_issues(owner, result, recorded, passages):
+    availability = recorded.get('availability') if isinstance(recorded.get('availability'), dict) else {}
+    status = availability.get('status')
+    values = [v for _, v in _values(result) if isinstance(v, dict) and str(v.get('text') or '').strip()]
+    words = isinstance(recorded.get('qualitative'), dict) and str(recorded['qualitative'].get('text') or '').strip()
+    if status == 'reported' and not values and not words:
+        yield {'kind': 'reported_result_without_value', **owner}
+    elif status in ('not_measured', 'measured_not_reported', 'unclear') and values:
+        yield {'kind': 'unavailable_result_with_value', **owner, 'status': status}
+    ids = availability.get('passage_ids', [])
+    if status in ('not_measured', 'measured_not_reported') and not ids:
+        yield {'kind': 'missing_availability_evidence', **owner, 'status': status}
+    elif ids:
+        yield from _cited(owner, 'availability', ids, passages, result.get('reference_ids', []), 'undeclared_result_reference')
 
 
 def export_result(result):
@@ -224,8 +247,11 @@ def export_result(result):
                 if isinstance(calculation, dict) else None)
         return exported
     favours = recorded.get('larger_value_favours')
+    availability = recorded.get('availability')
     return {'outcome_result': dict(recorded, **{name: bound(recorded.get(name)) for name in
-                                                ('time_point', 'effect_measure', 'estimate', 'precision')},
+                                                ('qualitative', 'time_point', 'effect_measure', 'estimate', 'precision')},
+                                   availability=dict(availability, paragraph_ids=list(availability.get('passage_ids', [])))
+                                   if isinstance(availability, dict) else None,
                                    groups=[dict(g, value=bound(g.get('value')), denominator=bound(g.get('denominator')))
                                            for g in _rows(recorded.get('groups'))],
                                    larger_value_favours=dict(favours, paragraph_ids=list(favours.get('passage_ids', [])))
@@ -237,9 +263,10 @@ def result_passage_ids(results):
         for _, field in _result_fields(result):
             if isinstance(field, dict):
                 yield from field.get('passage_ids', [])
-        favours = (result.get('outcome_result') or {}).get('larger_value_favours') if isinstance(result.get('outcome_result'), dict) else None
-        if isinstance(favours, dict):
-            yield from favours.get('passage_ids', [])
+        recorded = result.get('outcome_result') if isinstance(result.get('outcome_result'), dict) else {}
+        for linked in (recorded.get('larger_value_favours'), recorded.get('availability')):
+            if isinstance(linked, dict):
+                yield from linked.get('passage_ids', [])
 
 
 def passage_ids(studies):
