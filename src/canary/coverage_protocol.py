@@ -160,7 +160,8 @@ def question_plan_schema(additional_sources=()):
     shape = obj({
         "question": S, **PROTOCOL_FIELDS,
         "concepts": arr(obj({"name": S, "synonyms": SS, "search_role": S})),
-        "outcomes": SS,
+        "outcomes": arr(obj({"name": S, **{k: {"type": ["string", "null"]}
+            for k in ("unit", "time_point", "effect_measure")}})),
         "comparators": SS,
         "conditions": SS,
         "coverage_aspects": arr(obj({"id": S, "description": S, "priority_reason": S})),
@@ -385,6 +386,7 @@ Question: {question}{brief_scope}
 If you stop because the question cannot be researched as asked (for example, it needs the product or measure identified first), save and return investigation.json with clarification {{question, reason}}: the one question a person must answer, and why. Leave the summary and findings empty. Otherwise clarification is null.
 1. Write question-plan-draft.json conforming to question-plan-schema.json. Use 'concepts', never 'entities'.
 Translate the question into concepts/synonyms, outcomes, comparators, conditions, coverage aspects and explicit inclusion/exclusion criteria.
+For each planned outcome give its name, unit, time_point and effect_measure. Use null for an unspecified or inapplicable field.
 Explain the rationale in light of earlier work. Record other_variables, study_groups, result_selection and missing_information before searching.
 In eligibility.core, eligibility.supporting and eligibility.exclusion, state only what makes a study qualify or be excluded.
 Put operational directions, such as labeling publication type or documenting study overlap, in screening_instructions; use [] if none apply.

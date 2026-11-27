@@ -100,6 +100,16 @@ def validate_plan(plan, *, require_protocol=False):
     for name in ("concepts", "outcomes", "queries"):
         if not isinstance(plan.get(name), list):
             raise ValueError("QuestionPlan requires typed " + name)
+    for outcome in plan["outcomes"]:
+        if require_protocol and (not isinstance(outcome, dict)
+                                 or not isinstance(outcome.get('name'), str) or not outcome['name'].strip()
+                                 or not {'unit', 'time_point', 'effect_measure'} <= outcome.keys()):
+            raise ValueError("Define each outcome's name, unit, time point and effect measure")
+        if isinstance(outcome, dict) and any(
+            outcome.get(field) is not None and not isinstance(outcome[field], str)
+            for field in ("unit", "time_point", "effect_measure")
+        ):
+            raise ValueError("Outcome unit, time point and effect measure must be text or null")
     if not isinstance(plan.get("conditions"), (list, dict)):
         raise ValueError("QuestionPlan requires typed conditions")
     if not isinstance(plan.get("coverage_aspects", plan.get("coverage_facets")), list):

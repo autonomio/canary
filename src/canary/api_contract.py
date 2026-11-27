@@ -293,6 +293,8 @@ def schemas():
 
 def _query_schema():
     shape = protocol.question_plan_schema(ADDITIONAL_SOURCES)
+    outcomes = shape['properties']['outcomes']
+    outcomes['items'] = {'anyOf': [outcomes['items'], S, dict(O, required=['name'])]}
     shape['properties']['queries']['items']['required'].remove('source')
     for field in ('screening_instructions', *protocol.PROTOCOL_FIELDS):
         shape['required'].remove(field)
