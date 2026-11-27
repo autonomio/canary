@@ -83,13 +83,56 @@ def _same(left, right, *, exact=False):
     return left == right if exact else left.casefold() == right.casefold()
 
 
-def _result_fields(result):
+def _values(result):
     recorded = result.get('outcome_result') if isinstance(result.get('outcome_result'), dict) else {}
-    for name in ('time_point', 'effect_measure', 'estimate', 'precision'):
+    for name in ('estimate', 'precision'):
         yield name, recorded.get(name)
     for group in _rows(recorded.get('groups')):
         yield 'group ' + str(group.get('group_id')) + ' value', group.get('value')
         yield 'group ' + str(group.get('group_id')) + ' denominator', group.get('denominator')
+
+
+def _result_fields(result):
+    recorded = result.get('outcome_result') if isinstance(result.get('outcome_result'), dict) else {}
+    for name in ('time_point', 'effect_measure'):
+        yield name, recorded.get(name)
+    for name, value in _values(result):
+        if not isinstance(value, dict):
+            continue
+        calculation = value.get('calculation') if isinstance(value.get('calculation'), dict) else {}
+        if value.get('origin') != 'calculated' or value.get('passage_ids'):
+            yield name, value
+        for item in _rows(calculation.get('inputs')):
+            yield name + ' input ' + str(item.get('name')), item
+
+
+def calculation_check(value):
+    """Re-run a calculated value's formula; other calculations stay pending verification."""
+    if not isinstance(value, dict) or value.get('origin') != 'calculated':
+        return None
+    from .conversions import Unsupported, evaluate, reproduces
+    calculation = value.get('calculation')
+    if not isinstance(calculation, dict):
+        return {'status': 'pending', 'computed': None, 'reason': 'No formula or inputs were recorded.'}
+    inputs = {}
+    for item in _rows(calculation.get('inputs')):
+        try:
+            inputs[item.get('name')] = float(item.get('value'))
+        except (TypeError, ValueError):
+            return {'status': 'pending', 'computed': None,
+                    'reason': f"Input {item.get('name')} is not a plain number: {item.get('value')}"}
+    try:
+        computed = evaluate(calculation.get('formula'), inputs)
+    except Unsupported as error:
+        return {'status': 'pending', 'computed': None, 'reason': str(error)}
+    if reproduces(value.get('text', ''), computed):
+        return {'status': 'reproduced', 'computed': computed, 'reason': None}
+    try:
+        float(value.get('text'))
+    except (TypeError, ValueError):
+        return {'status': 'pending', 'computed': computed,
+                'reason': f"The recorded value is not a plain number: {value.get('text')}"}
+    return {'status': 'not_reproduced', 'computed': computed, 'reason': None}
 
 
 def result_issues(results, studies, *, versions, passages):
@@ -155,6 +198,13 @@ def result_issues(results, studies, *, versions, passages):
             if isinstance(field, dict):
                 found.extend(_cited(owner, name, field.get('passage_ids', []), passages, declared,
                                     'undeclared_result_reference'))
+        for name, value in _values(result):
+            check = calculation_check(value)
+            if check is not None and value.get('calculation') is None:
+                found.append({'kind': 'calculation_missing', **owner, 'field': name})
+            elif check is not None and check['status'] == 'not_reproduced':
+                found.append({'kind': 'calculation_not_reproduced', **owner, 'field': name,
+                              'recorded_value': value.get('text'), 'computed_value': check['computed']})
     return found
 
 
@@ -164,7 +214,15 @@ def export_result(result):
     if not isinstance(recorded, dict):
         return {}
     def bound(field):
-        return {'value': field.get('text'), 'paragraph_ids': list(field.get('passage_ids', []))} if isinstance(field, dict) else None
+        if not isinstance(field, dict):
+            return None
+        exported = {'value': field.get('text'), 'paragraph_ids': list(field.get('passage_ids', []))}
+        if 'origin' in field:
+            calculation = field.get('calculation')
+            exported.update(origin=field.get('origin'), calculation_check=calculation_check(field), calculation=dict(
+                calculation, inputs=[dict(i, paragraph_ids=list(i.get('passage_ids', []))) for i in _rows(calculation.get('inputs'))])
+                if isinstance(calculation, dict) else None)
+        return exported
     favours = recorded.get('larger_value_favours')
     return {'outcome_result': dict(recorded, **{name: bound(recorded.get(name)) for name in
                                                 ('time_point', 'effect_measure', 'estimate', 'precision')},

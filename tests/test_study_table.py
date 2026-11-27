@@ -329,3 +329,58 @@ assert.match(above,/Result SR1 names study S8, which is not recorded\./);
 assert.match(above,/Results naming an unrecorded study<\/p><div class="source-actions"><button[^>]*data-qa-study="SR1"/);
 assert.doesNotMatch(html,/names group/);
 ''')
+
+
+def calculated(text='0.12', formula='mean * 9.81 / 1000', passage='R1-p1'):
+    return {'text': text, 'passage_ids': [], 'origin': 'calculated',
+            'calculation': {'inputs': [{'name': 'mean', 'value': '12.5', 'unit': 'kgf', 'passage_ids': [passage]}],
+                            'formula': formula, 'assumptions': ['Standard gravity.']}}
+
+
+def test_calculated_values_are_re_run_and_mismatches_listed():
+    import jsonschema
+    from canary import coverage_protocol
+
+    shape = coverage_protocol.investigation_schema()['properties']['study_results']['items']
+    for value, kinds_found in ((calculated(), []), (calculated('0.13'), [('calculation_not_reproduced', 'estimate')]),
+                               (calculated(passage='R3-p1'), [('undeclared_result_reference', 'estimate input mean')]),
+                               (dict(calculated(), calculation=None), [('calculation_missing', 'estimate')])):
+        record = result(outcome_result=dict(result()['outcome_result'], estimate=value))
+        jsonschema.Draft202012Validator(shape).validate(dict(record, result_type='measured', version_or_cohort_note='',
+            fields={k: None for k in shape['properties']['fields']['properties']},
+            outcome_result=dict(record['outcome_result'], groups=[], time_point=None, effect_measure=None,
+                                precision={'text': '0.1', 'passage_ids': ['R1-p1'], 'origin': 'reported', 'calculation': None},
+                                larger_value_favours=None)))
+        assert result_kinds([record]) == kinds_found
+
+
+def test_a_calculation_canary_cannot_run_stays_pending():
+    assert study_table.calculation_check(calculated())['status'] == 'reproduced'
+    pending = study_table.calculation_check(calculated(formula='median_to_mean(mean)'))
+    assert pending == {'status': 'pending', 'computed': None, 'reason': 'Formula uses unsupported syntax: Call'}
+    word = dict(calculated(), calculation=dict(calculated()['calculation'], inputs=[
+        dict(calculated()['calculation']['inputs'][0], value='twelve')]))
+    assert study_table.calculation_check(word)['reason'] == 'Input mean is not a plain number: twelve'
+    assert study_table.calculation_check({'text': '4', 'origin': 'reported'}) is None
+    assert result_kinds([result(outcome_result=dict(result()['outcome_result'],
+                                                    estimate=calculated(formula='median_to_mean(mean)')))]) == []
+
+
+def test_the_dashboard_shows_a_calculation_and_its_check(tmp_path):
+    from test_coverage_evidence_ui import run_dashboard
+
+    record = result(outcome_result=dict(result()['outcome_result'], estimate=calculated('0.13'),
+                                        precision=calculated(formula='convert(mean)')))
+    exported = dict(record, fields={}, **study_table.export_result(record))
+    graph = {'passages': [{'id': 'R1-p1', 'source_id': 'R1'}], 'study_results': [exported], 'binding_issues': []}
+    run_dashboard(tmp_path, graph, r'''
+const html=outcomeResultHtml(graph,graph.study_results[0]);
+assert.match(html,/0.13 <span class="hint">Calculated<\/span>/);
+assert.match(html,/Calculation · does not reproduce/);
+assert.match(html,/mean = 12.5 kgf/);
+assert.match(html,/Formula: <code>mean \* 9.81 \/ 1000<\/code>/);
+assert.match(html,/Assumption: Standard gravity./);
+assert.match(html,/Canary computes 0.122625, which does not match the recorded value/);
+assert.match(html,/Calculation · verification pending/);
+assert.match(html,/Verification pending: Formula uses unsupported syntax: Call/);
+''')

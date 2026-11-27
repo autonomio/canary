@@ -396,3 +396,10 @@ measure, Canary compares the result with it and lists any difference with the st
 result that cites an earlier protocol version is listed as citing a superseded version; the
 definitions it used stay readable. The export includes
 `protocol_outcomes`, the outcome definitions of every recorded protocol version.
+
+Each outcome value is marked reported or calculated. A calculated value keeps every published
+input with its unit and passages, the formula over the input names and each assumption. Canary
+re-runs formulas written with `+ - * / **` and `sqrt`, `log`, `log10`, `exp` or `abs`, and checks
+the result at the precision of the recorded value. A value it cannot reproduce is listed with the
+study table. Any other calculation keeps its inputs and formula and is shown as pending
+verification.

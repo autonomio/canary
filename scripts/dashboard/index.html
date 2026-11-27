@@ -3355,6 +3355,8 @@
       outcome_definition_mismatch:()=>`Result ${i.study_result_id} ${i.field.replace('_',' ')} is ${i.recorded_value ?? 'not recorded'}; the protocol defines ${i.protocol_value}.`,
       unknown_result_group:()=>`Result ${i.study_result_id} names group ${i.group_id}, which its study does not record.`,
       undeclared_result_reference:()=>`Result ${i.study_result_id} ${i.field} cites ${i.reference_id}, which is not among the result's references.`,
+      calculation_missing:()=>`Result ${i.study_result_id} ${i.field} is marked calculated but records no inputs or formula.`,
+      calculation_not_reproduced:()=>`Result ${i.study_result_id} ${i.field} is recorded as ${i.recorded_value}; its formula gives ${i.computed_value}.`,
       superseded_protocol_version:()=>`Result ${i.study_result_id} cites protocol version ${i.version_number}; the latest is version ${i.latest_version_number}.`,
       protocol_unreadable:()=>`The review protocol could not be read: ${i.reason}.`}[i.kind]?.())
       || String(i.kind || 'Study record issue').replaceAll('_',' ');
@@ -3429,11 +3431,18 @@
     const alerts=issues.map(i=>`<p role="alert">${esc(studyIssueText(i))}</p>`).join('');
     if(!r.outcome && !x) return alerts;
     const definition=(g.protocol_outcomes || []).find(o=>o.id===r.outcome?.id && o.protocol_version===r.outcome?.protocol_version);
-    const value=(f,label)=>`<dt>${esc(label)}</dt><dd>${f?.value!=null && f.value!=='' ? `<p>${esc(f.value)}</p><div class="source-actions">${studyPassageLinks(g,r,f.paragraph_ids,label)}</div>` : '<span class="muted">Not reported</span>'}</dd>`;
+    const value=(f,label)=>`<dt>${esc(label)}</dt><dd>${f?.value!=null && f.value!=='' ? `<p>${esc(f.value)}${f.origin ? ` <span class="hint">${f.origin==='calculated' ? 'Calculated' : 'Reported'}</span>` : ''}</p>${f.origin==='calculated' && !(f.paragraph_ids || []).length ? '' : `<div class="source-actions">${studyPassageLinks(g,r,f.paragraph_ids,label)}</div>`}${calculationHtml(g,r,f,label)}` : '<span class="muted">Not reported</span>'}</dd>`;
     const outcome=r.outcome ? `<dt>Planned outcome</dt><dd><p>${esc(definition?.name || r.outcome.id)}</p><p class="hint">Protocol version ${esc(String(r.outcome.protocol_version || '').slice(0,12))}${definition ? ` · ${['unit','time_point','effect_measure'].filter(k=>definition[k]!=null).map(k=>`${k.replace('_',' ')}: ${esc(definition[k])}`).join(' · ')}` : ''}</p></dd>` : '';
     const groups=(x?.groups || []).map(gr=>`${value(gr.value,`${gr.group_id} value`)}${value(gr.denominator,`${gr.group_id} denominator`)}`).join('');
     const favours=x?.larger_value_favours ? `<dt>A larger value favours</dt><dd><p>${esc(x.larger_value_favours.group_id ?? 'Neither group')}</p><p class="hint">${esc(x.larger_value_favours.basis || '')}</p><div class="source-actions">${studyPassageLinks(g,r,x.larger_value_favours.paragraph_ids,'A larger value favours')}</div></dd>` : '';
     return `<h3>Outcome result</h3>${r.study_id ? `<p class="hint">Study ${esc(r.study_id)}</p>` : ''}${alerts}<dl class="study-fields">${outcome}${x ? `${value(x.time_point,'Time point')}${value(x.effect_measure,'Effect measure')}${groups}${value(x.estimate,'Effect estimate')}${value(x.precision,'Precision')}${favours}` : ''}</dl>`;
+  }
+  function calculationHtml(g,r,f,label) {
+    if(f?.origin!=='calculated') return '';
+    const c=f.calculation, check=f.calculation_check || {};
+    const status=check.status==='reproduced' ? `Reproduced by Canary: ${esc(check.computed)}` : check.status==='not_reproduced' ? `<span role="alert">Canary computes ${esc(check.computed)}, which does not match the recorded value.</span>` : `Verification pending: ${esc(check.reason || 'Canary cannot re-run this calculation.')}`;
+    const inputs=(c?.inputs || []).map(i=>`<p>${esc(i.name)} = ${esc(i.value)} ${esc(i.unit || '')}</p><div class="source-actions">${studyPassageLinks(g,r,i.paragraph_ids,`${label} input ${i.name}`)}</div>`).join('');
+    return `<details data-detail="calculation-${esc(r.id)}-${esc(label)}"><summary>Calculation · ${check.status==='reproduced' ? 'reproduced' : check.status==='not_reproduced' ? 'does not reproduce' : 'verification pending'}</summary>${inputs}${c?.formula ? `<p>Formula: <code>${esc(c.formula)}</code></p>` : ''}${(c?.assumptions || []).map(x=>`<p class="hint">Assumption: ${esc(x)}</p>`).join('')}<p>${status}</p></details>`;
   }
   function paragraphInspector(g,id,field='') {
     const p=g?.passages?.find(p=>p.id===id),ref=g?.references?.find(r=>r.id===p?.source_id);
