@@ -35,7 +35,12 @@ def extract(raw, kind, work):
 
 
 def discover(directory, works, root):
-    runtime.write(directory / 'plan.json', dict(rich_plan(), question='Synthetic question?'))
+    plan = dict(rich_plan(), question='Synthetic question?', rationale='Compare delayed retrieval across studies.',
+                outcomes=[dict(name='Successful retrieval', unit='percent', time_point='one week',
+                               effect_measure='difference in means')],
+                other_variables=[], study_groups=[], result_selection='Use the one-week result.',
+                missing_information='Keep missing values unknown.', draft_author=dict(name='Fixture', kind='software'))
+    runtime.write(directory / 'plan.json', plan)
     reply = {'results': works, 'meta': {'count': len(works), 'next_cursor': None}}
     with httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=reply))) as client:
         runtime.discover(directory, directory / 'plan.json', root=root, client=client)
