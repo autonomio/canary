@@ -457,6 +457,24 @@ def test_the_dashboard_names_the_copy_each_value_was_read_from(tmp_path):
              'studies': [dict(study_table.export([study()])[0], document_versions=copy)],
              'study_summary': study_table.summary([study()]), 'binding_issues': []}
     run_dashboard(tmp_path, graph, r'''
-assert.match(outcomeResultHtml(graph,graph.study_results[0]),/Read from R1 · text <code>aaaaaaaaaaaa<\/code>/);
+assert.match(outcomeResultHtml(graph,graph.study_results[0]),/Reports cited by this result: R1 <code>aaaaaaaaaaaa<\/code>/);
 assert.match(studyTableHtml(graph),/Read from R1 <code>aaaaaaaaaaaa<\/code>/);
+''')
+
+
+def test_a_value_names_only_the_copies_its_own_passages_come_from(tmp_path):
+    from test_coverage_evidence_ui import run_dashboard
+
+    owners = {'R1-p1': 'R1', 'R2-p1': 'R2'}
+    references = {'R1': {'text_sha256': 'a' * 64, 'body_sha256': 'b' * 64},
+                  'R2': {'text_sha256': 'c' * 64, 'body_sha256': 'd' * 64}}
+    record = result(reference_ids=['R1', 'R2'], outcome_result=dict(
+        result()['outcome_result'], estimate=calculated(passage='R2-p1'), precision=field('R1-p1') | {'origin': 'reported'}))
+    exported = study_table.export_result(record, owners, references)['outcome_result']
+    assert exported['estimate']['document_versions'] == [{'reference_id': 'R2', 'text_sha256': 'c' * 64, 'body_sha256': 'd' * 64}]
+    assert [v['reference_id'] for v in exported['precision']['document_versions']] == ['R1']
+    graph = {'passages': [], 'study_results': [dict(record, fields={}, outcome_result=exported)], 'binding_issues': []}
+    run_dashboard(tmp_path, graph, r'''
+const html=outcomeResultHtml(graph,graph.study_results[0]);
+assert.match(html,/Effect estimate<\/dt><dd><p>0.12 <span class="hint">Calculated<\/span><\/p><p class="hint">Read from R2 <code>cccccccccccc<\/code><\/p>/);
 ''')

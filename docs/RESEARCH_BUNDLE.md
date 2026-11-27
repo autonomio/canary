@@ -409,8 +409,9 @@ reported, not measured, measured but not reported, or unclear, with the basis an
 Not measured and measured but not reported need a passage. A result given in words keeps the
 study's wording. A planned outcome without a result in a study is listed with the study table.
 
-Each study and study result lists the copy of every report it was read from, by the SHA-256 of
-the saved text and of the original file.
+Each study and study result lists the copy of every report it cites, by the SHA-256 of the saved
+text and of the original file. Each outcome value names only the copies its own passages and
+calculation inputs come from.
 
 Canary records an edition of the study table after the research round and after each correction
 round that changes it. An edition holds each result's values, unit and report copies and each

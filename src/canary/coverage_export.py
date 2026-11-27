@@ -678,7 +678,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                         source_ids=sources, fields=fields,
                         result_type=type_map.get(record.get("result_type"), record.get("result_type")))
         from .study_table import document_versions, export_result
-        exported.update(export_result(record), document_versions=document_versions(sources, refs))
+        owners = {pid: span.get("reference_id", span.get("source_id")) for pid, span in spans.items()}
+        exported.update(export_result(record, owners, refs), document_versions=document_versions(sources, refs))
         if study_counts[record.get("id")] > 1:
             exported["study_result_occurrence"] = study_occurrences[record.get("id")]
         graph["study_results"].append(exported)

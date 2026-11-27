@@ -231,7 +231,21 @@ def _availability_issues(owner, result, recorded, passages):
         yield from _cited(owner, 'availability', ids, passages, result.get('reference_ids', []), 'undeclared_result_reference')
 
 
-def export_result(result):
+def value_passage_ids(field):
+    """The passages a value was read from, including those of its calculation inputs."""
+    if not isinstance(field, dict):
+        return []
+    calculation = field.get('calculation') if isinstance(field.get('calculation'), dict) else {}
+    return list(dict.fromkeys([*field.get('passage_ids', []),
+                               *(pid for item in _rows(calculation.get('inputs')) for pid in item.get('passage_ids', []))]))
+
+
+def value_documents(field, owners, references):
+    """The copy of each report a single value was read from."""
+    return document_versions([owners[pid] for pid in value_passage_ids(field) if pid in owners], references)
+
+
+def export_result(result, owners=None, references=None):
     """Name outcome passage links the way exported result fields do."""
     recorded = result.get('outcome_result')
     if not isinstance(recorded, dict):
@@ -240,6 +254,8 @@ def export_result(result):
         if not isinstance(field, dict):
             return None
         exported = {'value': field.get('text'), 'paragraph_ids': list(field.get('passage_ids', []))}
+        if owners is not None and references is not None:
+            exported['document_versions'] = value_documents(field, owners, references)
         if 'origin' in field:
             calculation = field.get('calculation')
             exported.update(origin=field.get('origin'), calculation_check=calculation_check(field), calculation=dict(
