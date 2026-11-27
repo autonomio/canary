@@ -223,6 +223,21 @@ def report(view: dict, workspace: Path | None) -> Appendix:
             protocol_entries.append(entry('Outcome', ' · '.join([outcome['name'], *details])))
         protocol_entries.extend(criteria_entries(saved_plan))
         protocol_sections.append(dict(title=title, entries=protocol_entries))
+    if versions:
+        spec_path = working_file(workspace, 'run-spec.json')
+        spec = json.loads(spec_path.read_bytes()) if spec_path else {}
+        registration = spec.get('registration', {})
+        status = registration.get('status')
+        if status == 'registered':
+            details = [entry('Registry', registration['registry']), entry('Identifier', registration['identifier'])]
+            if registration.get('registered_on'):
+                details.append(entry('Date reported in the registry', registration['registered_on']))
+            if registration.get('record_url'):
+                details.append(entry('Registry record supplied by the author', registration['record_url']))
+        else:
+            details = [entry('Registration', 'Declared unregistered.' if status == 'unregistered'
+                             else 'Registration status was not recorded.')]
+        protocol_sections.append(dict(title='Protocol registration', entries=details))
     warnings = []
     query_rows = searches(workspace, progress, plan.get('queries') or [], warnings=warnings)
     search = search_entries(query_rows, selection)

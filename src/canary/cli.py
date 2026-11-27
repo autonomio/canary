@@ -113,6 +113,8 @@ def argument_parser():
     sub.add_parser('mcp',help='serve stdio agent tools over the same HTTP API')
     connect = sub.add_parser('connect', help='reuse Codex login or sign in; start the local service if needed')
     connect.add_argument('--device', action='store_true', help='use a device code (headless service)')
+    protocol = sub.add_parser("protocol", help="export the dated protocol for a research run")
+    protocol.add_argument("key", help="research run key")
     methods = sub.add_parser("methods", help="read the methods appendix for a saved review")
     methods.add_argument("key", help="research run key")
     checklist = sub.add_parser("checklist", help="read the PRISMA checklist for a saved review")

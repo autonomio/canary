@@ -343,3 +343,25 @@ A review can supply
 and prompt SHA-256 must all match the session for its citation to appear.
 If the receipt records a retry or a capacity pause, the appendix withholds
 the citation because the evaluation covers only the initial prompt.
+
+### Review protocols
+
+Canary saves the first accepted protocol before it fetches search results. The methods
+appendix shows the original plan and each amendment. An outcome has a stable identifier
+for its name, unit, time point and effect measure. A change to any of these gives it a
+new identifier. The version digest identifies the whole dated plan.
+
+Use **Download dated protocol** in the dashboard or run `canary protocol RUN_KEY` to
+export the recorded versions for registration. The API serves the same JSON at
+`GET /api/runs/{key}/prisma/protocol`. It becomes available once discovery has
+accepted the first draft and remains available after compaction.
+
+The declaration can include `registration: {status: unregistered}`. For a registered
+review, supply `status: registered`, `registry` and `identifier`. To cite a registration
+date, supply `registered_on` as a quoted calendar date and `record_url` as the public
+registry link. Omission leaves the status unknown. Canary records local times for each
+version. The cited registry record is the independent source for the registration date.
+
+A decision with subject ID `protocol:<version digest>` records approval or rejection
+of that version. Its decision history identifies the reviewer and the time of the
+decision. A software draft on its own carries no approval.

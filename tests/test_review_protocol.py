@@ -35,3 +35,42 @@ def test_amendment_preserves_both_plans_and_retries_once(tmp_path):
     write(tmp_path / protocol.FILE, [first, second])
     with pytest.raises(ValueError, match='has changed'):
         protocol.versions(tmp_path / protocol.FILE)
+
+
+def test_export_returns_the_same_versions_before_and_after_compaction(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from canary import compact_bundle, dashboard, research_bundle, review_protocol, runs
+    from test_compact_bundle import prepared
+
+    prepared(tmp_path)
+    review_protocol.save_plan(tmp_path, dict(question='When?', outcomes=['Six weeks']))
+    expected = review_protocol.versions(tmp_path / review_protocol.FILE)
+    handler = object.__new__(dashboard.Handler)
+    handler.supervisor = SimpleNamespace(root=tmp_path.parent, registry=None)
+    handler.dashboard_enabled = True
+    monkeypatch.setattr(runs, 'get', lambda *args: {'key': 'review', 'bundle': str(tmp_path)})
+    handler.path = '/api/runs/review/prisma/protocol'
+    responses = []
+    handler._send = lambda *args: responses.append(args)
+    research_bundle.seal(tmp_path, state='running')
+    handler.do_GET()
+    research_bundle.seal(tmp_path)
+    compact_bundle.retain(tmp_path)
+    handler.do_GET()
+    assert [status for status, _ in responses] == [200, 200]
+    assert responses[0][1] == responses[1][1]
+    assert responses[0][1]['versions'] == expected
+    assert responses[0][1]['registration'] == {'status': 'unknown'}
+
+
+def test_registration_keeps_its_external_date_and_source():
+    import pytest
+    from canary.research_spec import CompileError, compile_mapping
+    record = dict(status='registered', registry='Registry', identifier='R1',
+                  registered_on='2026-01-10', record_url='https://example.org/reviews/R1')
+    assert compile_mapping({'question': 'When?', 'registration': record})['resolved']['registration'] == record
+    record.pop('record_url')
+    with pytest.raises(CompileError, match='registry record'):
+        compile_mapping({'question': 'When?', 'registration': record})
+    assert compile_mapping({'question': 'When?', 'registration': {'status': 'unregistered'}})['resolved'][
+        'registration'] == {'status': 'unregistered'}
