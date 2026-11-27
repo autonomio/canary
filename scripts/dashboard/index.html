@@ -3352,6 +3352,7 @@
       unknown_protocol_version:()=>`Result ${i.study_result_id} cites protocol version ${String(i.protocol_version).slice(0,12)}, which is not recorded.`,
       unknown_protocol_outcome:()=>`Result ${i.study_result_id} cites outcome ${i.outcome_id}, which that protocol version does not define.`,
       missing_outcome_result:()=>`Result ${i.study_result_id} names a planned outcome but records no outcome result.`,
+      outcome_departs_from_protocol:()=>`Result ${i.study_result_id} ${i.field.replace('_',' ')} differs from the protocol (${i.protocol_value}): ${i.recorded_value ?? 'not recorded'}.${i.explanation ? ` ${i.explanation}` : ''}`,
       outcome_definition_mismatch:()=>`Result ${i.study_result_id} ${i.field.replace('_',' ')} is ${i.recorded_value ?? 'not recorded'}; the protocol defines ${i.protocol_value}.`,
       unknown_result_group:()=>`Result ${i.study_result_id} names group ${i.group_id}, which its study does not record.`,
       undeclared_result_reference:()=>`Result ${i.study_result_id} ${i.field} cites ${i.reference_id}, which is not among the result's references.`,

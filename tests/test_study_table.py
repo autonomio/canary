@@ -229,9 +229,17 @@ def test_a_result_follows_its_study_and_the_protocol_outcome_version():
 
 def test_a_result_that_departs_from_the_protocol_definition_is_flagged():
     recorded = dict(result()['outcome_result'], time_point=field('R1-p1') | {'text': '48 hours'})
-    found = study_table.result_issues([result(outcome_result=recorded)], [study()], versions=VERSIONS, passages=PASSAGES)
-    assert found == [{'kind': 'outcome_definition_mismatch', 'study_result_id': 'SR1', 'study_id': 'S1',
-                      'field': 'time_point', 'protocol_value': '24 hours', 'recorded_value': '48 hours'}]
+    assert study_table.result_issues([result(outcome_result=recorded)], [study()], versions=VERSIONS, passages=PASSAGES) == []
+    stated = dict(recorded, protocol_agreement={'time_point': 'differs', 'effect_measure': 'same',
+                                                'explanation': 'The study tested at 48 hours only.'})
+    found = study_table.result_issues([result(outcome_result=stated)], [study()], versions=VERSIONS, passages=PASSAGES)
+    assert found == [{'kind': 'outcome_departs_from_protocol', 'study_result_id': 'SR1', 'study_id': 'S1',
+                      'field': 'time_point', 'protocol_value': '24 hours', 'recorded_value': '48 hours',
+                      'explanation': 'The study tested at 48 hours only.'}]
+    for unit, expected in (('N/mm²', []), ('N / mm^2', []), ('None', [('outcome_definition_mismatch', 'unit')]),
+                           ('MPa for strength; percent for gains', [('outcome_definition_mismatch', 'unit')])):
+        assert result_kinds([result(fields={'units': {'text': unit, 'passage_ids': ['R1-p1']}})],
+                            [dict(VERSIONS[0], outcomes=[dict(VERSIONS[0]['outcomes'][0], unit='MPa')])]) == expected
     assert result_kinds([result(fields={'units': {'text': 'mN', 'passage_ids': ['R1-p1']}})]) == [
         ('outcome_definition_mismatch', 'unit')]
     assert result_kinds([result(outcome={'id': 'O9', 'protocol_version': 'V1'})]) == [
@@ -351,6 +359,7 @@ def test_calculated_values_are_re_run_and_mismatches_listed():
             fields={k: None for k in shape['properties']['fields']['properties']},
             outcome_result=dict(record['outcome_result'], groups=[], time_point=None, effect_measure=None, qualitative=None,
                                 availability={'status': 'reported', 'basis': 'Table 2.', 'passage_ids': ['R1-p1']},
+                                protocol_agreement={'time_point': 'same', 'effect_measure': 'same', 'explanation': ''},
                                 precision={'text': '0.1', 'passage_ids': ['R1-p1'], 'origin': 'reported', 'calculation': None},
                                 larger_value_favours=None)))
         assert result_kinds([record]) == kinds_found

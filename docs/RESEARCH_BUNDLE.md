@@ -391,10 +391,13 @@ audit. They do not withhold claims.
 Each study result names its study. A result for a planned outcome also names the outcome ID and
 the SHA-256 of the protocol version that defines it. It records the time point, effect measure,
 each group's value and denominator, the effect estimate and its precision as reported, and which
-group a larger value favours. Where that protocol version defines the unit, time point or effect
-measure, Canary compares the result with it and lists any difference with the study table. A
-result that cites an earlier protocol version is listed as citing a superseded version; the
-definitions it used stay readable. The export includes
+group a larger value favours. Where that protocol version defines a unit, Canary compares the
+result's unit with it, treating equivalent units such as N/mm² and MPa as the same, and lists a
+different or missing unit with the study table. For the time point and effect measure, each
+result states whether the study's matches the protocol, differs or is not reported, and explains
+a difference; results that differ are listed with the study table. A result that cites an
+earlier protocol version is listed as citing a superseded version; the definitions it used stay
+readable. The export includes
 `protocol_outcomes`, the outcome definitions of every recorded protocol version.
 
 Each outcome value is marked reported or calculated. A calculated value keeps every published

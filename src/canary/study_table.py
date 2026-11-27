@@ -78,9 +78,17 @@ def issues(studies, *, references, passages, reviews, plan):
     return found
 
 
-def _same(left, right, *, exact=False):
-    left, right = ' '.join(str(left).split()), ' '.join(str(right).split())
-    return left == right if exact else left.casefold() == right.casefold()
+UNIT_ALIASES = {'N/mm2': 'MPa', 'kN/mm2': 'GPa', 'N/m2': 'Pa', 'kN/m2': 'kPa', 'percent': '%'}
+NO_VALUE = {'', 'none', 'null', 'n/a', 'na', 'not reported', 'unreported'}
+
+
+def _unit(text):
+    text = ''.join(str(text).split()).replace('²', '2').replace('^2', '2').replace('·', '')
+    return UNIT_ALIASES.get(text, text)
+
+
+def _text(field):
+    return field.get('text') if isinstance(field, dict) else None
 
 
 def _values(result):
@@ -175,13 +183,18 @@ def result_issues(results, studies, *, versions, passages):
                                   'version_number': numbers[cited], 'latest_version_number': latest.get('number')})
                 if isinstance(recorded, dict) and definition is not None:
                     units = (result.get('fields') or {}).get('units')
-                    for name, field in (('unit', units), ('time_point', recorded.get('time_point')),
-                                        ('effect_measure', recorded.get('effect_measure'))):
-                        value = field.get('text') if isinstance(field, dict) else None
-                        if definition.get(name) is not None and (
-                                value is None or not _same(value, definition[name], exact=name == 'unit')):
-                            found.append({'kind': 'outcome_definition_mismatch', **owner, 'field': name,
-                                          'protocol_value': definition[name], 'recorded_value': value})
+                    value = units.get('text') if isinstance(units, dict) else None
+                    if value is not None and value.strip().casefold() in NO_VALUE:
+                        value = None
+                    if definition.get('unit') is not None and (value is None or _unit(value) != _unit(definition['unit'])):
+                        found.append({'kind': 'outcome_definition_mismatch', **owner, 'field': 'unit',
+                                      'protocol_value': definition['unit'], 'recorded_value': value})
+                    agreement = recorded.get('protocol_agreement') if isinstance(recorded.get('protocol_agreement'), dict) else {}
+                    for name in ('time_point', 'effect_measure'):
+                        if definition.get(name) is not None and agreement.get(name) == 'differs':
+                            found.append({'kind': 'outcome_departs_from_protocol', **owner, 'field': name,
+                                          'protocol_value': definition[name], 'recorded_value': _text(recorded.get(name)),
+                                          'explanation': agreement.get('explanation')})
         if isinstance(recorded, dict):
             favours = recorded.get('larger_value_favours')
             if isinstance(favours, dict):
