@@ -92,7 +92,7 @@ def workspace_lock(workspace, name):
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
-def validate_plan(plan):
+def validate_plan(plan, *, require_protocol=False):
     if not isinstance(plan, dict) or not isinstance(plan.get("question"), str) or not plan["question"].strip():
         raise ValueError("QuestionPlan requires a nonempty question")
     if "entities" in plan:
@@ -106,6 +106,15 @@ def validate_plan(plan):
         raise ValueError("QuestionPlan requires typed coverage aspects/facets")
     if not isinstance(plan.get("eligibility"), dict):
         raise ValueError("QuestionPlan requires eligibility criteria")
+    for field, schema in protocol.PROTOCOL_FIELDS.items():
+        if not require_protocol and field not in plan:
+            continue
+        value = plan.get(field)
+        if schema['type'] == 'array':
+            if not isinstance(value, list) or any(not isinstance(v, str) or not v.strip() for v in value):
+                raise ValueError('QuestionPlan requires a list of text values for ' + field)
+        elif not isinstance(value, str) or not value.strip():
+            raise ValueError('QuestionPlan requires text for ' + field)
     instructions = plan.get("screening_instructions", [])
     if not isinstance(instructions, list) or any(not isinstance(item, str) for item in instructions):
         raise ValueError("QuestionPlan screening_instructions must be an array of strings")
@@ -410,7 +419,8 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
     """Fresh indexed search, saving each page and exposing declared truncation."""
     workspace = Path(workspace).resolve()
     root = Path(root) if root is not None else data_root()
-    plan = validate_plan(read(Path(plan_path)))
+    run = read(workspace / "run.json", {})
+    plan = validate_plan(read(Path(plan_path)), require_protocol=bool(run.get("protocol_version")))
     additional = read(workspace / 'run.json', {}).get('additional_sources', [])
     if any(q.get('source', 'openalex') not in ('openalex', *additional) for q in plan['queries']):
         raise ValueError('Query requests a source not enabled for this run')
@@ -447,7 +457,8 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
         index = lifetime.enter_context(CandidateIndex(workspace))
         # Rejected query redefinitions must not replace the saved plan paired
         # with committed candidates and cursor receipts.
-        write(workspace / "question-plan.json", plan)
+        from .review_protocol import save_plan
+        save_plan(workspace, plan)
         for query in plan["queries"]:
             progress["queries"].setdefault(query["id"], {"search": query["search"], "pages": 0, "cursor": "*", "complete": False})
             if additional: progress['queries'][query['id']]['source'] = query.get('source', 'openalex')
@@ -1357,7 +1368,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
         "status": "researching", "started_at": started, "generated_at": started,
         "selection_method": "coverage-guided", "minimum_papers": minimum_papers, "research_model": protocol.RESEARCH_MODEL,
         "research_effort": protocol.RESEARCH_EFFORT, "audit_model": protocol.AUDIT_MODEL, "audit_effort": protocol.AUDIT_EFFORT,
-        "max_correction_rounds": max_correction_rounds, "verification_version": 1,
+        "max_correction_rounds": max_correction_rounds, "verification_version": 1, "protocol_version": 1,
         "agent_paper_metadata_fields": list(protocol.AGENT_PAPER_METADATA_FIELDS),
         "no_subagents": True, "fresh_assets_only": not bool(local_text),
         **({"local_text": local_text, "corpus": "local_text"} if local_text else {}), "audit_budget_seconds": audit_seconds,

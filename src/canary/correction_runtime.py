@@ -12,12 +12,12 @@ from . import audit_validation, corrections, coverage_protocol as protocol
 # The research's coverage bookkeeping. No claim, evidence record, source or count reads it, and a correction has no
 # typed field for it. A session that changes it, as the research thread a correction continues was told to keep it,
 # gets the research's version back instead of failing the round.
-RESTORED = ('coverage-map.json',)
+RESTORED = ('coverage-map.json', 'review-protocol.json')
 
 
 def protected(workspace):
     """Auditing and correction may read scientific inputs, never rewrite them."""
-    names = ('investigation.json', 'question-plan.json', 'selection.json', 'reviewed-papers.json',
+    names = ('investigation.json', 'question-plan.json', 'review-protocol.json', 'selection.json', 'reviewed-papers.json',
              'references.json', 'research.yaml', 'run-spec.json', 'research-state.json', 'citation-leads.json', 'payload.json',
              'audit-input.json', 'mechanical-audit.json', 'coverage-map.json', 'scarcity.json',
              'local-corpus.json', 'research-receipt.json')

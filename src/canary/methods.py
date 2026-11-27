@@ -29,7 +29,11 @@ class Section(TypedDict):
     entries: list[Entry]
 
 
-class Appendix(TypedDict):
+class _ProtocolRecord(TypedDict, total=False):
+    protocol_versions: list[dict]
+
+
+class Appendix(_ProtocolRecord):
     question: str
     searches: list[dict]
     sections: list[Section]
@@ -193,13 +197,27 @@ def report(view: dict, workspace: Path | None) -> Appendix:
                     target.update(saved)
                 else:
                     missing.append(entry(name, f'Canary could not read the saved {name} record.'))
+    from .review_protocol import FILE
+    history = working_file(workspace, FILE)
+    versions = json.loads(history.read_bytes()) if history else []
+    protocol_entries = []
+    for version in versions:
+        saved_plan = version['plan']
+        protocol_entries.append(entry('Original plan' if version['original'] else 'Earliest retained plan',
+                                      saved_plan['question']))
+        for field, label in [('rationale', 'Rationale'), ('outcomes', 'Outcome'), ('other_variables', 'Other variable'),
+                             ('study_groups', 'Study group'), ('result_selection', 'Choosing results'),
+                             ('missing_information', 'Missing information')]:
+            protocol_entries.extend(entry(label, text) for text in strings(saved_plan.get(field)))
+        protocol_entries.extend(criteria_entries(saved_plan))
     warnings = []
     query_rows = searches(workspace, progress, plan.get('queries') or [], warnings=warnings)
     search = search_entries(query_rows, selection)
     search.extend(entry('Incomplete request log', warning) for warning in warnings)
     return dict(question=graph.get('question') or plan.get('question') or view.get('seed') or '',
-                searches=query_rows,
+                protocol_versions=versions, searches=query_rows,
                 sections=([dict(title='Limits of the saved record', entries=missing)] if missing else []) +
+                         ([dict(title='Review protocol', entries=protocol_entries)] if versions else []) +
                          [dict(title='Eligibility', entries=criteria_entries(plan)),
                           dict(title='Searches', entries=search),
                           dict(title='Screening and access', entries=screening_entries(view, selection, coverage)),

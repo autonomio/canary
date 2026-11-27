@@ -294,7 +294,8 @@ def schemas():
 def _query_schema():
     shape = protocol.question_plan_schema(ADDITIONAL_SOURCES)
     shape['properties']['queries']['items']['required'].remove('source')
-    shape['required'].remove('screening_instructions')
+    for field in ('screening_instructions', *protocol.PROTOCOL_FIELDS):
+        shape['required'].remove(field)
     return shape
 
 
