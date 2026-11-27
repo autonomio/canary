@@ -684,6 +684,8 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
                     receipt.update(status="unavailable", public_timeout_seen=timeout_seen)
                 else:
                     raw, kind, url = result[:3]
+                    if url:
+                        url = request_address(httpx.URL(url))
                     reused = isinstance(result, PaperCopy) and extract is _extract
                     text, pages, blank, extension = result.extraction if reused else extract(raw, kind, work)
                     receipt['validated_text_reused'] = reused

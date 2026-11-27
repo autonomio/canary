@@ -360,7 +360,7 @@ def document():
         result['paths'][decisions][method]['responses'][status] = {
             'description':description, 'content':{'application/json':{'schema':ref('Error')}}}
     op('archive','get','/api/runs/{key}/bundle/archive','Download a finished bundle with exact saved materials',params=[key],media='application/zip')
-    op('artifact','get','/api/runs/{key}/bundle/artifacts/{artifact_path}','Download a verified artifact with request URLs redacted in logs and download receipts',params=[key,('artifact_path','path',S,True)],media='application/octet-stream')
+    op('artifact','get','/api/runs/{key}/bundle/artifacts/{artifact_path}','Download one hash-checked inventoried artifact',params=[key,('artifact_path','path',S,True)],media='application/octet-stream')
     op('export','get','/api/runs/{key}/exports/{connector}',
        'Export native Resolvent records with losslessly packed Canary JSON; compact output fits the 10 MiB contribution limit '
        'or is refused with 422 contribution_too_large; expanded reconstructs original extension JSON for reading and is not size-bounded',

@@ -1613,12 +1613,8 @@ class Handler(BaseHTTPRequestHandler):
                             return
                         self._send_file(path, 'application/zip')
                 elif len(parts) > 5:
-                    exported = bundle_store.artifact(row['bundle'], unquote('/'.join(parts[6:])), for_download=True)
-                    if isinstance(exported, bytes):
-                        self._send(200, exported, 'application/octet-stream',
-                                   {'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store'})
-                    else:
-                        self._send_file(exported, 'application/octet-stream')
+                    path = bundle_store.artifact(row['bundle'], unquote('/'.join(parts[6:])))
+                    self._send_file(path, 'application/octet-stream')
                 else:
                     try:
                         bundle = bundle_store.read(row['bundle'])

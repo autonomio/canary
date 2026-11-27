@@ -630,13 +630,15 @@ def test_public_acquisition_saves_the_validated_extraction_once(tmp_path, monkey
     monkeypatch.setattr(sources, name, count)
     monkeypatch.setattr(runtime.socket, 'getaddrinfo', public_resolver)
     def handler(request):
-        return httpx.Response(200, content=raw) if request.url.path == '/paper' else httpx.Response(404)
+        return httpx.Response(200, content=raw) if request.url.params.get('signature') == 'synthetic' else httpx.Response(404)
     rows = runtime.acquire(tmp_path, ['W1'], transport=httpx.MockTransport(handler))
     assert rows[0]['status'] == 'source_retrieved', rows
     assert rows[0]['validated_text_reused'] is True
     assert calls == [raw]
     ref = rows[0]['reference']
-    assert ref['url'] == rows[0]['url'] == 'https://example.org/paper?signature=synthetic'
+    assert ref['url'] == rows[0]['url'] == 'https://example.org/paper'
+    assert runtime.read(tmp_path / 'references.json')[0]['url'] == ref['url']
+    assert 'signature=synthetic' not in (tmp_path / 'download-receipts/W1.json').read_text()
     saved = (tmp_path / ref['text_file']).read_text()
     expected = runtime._extract(raw, kind, selected)[0].replace('\r\n', '\n').replace('\r', '\n')
     assert saved == expected

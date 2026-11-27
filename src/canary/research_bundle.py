@@ -11,10 +11,7 @@ import os
 from pathlib import Path
 from typing import BinaryIO, TypedDict
 
-from httpx import InvalidURL, URL
-
 from . import review_history
-from .methods_search import request_address
 from .research_spec import verify_compiled, digest
 from .runtime_paths import resource_root
 from .bundle_encoding import BundleEncoding
@@ -196,152 +193,19 @@ def archive(workspace: str | Path, target: str | Path | BinaryIO, *, review_stor
         _archive(workspace, target, review_store)
 
 
-REQUEST_LOGS = {'openalex-requests.json', 'openalex-request-log.json', 'public-network.jsonl',
-                'additional-source-requests.jsonl', 'local-search-requests.jsonl'}
-REFERENCE_FILES = {'references.json', 'answer.json', 'access.json', 'payload.json'}
-
-
-def has_request_urls(name: str) -> bool:
-    """Identify request records and the reference files that copy their URLs."""
-    path = Path(name)
-    if path.parent.name in ('download-receipts', 'download-history'):
-        return path.suffix == '.json'
-    if path.name in REFERENCE_FILES:
-        return path.parent in (Path('.'), Path('common'), Path('research'))
-    return path.name in REQUEST_LOGS
-
-
-def _redact_urls(record: dict) -> bool:
-    changed = False
-    for key, value in record.items():
-        if key in ('url', 'text_url', 'record_url') and value is not None:
-            try:
-                url = URL(value)
-                endpoint = request_address(url) if url.userinfo or url.query or url.fragment else value
-            except (TypeError, InvalidURL):
-                endpoint = None
-            if endpoint != value:
-                record[key] = endpoint
-                changed = True
-        elif isinstance(value, dict):
-            if _redact_urls(value):
-                changed = True
-        elif isinstance(value, list):
-            for item in value:
-                if isinstance(item, dict) and _redact_urls(item):
-                    changed = True
-    return changed
-
-
-def archive_log(name: str, raw: bytes) -> bytes | None:
-    """Return redacted bytes for a request record or a derived reference file."""
-    lines = name.endswith('.jsonl')
-    changed = False
-    path = Path(name)
-    receipt = path.parent.name in ('download-receipts', 'download-history')
-    filename = path.name
-    unreadable = {'error': 'This request record could not be safely exported.'}
-    if not receipt and filename in REFERENCE_FILES:
-        try:
-            saved = json.loads(raw)
-        except ValueError:
-            saved = None
-        if filename == 'references.json':
-            wrapper = {'references': saved}
-        elif isinstance(saved, dict):
-            wrapper = saved
-        else:
-            return json.dumps(unreadable).encode()
-        fields = ('accepted', 'excluded') if filename == 'access.json' else ('references',)
-        for field in fields:
-            group = wrapper.get(field)
-            if group is None and filename != 'references.json':
-                continue
-            if not isinstance(group, list):
-                wrapper[field] = [unreadable]
-                changed = True
-                continue
-            for index, reference in enumerate(group):
-                if not isinstance(reference, dict):
-                    group[index] = unreadable
-                    changed = True
-                elif _redact_urls(reference):
-                    changed = True
-        if not changed:
-            return None
-        result = wrapper['references'] if filename == 'references.json' else wrapper
-        return json.dumps(result, ensure_ascii=False).encode()
-    if lines:
-        records = []
-        for line in raw.splitlines():
-            if line.strip():
-                try:
-                    records.append(json.loads(line))
-                except ValueError:
-                    records.append(unreadable)
-                    changed = True
-    else:
-        try:
-            saved = json.loads(raw)
-        except ValueError:
-            saved = None
-        if receipt and isinstance(saved, dict):
-            records = [saved]
-        elif not receipt and isinstance(saved, list):
-            records = saved
-        else:
-            records = [unreadable]
-            changed = True
-    for index, record in enumerate(records):
-        if not isinstance(record, dict):
-            records[index] = unreadable
-            changed = True
-        elif _redact_urls(record):
-            changed = True
-    if not changed:
-        return None
-    content = '\n'.join(json.dumps(row) for row in records) if lines else json.dumps(records[0] if receipt else records)
-    return (content + '\n').encode()
-
-
-def exported_artifact(workspace: Path, entry: dict) -> bytes | Path:
-    """Verify and redact the same request bytes for ZIP and individual downloads."""
-    if not has_request_urls(entry['path']):
-        return verified_artifact(workspace, entry)
-    path = (workspace / entry['path']).resolve()
-    if not path.is_relative_to(workspace.resolve()) or not path.is_file():
-        raise KeyError('Unknown bundle artifact')
-    raw = path.read_bytes()
-    if len(raw) != entry['bytes'] or hashlib.sha256(raw).hexdigest() != entry['sha256']:
-        raise ValueError('Bundle artifact changed since its recorded snapshot')
-    return archive_log(entry['path'], raw) or raw
-
-
 def _archive(workspace: Path, target: str | Path | BinaryIO, review_store: Path | None) -> None:
     manifest = read(workspace)
     if manifest['state'] != 'finished':
         raise ValueError('Only a finished versioned bundle can be archived')
     with zipfile.ZipFile(target, 'w', compression=zipfile.ZIP_STORED) as output:
-        changed = False
-        for entry in manifest['artifacts']:
-            exported = exported_artifact(workspace, entry)
-            if isinstance(exported, Path):
-                output.write(exported, entry['path'])
-            else:
-                output.writestr(entry['path'], exported)
-                checksum = hashlib.sha256(exported).hexdigest()
-                if checksum != entry['sha256']:
-                    entry['original'] = dict(bytes=entry['bytes'], sha256=entry['sha256'])
-                    entry.update(bytes=len(exported), sha256=checksum)
-                    changed = True
-        compact = manifest.get('retention', {}).get('mode') == 'bundle_only'
-        if compact:
+        if manifest.get('retention', {}).get('mode') == 'bundle_only':
             from .compact_bundle import CHECKSUM
-            output.write(workspace / CHECKSUM, CHECKSUM)
-        if compact or changed:
             output.writestr('bundle.json', json.dumps(manifest, ensure_ascii=False))
+            output.write(workspace / CHECKSUM, CHECKSUM)
         else:
             output.write(workspace / 'bundle.json', 'bundle.json')
+        for entry in manifest['artifacts']:
+            output.write(verified_artifact(workspace, entry), entry['path'])
         if 'methods-appendix.json' not in output.namelist():
             from . import methods
             appendix = methods.for_bundle(workspace, manifest, review_store)
@@ -361,12 +225,10 @@ def verified_artifact(workspace, record):
     return path
 
 
-def artifact(workspace, name, *, for_download=False):
+def artifact(workspace, name):
     records = {r['path']: r for r in read(workspace)['artifacts']}
     if name not in records:
         raise KeyError('Unknown bundle artifact')
-    if for_download:
-        return exported_artifact(Path(workspace), records[name])
     return verified_artifact(workspace, records[name])
 
 

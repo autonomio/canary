@@ -494,91 +494,29 @@ def test_api_explicit_empty_optional_sources_remain_readable_after_release(api):
     assert client.get('/api/runs/'+created['key']+'/exports/resolvent').status_code == 200
 
 
-def test_archiving_legacy_request_urls_changes_only_the_exported_inventory(tmp_path):
-    completed(tmp_path)
-    folder = tmp_path / 'research'
-    folder.mkdir(exist_ok=True)
-    row = {'url': 'https://user:password@example.org/search?api_key=private#fragment', 'status': 200}
-    for name in research_bundle.REQUEST_LOGS:
-        (folder / name).write_text(json.dumps(row if name.endswith('.jsonl') else [row]))
-    before = research_bundle.seal(tmp_path)
-    output = io.BytesIO()
-    research_bundle.archive(tmp_path, output)
-    assert research_bundle.read(tmp_path) == before
-    from scripts.verify_resolvent_receiver import verify_archive
-    assert verify_archive(before, output.getvalue(), bundle_connectors.export(tmp_path, 'resolvent')) == 1
-    with zipfile.ZipFile(output) as archive:
-        entries = {r['path']: r for r in json.loads(archive.read('bundle.json'))['artifacts']}
-        for name in research_bundle.REQUEST_LOGS:
-            path = 'research/' + name
-            data = archive.read(path)
-            saved = json.loads(data)
-            assert (saved if name.endswith('.jsonl') else saved[0]) == dict(row, url='https://example.org/search')
-            raw = (tmp_path / path).read_bytes()
-            assert entries[path]['original'] == dict(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
-            assert research_bundle.artifact(tmp_path, path, for_download=True) == data
-            assert entries[path]['sha256'] == hashlib.sha256(data).hexdigest()
-            assert entries[path]['bytes'] == len(data)
-            assert 'api_key=private' in (tmp_path / path).read_text()
-
-
-def test_export_redacts_an_unreadable_request_line_and_keeps_readable_records(tmp_path):
-    log = tmp_path / 'public-network.jsonl'
-    log.write_bytes(b'{"status":200}\n{"url":"https://example.org/?token=private')
-    records = [json.loads(line) for line in research_bundle.archive_log(log.name, log.read_bytes()).splitlines()]
-    assert records == [{'status': 200}, {'error': 'This request record could not be safely exported.'}]
-
-
-def test_download_receipts_and_history_use_the_same_export_on_both_routes(api, tmp_path):
+def test_older_request_logs_and_audit_records_download_as_sealed(api, tmp_path):
     _, client, _ = api
-    workspace = tmp_path / 'signed-paper'
+    workspace = tmp_path / 'older-review'
     workspace.mkdir()
     completed(workspace)
-    signed = 'https://publisher.example/paper?signature=synthetic-secret'
-    paths = ['download-receipts/W1.json', 'research/download-history/W1-old.json']
-    for name in paths:
+    address = 'https://publisher.example/paper?signature=synthetic'
+    payload = {'references': [{'url': address}]}
+    files = {'download-receipts/W1.json': {'url': address, 'reference': payload['references'][0]},
+             'openalex-requests.json': [{'url': address}], 'rounds/000/subject.json': payload,
+             'payload.json': dict(payload, claim_revisions=[{'payload': payload}])}
+    for name, record in files.items():
         path = workspace / name
-        path.parent.mkdir(parents=True)
-        research_bundle.write_json(path, dict(url=signed, reference=dict(url=signed)))
-    projections = {'references.json': [dict(url=signed)], 'answer.json': {'references': [dict(text_url=signed)]},
-                   'access.json': {'excluded': [dict(url=signed)]}}
-    payload = json.loads((workspace / 'payload.json').read_text())
-    payload['references'][0]['url'] = signed
-    projections['payload.json'] = payload
-    for name, data in projections.items():
-        research_bundle.write_json(workspace / name, data)
-    before = research_bundle.seal(workspace)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        research_bundle.write_json(path, record)
+    manifest = research_bundle.seal(workspace)
     response = client.post('/api/runs/import', json={'server_path': str(workspace)})
     assert response.status_code == 201, response.text
-    base = '/api/runs/signed-paper/bundle'
-    response = client.get(base + '/archive')
-    assert response.status_code == 200
-    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-        assert all(b'synthetic-secret' not in archive.read(name) for name in archive.namelist())
-        entries = {row['path']: row for row in json.loads(archive.read('bundle.json'))['artifacts']}
-        sealed = {row['path']: row for row in before['artifacts']}
-        assert {name for name, row in entries.items() if 'original' in row} == set(paths) | projections.keys()
-        for name in projections:
-            assert client.get(base + '/artifacts/' + name).content == archive.read(name)
-        for name in paths:
-            direct = client.get(base + '/artifacts/' + name)
-            assert direct.status_code == 200
-            assert direct.content == archive.read(name)
-            assert direct.json() == dict(url='https://publisher.example/paper',
-                                         reference=dict(url='https://publisher.example/paper'))
-            assert entries[name]['original'] == {k: sealed[name][k] for k in ('sha256', 'bytes')}
-            raw = (workspace / name).read_bytes()
-            assert hashlib.sha256(raw).hexdigest() == sealed[name]['sha256']
-            assert json.loads(raw)['url'] == signed
-    assert research_bundle.read(workspace) == before
-
-
-def test_redacting_reference_files_keeps_dois_and_handles_incomplete_records():
-    raw = b'{"references":[{"url":"doi:10.1234/paper"}]}'
-    assert research_bundle.archive_log('payload.json', raw) is None
-    assert research_bundle.archive_log('access.json', b'{"accepted":null}') is None
-    for name, raw in [('answer.json', b'{'), ('references.json', b'null'),
-                      ('download-receipts/W1.json', b'["secret"]')]:
-        clean = research_bundle.archive_log(name, raw)
-        assert clean and b'secret' not in clean
-        assert research_bundle.archive_log(name, clean) is None
+    base = '/api/runs/older-review/bundle'
+    with zipfile.ZipFile(io.BytesIO(client.get(base + '/archive').content)) as archive:
+        assert archive.read('bundle.json') == (workspace / 'bundle.json').read_bytes()
+        for entry in manifest['artifacts']:
+            if entry['path'] in files:
+                direct = client.get(base + '/artifacts/' + entry['path'])
+                assert direct.status_code == 200
+                assert direct.content == archive.read(entry['path']) == (workspace / entry['path']).read_bytes()
+                assert hashlib.sha256(direct.content).hexdigest() == entry['sha256']
