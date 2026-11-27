@@ -1541,6 +1541,31 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             self._send(200, content, kind,
                                        {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
+            elif re.fullmatch(r"/api/runs/[^/]+/prisma/protocol", parsed.path):
+                from . import compact_bundle, review_protocol
+                row = runs.get(unquote(parsed.path.split('/')[3]), self.supervisor.registry)
+                if not row:
+                    self._send(404, {'error': 'Unknown research run', 'code': 'unknown_run'})
+                    return
+                if not row.get('bundle') or not Path(row['bundle']).is_dir():
+                    self._send(409, {'error': 'No protocol has been recorded for this run', 'code': 'protocol_unavailable'})
+                    return
+                workspace, store = self._decision_paths(row)
+                with review_history.reading(workspace):
+                    manifest = bundle_store.read(workspace)
+                    if compact_bundle.exists(workspace):
+                        versions = methods.for_bundle(workspace, manifest, store).get('protocol_versions', [])
+                    else:
+                        sealed = manifest['artifacts'] if manifest['state'] == 'finished' else None
+                        path = review_protocol.history_file(workspace, sealed)
+                        versions = review_protocol.versions(path) if path else []
+                if not versions or not manifest['id']:
+                    self._send(409, {'error': 'No protocol has been recorded for this run', 'code': 'protocol_unavailable'})
+                    return
+                edition = review_history.edition(workspace, store=store)
+                spec = (manifest.get('specification') or {}).get('resolved') or {}
+                self._send(200, dict(bundle_id=manifest['id'], registration=spec.get('registration', {'status': 'unknown'}),
+                                     versions=versions, decisions=review_protocol.approval_records(versions, edition['entries'])))
             elif re.fullmatch(r"/api/runs/[^/]+/prisma/(checklist|report|methods)", parsed.path):
                 _, _, _, key, _, representation = parsed.path.split('/')
                 row = runs.get(unquote(key), self.supervisor.registry)
@@ -1565,6 +1590,25 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(409, unavailable)
                     return
                 if representation == 'methods':
+                    versions = view.get('protocol_versions', [])
+                    if versions:
+                        from .review_protocol import approval_records
+                        edition = review_history.edition(workspace, store=store)
+                        decisions = approval_records(versions, edition['entries'])
+                        details = []
+                        for version in versions:
+                            records = [r for r in decisions if r['version'] == version['sha256']]
+                            label = f"Protocol version {version['number']}"
+                            if not any(r['decision']['status'] == 'accepted' for r in records):
+                                details.append(methods.entry(label, 'No approval recorded.'))
+                            details.append(methods.entry('Decision subject for ' + label.lower(),
+                                                         'protocol:' + version['sha256']))
+                            for record in records:
+                                decision = record['decision']
+                                actor = decision.get('decided_by') or decision.get('proposed_by') or {}
+                                details.append(methods.entry(label, f"{decision['status'].capitalize()} · "
+                                    f"{actor.get('name', 'Unknown')} · {record['recorded_at']} · {decision['reason']}"))
+                        view['sections'].append(dict(title='Protocol approval', entries=details))
                     self._send(200, view)
                     return
                 edition = review_history.edition(workspace, store=store)
@@ -1627,7 +1671,11 @@ class Handler(BaseHTTPRequestHandler):
                                   'created_at': None, 'execution': {'status': None, 'answered': None, 'audit_complete': None},
                                   'specification': None, 'artifacts': [], 'limitations': [str(error)]}
                     research, live = research_for_row(row, self.supervisor)
-                    self._send(200, {'key': key, 'live': live, 'bundle': bundle, 'research': research})
+                    data = {'key': key, 'live': live, 'bundle': bundle, 'research': research}
+                    if bundle['state'] == 'running':
+                        from .review_protocol import FILE
+                        data['protocol_available'] = methods.working_file(Path(row['bundle']), FILE) is not None
+                    self._send(200, data)
             elif parsed.path == "/api/log":
                 self._send(200, {"runs": runs.log_rows(self.supervisor.registry, self.supervisor.root)})
             elif parsed.path == "/api/runs":

@@ -25,7 +25,7 @@ def run(args, port):
                                 json={'query': args.query, 'limit': args.limit})
             elif args.cmd == 'sources':
                 value = request(client, 'POST', '/api/sources/openalex/recheck', json={})
-            elif args.cmd in ('checklist', 'methods'):
+            elif args.cmd in ('checklist', 'methods', 'protocol'):
                 value = request(client, 'GET', '/api/runs/' + quote(args.key, safe='') + '/prisma/' + args.cmd)
             elif args.cmd == 'decisions':
                 path = '/api/runs/' + quote(args.key, safe='') + '/review-decisions'
@@ -43,6 +43,8 @@ def run(args, port):
                 if args.citation_graph:
                     retrieval['selection'] = 'citation_graph'
                 spec = {'question': args.question, 'retrieval': retrieval}
+                if args.protocol_author is not None:
+                    spec['protocol_author'] = args.protocol_author
                 if args.study_brief is not None:
                     spec['study_brief'] = args.study_brief
                 value = request(client, 'POST', '/api/runs', json={'spec': spec})

@@ -257,3 +257,29 @@ def test_indexing_counts_reach_the_dashboard_before_findings_exist(corpus):
     assert result['coverage']['local_corpus_progress']['indexed_files']==100
     engine.write(workspace/'local-corpus-progress.json',{'status':'indexing','indexed_files':200,'bytes':24000})
     assert dashboard.research_bundle(workspace)['coverage']['local_corpus_progress']['indexed_files']==200
+
+
+def test_concurrent_discovery_requests_keep_both_protocol_drafts(corpus, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from canary import review_protocol
+
+    workspace, _, _ = corpus
+    drafts = [plan('zymofixture'), plan('contrast')]
+    drafts[1]['queries'][0]['id'] = 'Q2'
+    barrier = threading.Barrier(2)
+    discover = engine.discover
+
+    def together(*args, **kwargs):
+        barrier.wait(timeout=5)
+        return discover(*args, **kwargs)
+
+    monkeypatch.setattr(engine, 'discover', together)
+    row = {'bundle': str(workspace), 'status': 'researching'}
+    with ThreadPoolExecutor(2) as pool:
+        calls = [pool.submit(research_tools.execute, row, 'discover', {'plan': draft}, workspace.parent)
+                 for draft in drafts]
+        for call in calls:
+            call.result()
+    first, second = review_protocol.versions(workspace / review_protocol.FILE)
+    assert len(first['plan']['queries']) == 1
+    assert {q['id'] for q in second['plan']['queries']} == {'Q1', 'Q2'}

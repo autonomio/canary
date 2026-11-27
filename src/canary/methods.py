@@ -29,7 +29,11 @@ class Section(TypedDict):
     entries: list[Entry]
 
 
-class Appendix(TypedDict):
+class _ProtocolRecord(TypedDict, total=False):
+    protocol_versions: list[dict]
+
+
+class Appendix(_ProtocolRecord):
     question: str
     searches: list[dict]
     sections: list[Section]
@@ -173,7 +177,80 @@ def automation_entries(view: dict, selection: dict, workspace: Path | None) -> l
     return automation
 
 
-def report(view: dict, workspace: Path | None) -> Appendix:
+def _protocol_text(value: object) -> str:
+    if isinstance(value, dict):
+        return ' · '.join(f"{key.replace('_', ' ')}: {_protocol_text(part)}" for key, part in value.items()) or 'None'
+    if isinstance(value, list):
+        return ', '.join(_protocol_text(part) for part in value) or 'None'
+    return str(value) if value is not None else 'Unspecified'
+
+
+def _protocol_changes(label: str, before: object, after: object) -> list[Entry]:
+    if before == after:
+        return []
+    changes = []
+    if isinstance(before, dict) and isinstance(after, dict):
+        for key in dict.fromkeys([*before, *after]):
+            field = (label + ' · ' if label else '') + key.replace('_', ' ').capitalize()
+            if key not in before:
+                changes.append(entry('Added · ' + field, _protocol_text(after[key])))
+            elif key not in after:
+                changes.append(entry('Removed · ' + field, _protocol_text(before[key])))
+            else:
+                changes.extend(_protocol_changes(field, before[key], after[key]))
+    elif isinstance(before, list) and isinstance(after, list):
+        remaining = list(after)
+        for item in before:
+            if item in remaining:
+                remaining.remove(item)
+            else:
+                changes.append(entry('Removed · ' + label, _protocol_text(item)))
+        changes.extend(entry('Added · ' + label, _protocol_text(item)) for item in remaining)
+        if not changes:
+            changes.append(entry('New order · ' + label, _protocol_text(after)))
+    else:
+        changes.extend([entry('Previously · ' + label, _protocol_text(before)),
+                        entry('Now · ' + label, _protocol_text(after))])
+    return changes
+
+
+def _query_text(query: dict) -> str:
+    details = [f"{k.replace('_', ' ').capitalize()}: {_protocol_text(v)}"
+               for k, v in query.items() if k not in ('id', 'search') and v]
+    return '\n'.join([query['search'], *details])
+
+
+def _identified_queries(value: object) -> bool:
+    return (isinstance(value, list) and all(isinstance(q, dict) and isinstance(q.get('id'), str)
+            and isinstance(q.get('search'), str) for q in value) and len({q['id'] for q in value}) == len(value))
+
+
+def _amendment(previous: dict, version: dict) -> Section:
+    entries = []
+    old, new = previous['plan'], version['plan']
+    for key in dict.fromkeys([*old, *new]):
+        if key == 'queries' and _identified_queries(old.get(key)) and _identified_queries(new.get(key)):
+            before = {q['id']: q for q in old[key]}
+            after = {q['id']: q for q in new[key]}
+            for identifier in dict.fromkeys([*before, *after]):
+                if identifier not in before:
+                    entries.append(entry('Added search · ' + identifier, _query_text(after[identifier])))
+                elif identifier not in after:
+                    entries.append(entry('Removed search · ' + identifier, _query_text(before[identifier])))
+                else:
+                    entries.extend(_protocol_changes(identifier, before[identifier], after[identifier]))
+            common = before.keys() & after.keys()
+            if [i for i in before if i in common] != [i for i in after if i in common]:
+                entries.append(entry('New search order', ', '.join(after)))
+        else:
+            entries.extend(_protocol_changes('', {key: old[key]} if key in old else {},
+                                             {key: new[key]} if key in new else {}))
+    entries.extend([entry('Reason', version['reason'] or 'Not recorded'),
+                    entry('Timing', version['stage']), entry('Recorded by Canary', version['recorded_at'])])
+    return dict(title=f"Protocol amendment {version['number'] - 1}", entries=entries)
+
+
+def report(view: dict, workspace: Path | None, inventory: list[dict] | None = None) -> Appendix:
     """Assemble the appendix from the projection and available working records."""
     graph = view.get('answer') or {}
     plan = view.get('query_net') or {}
@@ -193,14 +270,63 @@ def report(view: dict, workspace: Path | None) -> Appendix:
                     target.update(saved)
                 else:
                     missing.append(entry(name, f'Canary could not read the saved {name} record.'))
+    from .review_protocol import history_file, versions as read_versions, outcome_definitions
+    history = history_file(workspace, inventory)
+    versions = read_versions(history) if history else []
+    protocol_sections = []
+    for index, version in enumerate(versions):
+        if index:
+            protocol_sections.append(_amendment(versions[index - 1], version))
+            continue
+        protocol_entries = []
+        saved_plan = version['plan']
+        title = 'Original protocol' if version['original'] else 'Earliest retained protocol'
+        protocol_entries.extend([entry('Question', saved_plan['question']),
+                                 entry('Recorded by Canary', version['recorded_at']),
+                                 entry('Timing', version['stage'])])
+        if version['author'] != 'Not recorded':
+            protocol_entries.append(entry('Protocol author', version['author']))
+        for field, label in [('rationale', 'Rationale'), ('other_variables', 'Other variable'),
+                             ('study_groups', 'Study group'), ('result_selection', 'Choosing results'),
+                             ('missing_information', 'Missing information')]:
+            texts = strings(saved_plan.get(field))
+            if not texts and saved_plan.get(field) == []:
+                texts = ['None recorded in the plan.']
+            protocol_entries.extend(entry(label, text) for text in texts)
+        if saved_plan.get('outcomes') == []:
+            protocol_entries.append(entry('Outcome', 'None recorded in the plan.'))
+        for outcome in version.get('outcomes') or outcome_definitions(saved_plan.get('outcomes', [])):
+            details = [f"{label}: {outcome[field]}" for field, label in
+                       [('unit', 'Unit'), ('time_point', 'Time point'), ('effect_measure', 'Effect measure')]
+                       if outcome[field] is not None]
+            protocol_entries.append(entry('Outcome', ' · '.join([outcome['name'], *details])))
+        protocol_entries.extend(criteria_entries(saved_plan))
+        protocol_sections.append(dict(title=title, entries=protocol_entries))
+    if versions:
+        spec_path = working_file(workspace, 'run-spec.json')
+        spec = json.loads(spec_path.read_bytes()) if spec_path else {}
+        registration = spec.get('registration', {})
+        status = registration.get('status')
+        if status == 'registered':
+            details = [entry('Registry', registration['registry']), entry('Identifier', registration['identifier'])]
+            if registration.get('registered_on'):
+                details.append(entry('Date reported in the registry', registration['registered_on']))
+            if registration.get('record_url'):
+                details.append(entry('Registry record supplied by the author', registration['record_url']))
+        else:
+            details = [entry('Registration', 'Declared unregistered.' if status == 'unregistered'
+                             else 'Registration status was not recorded.')]
+        protocol_sections.append(dict(title='Protocol registration', entries=details))
     warnings = []
     query_rows = searches(workspace, progress, plan.get('queries') or [], warnings=warnings)
     search = search_entries(query_rows, selection)
     search.extend(entry('Incomplete request log', warning) for warning in warnings)
     return dict(question=graph.get('question') or plan.get('question') or view.get('seed') or '',
-                searches=query_rows,
+                protocol_versions=versions, searches=query_rows,
                 sections=([dict(title='Limits of the saved record', entries=missing)] if missing else []) +
-                         [dict(title='Eligibility', entries=criteria_entries(plan)),
+                         protocol_sections +
+                         [dict(title='Current eligibility' if len(versions) > 1 else 'Eligibility',
+                               entries=criteria_entries(plan)),
                           dict(title='Searches', entries=search),
                           dict(title='Screening and access', entries=screening_entries(view, selection, coverage)),
                           dict(title='Automation and checks', entries=automation_entries(view, selection, workspace)),
@@ -219,4 +345,4 @@ def for_bundle(workspace: Path, manifest: dict, store: Path | None = None) -> Ap
         result['sections'].insert(0, dict(title='Limits of the saved record', entries=[
             entry('Older bundle', 'Detailed search receipts, access decisions and session prompts were not retained.')]))
         return result
-    return report(dashboard.research_bundle(workspace), workspace)
+    return report(dashboard.research_bundle(workspace), workspace, manifest['artifacts'])

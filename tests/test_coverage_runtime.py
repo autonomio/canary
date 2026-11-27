@@ -62,6 +62,8 @@ def test_fresh_search_cap_resume_and_rich_plan_preservation(tmp_path, monkeypatc
     requests = []
     def handler(request):
         requests.append(request)
+        original, = runtime.read(tmp_path / "research" / "review-protocol.json")
+        assert original["plan"] == rich_plan() and original["original"]
         if request.url.params["cursor"] == "*":
             return httpx.Response(200, json={"results": [work("W1")], "meta": {"count": 400, "next_cursor": "page2"}})
         return httpx.Response(200, json={"results": [work("W2")], "meta": {"count": 400, "next_cursor": None}})

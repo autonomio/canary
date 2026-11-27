@@ -148,7 +148,8 @@ def _run_answers(view: dict) -> dict:
     add('abstract-8:1', '\n'.join(summaries), '/answer/executive_summary')
     outcomes = plan.get('outcomes', [])
     if isinstance(outcomes, list):
-        add('10a:1', '\n'.join(o for o in outcomes if isinstance(o, str)), '/query_net/outcomes')
+        names = (o.get('name') if isinstance(o, dict) else o for o in outcomes)
+        add('10a:1', '\n'.join(name for name in names if isinstance(name, str)), '/query_net/outcomes')
     limitations = selection.get('selection_limitations')
     if isinstance(limitations, list):
         limitations = '\n'.join(text for text in limitations if isinstance(text, str) and text.strip())

@@ -71,6 +71,13 @@ def schemas():
                      'budget_seconds':{'type':'null','default':None,'description':'Audits have no duration limit.'},
                      'max_correction_rounds':dict(I,minimum=0,default=3)}),
         'retrieval':retrieval,
+        'registration':{'oneOf':[obj({'status':fixed('unregistered')}, ['status']),
+                                 dict(obj({'status':fixed('registered'), 'registry':dict(S, pattern=r'\S'),
+                                           'identifier':dict(S, pattern=r'\S'), 'registered_on':dict(S, format='date'),
+                                           'record_url':dict(S, pattern='^https://')},
+                                          ['status', 'registry', 'identifier']),
+                                      dependentRequired={'registered_on': ['record_url']})]},
+        'protocol_author':dict(S,minLength=1,maxLength=200,pattern=r'\S',description='Human author named by the person submitting the review.'),
         'study_brief':dict(S,minLength=1,maxLength=20000,description='Optional study design and scope for the submitted question.'),
         'research_state':nullable(dict(O,description='Supplied current research state, at most 10 MiB. Preserved as untrusted background, including paper references and review records.')),
         'continue_research':dict(B,default=False,description='Continue from supplied research_state; avoid reselecting previously reviewed publications. Existing paper target and scientific workflow are unchanged.'),
@@ -188,7 +195,7 @@ def schemas():
             ['error','code','bytes','limit_bytes']),
             'description':'The compact contribution file (JSON and one newline) would exceed limit_bytes, the file size '
                 'Resolvent accepts. Nothing is exported; the retained bundle keeps the research.'},
-        'BundleResponse':obj({'key':S,'live':B,'bundle':ref('BundleManifest'),'research':ref('Research')},['key','live','bundle','research']),
+        'BundleResponse':obj({'key':S,'live':B,'bundle':ref('BundleManifest'),'research':ref('Research'),'protocol_available':B},['key','live','bundle','research']),
         'Findings':findings,'RecordedClaim':claim,'RecordedEvidence':evidence,'Passage':passage,
         'SourceContext':context,'GeneratedInvestigation':generated,'QuestionPlan':_query_schema(),
         'QueryNet':obj({'screening_instructions':arr(S)}, closed=False),
@@ -275,6 +282,8 @@ def schemas():
             'status':dict(S,description='publication_identity_unverified means no acquired copy satisfied the bibliographic check.'),
             'reason':S,'public_timeout_seen':B,'reference':ref('AgentReference')},['work_id','status'],closed=False))},
             ['attempted','sources_available','receipts']),
+        'ReviewProtocol':obj({'bundle_id':S,'registration':O,'versions':arr(O),'decisions':arr(O)},
+                             ['bundle_id','registration','versions','decisions']),
         'MethodsAppendix':typed(methods.Appendix),
         'PrismaReport':typed(prisma.Report),
         'ReviewDecision':review_decisions.schema(),
@@ -293,8 +302,15 @@ def schemas():
 
 def _query_schema():
     shape = protocol.question_plan_schema(ADDITIONAL_SOURCES)
+    outcomes = shape['properties']['outcomes']
+    outcomes['items'] = {'anyOf': [outcomes['items'], S]}
     shape['properties']['queries']['items']['required'].remove('source')
-    shape['required'].remove('screening_instructions')
+    for field in ('screening_instructions', *protocol.PROTOCOL_FIELDS):
+        shape['required'].remove(field)
+    shape['description'] = ('Runs that record a review protocol require ' + ', '.join(protocol.PROTOCOL_FIELDS) +
+                            ' and an object with name, unit, time_point and effect_measure for each outcome. '
+                            'Earlier runs also accept outcome names as strings. A plan that changes the '
+                            'recorded protocol requires amendment_reason.')
     return shape
 
 
@@ -341,6 +357,7 @@ def document():
     op('revision','get','/api/runs/{key}/revisions/{round}/{kind}','Read a hash-checked original research, audit or correction record after source cleanup','RevisionArtifact',
         params=[key,('round','path',dict(I,minimum=0),True),('kind','path',{'enum':['research','audit','correction']},True)],mcp=True)
     op('bundle','get','/api/runs/{key}/bundle','Read bundle settings, artifact hashes and findings','BundleResponse',params=[key],mcp=True)
+    op('review_protocol','get','/api/runs/{key}/prisma/protocol','Export the dated review protocol','ReviewProtocol',params=[key],mcp=True)
     op('methods_appendix','get','/api/runs/{key}/prisma/methods','Read the methods appendix','MethodsAppendix',params=[key],mcp=True)
     op('prisma_checklist','get','/api/runs/{key}/prisma/checklist','Read the linked PRISMA checklist','PrismaReport',params=[key],mcp=True)
     op('prisma_report','get','/api/runs/{key}/prisma/report','Read the PRISMA reporting appendix',params=[key],media='text/html')

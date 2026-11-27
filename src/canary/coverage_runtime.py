@@ -92,7 +92,7 @@ def workspace_lock(workspace, name):
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
-def validate_plan(plan):
+def validate_plan(plan, *, require_protocol=False):
     if not isinstance(plan, dict) or not isinstance(plan.get("question"), str) or not plan["question"].strip():
         raise ValueError("QuestionPlan requires a nonempty question")
     if "entities" in plan:
@@ -100,12 +100,31 @@ def validate_plan(plan):
     for name in ("concepts", "outcomes", "queries"):
         if not isinstance(plan.get(name), list):
             raise ValueError("QuestionPlan requires typed " + name)
+    for outcome in plan["outcomes"]:
+        if require_protocol and (not isinstance(outcome, dict)
+                                 or not isinstance(outcome.get('name'), str) or not outcome['name'].strip()
+                                 or not {'unit', 'time_point', 'effect_measure'} <= outcome.keys()):
+            raise ValueError("Define each outcome's name, unit, time point and effect measure")
+        if isinstance(outcome, dict) and any(
+            outcome.get(field) is not None and not isinstance(outcome[field], str)
+            for field in ("unit", "time_point", "effect_measure")
+        ):
+            raise ValueError("Outcome unit, time point and effect measure must be text or null")
     if not isinstance(plan.get("conditions"), (list, dict)):
         raise ValueError("QuestionPlan requires typed conditions")
     if not isinstance(plan.get("coverage_aspects", plan.get("coverage_facets")), list):
         raise ValueError("QuestionPlan requires typed coverage aspects/facets")
     if not isinstance(plan.get("eligibility"), dict):
         raise ValueError("QuestionPlan requires eligibility criteria")
+    for field, schema in protocol.PROTOCOL_FIELDS.items():
+        if not require_protocol and field not in plan:
+            continue
+        value = plan.get(field)
+        if schema['type'] == 'array':
+            if not isinstance(value, list) or any(not isinstance(v, str) or not v.strip() for v in value):
+                raise ValueError('QuestionPlan requires a list of text values for ' + field)
+        elif not isinstance(value, str) or not value.strip():
+            raise ValueError('QuestionPlan requires text for ' + field)
     instructions = plan.get("screening_instructions", [])
     if not isinstance(instructions, list) or any(not isinstance(item, str) for item in instructions):
         raise ValueError("QuestionPlan screening_instructions must be an array of strings")
@@ -406,12 +425,17 @@ def _commit_discovery(workspace, index, progress, plan):
     write(workspace / "search-progress.json", progress)
 
 
-def discover(workspace, plan_path, *, root=None, pages=5, client=None):
+def discover(workspace, plan_source, *, root=None, pages=5, client=None):
     """Fresh indexed search, saving each page and exposing declared truncation."""
     workspace = Path(workspace).resolve()
     root = Path(root) if root is not None else data_root()
-    plan = validate_plan(read(Path(plan_path)))
-    additional = read(workspace / 'run.json', {}).get('additional_sources', [])
+    run = read(workspace / "run.json", {})
+    submitted = isinstance(plan_source, dict)
+    draft = plan_source if submitted else read(Path(plan_source))
+    plan = validate_plan(draft, require_protocol=bool(run.get("protocol_version")))
+    if submitted:
+        plan = dict(plan, queries=list(plan['queries']))
+    additional = run.get('additional_sources', [])
     if any(q.get('source', 'openalex') not in ('openalex', *additional) for q in plan['queries']):
         raise ValueError('Query requests a source not enabled for this run')
     if additional and not (workspace / 'question-plan.json').exists():
@@ -420,6 +444,8 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
     if pages < 1:
         raise ValueError("Search page limit must be positive")
     with workspace_lock(workspace, "discovery"), ExitStack() as lifetime:
+        if submitted:
+            write(workspace / "question-plan-submitted.json", plan)
         local = read(workspace / 'run.json', {}).get('local_text')
         if local:
             from .local_text import discover as local_discover
@@ -447,7 +473,8 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
         index = lifetime.enter_context(CandidateIndex(workspace))
         # Rejected query redefinitions must not replace the saved plan paired
         # with committed candidates and cursor receipts.
-        write(workspace / "question-plan.json", plan)
+        from .review_protocol import save_plan
+        save_plan(workspace, plan)
         for query in plan["queries"]:
             progress["queries"].setdefault(query["id"], {"search": query["search"], "pages": 0, "cursor": "*", "complete": False})
             if additional: progress['queries'][query['id']]['source'] = query.get('source', 'openalex')
@@ -1357,7 +1384,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
         "status": "researching", "started_at": started, "generated_at": started,
         "selection_method": "coverage-guided", "minimum_papers": minimum_papers, "research_model": protocol.RESEARCH_MODEL,
         "research_effort": protocol.RESEARCH_EFFORT, "audit_model": protocol.AUDIT_MODEL, "audit_effort": protocol.AUDIT_EFFORT,
-        "max_correction_rounds": max_correction_rounds, "verification_version": 1,
+        "max_correction_rounds": max_correction_rounds, "verification_version": 1, "protocol_version": 1,
         "agent_paper_metadata_fields": list(protocol.AGENT_PAPER_METADATA_FIELDS),
         "no_subagents": True, "fresh_assets_only": not bool(local_text),
         **({"local_text": local_text, "corpus": "local_text"} if local_text else {}), "audit_budget_seconds": audit_seconds,

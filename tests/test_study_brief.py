@@ -60,6 +60,12 @@ const launch=buildLaunch({q:"Which outcome?",mode:"question","study-brief":"Comp
 assert.deepEqual(launch.spec,{question:"Which outcome?",study_brief:"Compare A and B."});
 assert.throws(()=>buildLaunch({q:"","study-brief":"Compare A and B."}),/research question/);
 const local=buildLaunch({q:"Which outcome?",mode:"question",corpus:"local_text",directory:"/papers","study-brief":"Compare A and B."});
+assert.equal(buildLaunch({q:"Which outcome?","protocol-author":"A. Rivera"}).spec.protocol_author,"A. Rivera");
+assert.throws(()=>buildLaunch({q:"Which outcome?",argv:"custom","protocol-author":"A. Rivera"}),/Protocol authors/);
+const registration={status:"registered",registry:"PROSPERO",identifier:"CRD1"};
+assert.deepEqual(buildLaunch({q:"Which outcome?",registration:JSON.stringify(registration)}).spec.registration,registration);
+assert.throws(()=>buildLaunch({q:"Which outcome?",argv:"custom",registration:JSON.stringify(registration)}),/registration/);
+assert.equal(registrationText(registration),"Registered with PROSPERO as CRD1.");
 assert.equal(local.spec.study_brief,"Compare A and B.");
 assert.equal(local.spec.retrieval.corpus,"local_text");
 assert.match(studyBriefHtml({study_brief:"<brief>"}),/&lt;brief&gt;/);

@@ -5,6 +5,8 @@ import hashlib
 import json
 from typing import TypedDict
 from pathlib import Path
+from datetime import date
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -69,7 +71,7 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
             raise CompileError(path, 'Unknown fields are not accepted.')
         return value
 
-    block(draft, {'version', 'question', 'research', 'audit', 'retrieval', 'subagents', 'research_state', 'continue_research', 'study_brief'}, 'spec')
+    block(draft, {'version', 'question', 'research', 'audit', 'retrieval', 'subagents', 'research_state', 'continue_research', 'study_brief', 'registration', 'protocol_author'}, 'spec')
     version = draft.get('version', 1)
     if type(version) is not int or version != 1:
         raise CompileError('version', 'Only version 1 is supported.')
@@ -138,6 +140,36 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
                               **({'local_text': dict(local)} if local is not None else {}),
                               **({'additional_sources': additional} if additional else {})},
                 'subagents': False}
+    if 'protocol_author' in draft:
+        name = draft['protocol_author']
+        if not isinstance(name, str) or not name.strip() or len(name) > 200:
+            raise CompileError('protocol_author', 'Give a name of up to 200 characters.')
+        resolved['protocol_author'] = name.strip()
+    if 'registration' in draft:
+        record = block(draft['registration'], {'status', 'registry', 'identifier', 'registered_on', 'record_url'}, 'registration')
+        if record.get('status') == 'unregistered' and set(record) == {'status'}:
+            resolved['registration'] = dict(record)
+        elif record.get('status') == 'registered':
+            if not all(isinstance(record.get(k), str) and record[k].strip() for k in ('registry', 'identifier')):
+                raise CompileError('registration', 'Give the registry name and registration identifier.')
+            if 'record_url' in record:
+                try:
+                    url = urlsplit(record['record_url'])
+                    valid = url.scheme == 'https' and url.hostname and not url.username and not url.password
+                except (ValueError, TypeError, AttributeError):
+                    valid = False
+                if not valid:
+                    raise CompileError('registration.record_url', 'Give the public HTTPS registry record.')
+            if 'registered_on' in record:
+                try:
+                    date.fromisoformat(record['registered_on'])
+                except (ValueError, TypeError):
+                    raise CompileError('registration.registered_on', 'Use a quoted ISO calendar date.') from None
+                if not record.get('record_url'):
+                    raise CompileError('registration', 'Supply the registry record for the registration date.')
+            resolved['registration'] = dict(record)
+        else:
+            raise CompileError('registration', 'Declare a registration or use status: unregistered.')
     if 'study_brief' in draft:
         resolved['study_brief'] = draft['study_brief']
     if 'research_state' in draft:
