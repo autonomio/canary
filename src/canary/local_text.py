@@ -212,9 +212,9 @@ def discover(workspace, plan, config, pages):
                 raise ValueError('Invalid local text query ' + query['id'] + ': ' + str(error)) from None
         from .methods_search import start_round
         from .coverage_runtime import append, now
-        search_round = start_round(workspace, pages)
         from .review_protocol import save_plan
         save_plan(workspace, plan)
+        search_round = start_round(workspace, pages)
         for query in plan['queries']:
             state = progress['queries'].setdefault(query['id'], {'search': query['search'], 'pages': 0, 'complete': False})
             if state['complete']:

@@ -116,6 +116,11 @@ def validate_plan(plan, *, require_protocol=False):
         raise ValueError("QuestionPlan requires typed coverage aspects/facets")
     if not isinstance(plan.get("eligibility"), dict):
         raise ValueError("QuestionPlan requires eligibility criteria")
+    author = plan.get('draft_author')
+    if require_protocol or 'draft_author' in plan:
+        if (not isinstance(author, dict) or author.get('kind') not in ('software', 'person')
+                or not isinstance(author.get('name'), str) or not author['name'].strip()):
+            raise ValueError('Identify the protocol drafter by name and kind')
     for field, schema in protocol.PROTOCOL_FIELDS.items():
         if not require_protocol and field not in plan:
             continue

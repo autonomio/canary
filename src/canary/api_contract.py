@@ -296,7 +296,7 @@ def _query_schema():
     outcomes = shape['properties']['outcomes']
     outcomes['items'] = {'anyOf': [outcomes['items'], S, dict(O, required=['name'])]}
     shape['properties']['queries']['items']['required'].remove('source')
-    for field in ('screening_instructions', *protocol.PROTOCOL_FIELDS):
+    for field in ('screening_instructions', 'draft_author', *protocol.PROTOCOL_FIELDS):
         shape['required'].remove(field)
     return shape
 

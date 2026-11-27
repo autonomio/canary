@@ -197,14 +197,21 @@ def report(view: dict, workspace: Path | None) -> Appendix:
                     target.update(saved)
                 else:
                     missing.append(entry(name, f'Canary could not read the saved {name} record.'))
-    from .review_protocol import FILE, outcome_definitions
+    from .review_protocol import FILE, versions as read_versions, outcome_definitions
     history = working_file(workspace, FILE)
-    versions = json.loads(history.read_bytes()) if history else []
-    protocol_entries = []
+    versions = read_versions(history) if history else []
+    protocol_sections = []
     for version in versions:
+        protocol_entries = []
         saved_plan = version['plan']
-        protocol_entries.append(entry('Original plan' if version['original'] else 'Earliest retained plan',
-                                      saved_plan['question']))
+        title = 'Original protocol' if version['original'] else ('Earliest retained protocol' if version['number'] == 1
+                                                                else f"Protocol amendment {version['number'] - 1}")
+        protocol_entries.extend([entry('Question', saved_plan['question']),
+                                 entry('Recorded by Canary', version['recorded_at']),
+                                 entry('Drafted by', version['author']), entry('Timing', version['stage'])])
+        if version['changed']:
+            protocol_entries.extend([entry('Changed fields', ', '.join(version['changed'])),
+                                     entry('Reason', version['reason'] or 'Not recorded')])
         for field, label in [('rationale', 'Rationale'), ('other_variables', 'Other variable'),
                              ('study_groups', 'Study group'), ('result_selection', 'Choosing results'),
                              ('missing_information', 'Missing information')]:
@@ -215,6 +222,7 @@ def report(view: dict, workspace: Path | None) -> Appendix:
                        if outcome[field] is not None]
             protocol_entries.append(entry('Outcome', ' · '.join([outcome['name'], *details])))
         protocol_entries.extend(criteria_entries(saved_plan))
+        protocol_sections.append(dict(title=title, entries=protocol_entries))
     warnings = []
     query_rows = searches(workspace, progress, plan.get('queries') or [], warnings=warnings)
     search = search_entries(query_rows, selection)
@@ -222,7 +230,7 @@ def report(view: dict, workspace: Path | None) -> Appendix:
     return dict(question=graph.get('question') or plan.get('question') or view.get('seed') or '',
                 protocol_versions=versions, searches=query_rows,
                 sections=([dict(title='Limits of the saved record', entries=missing)] if missing else []) +
-                         ([dict(title='Review protocol', entries=protocol_entries)] if versions else []) +
+                         protocol_sections +
                          [dict(title='Eligibility', entries=criteria_entries(plan)),
                           dict(title='Searches', entries=search),
                           dict(title='Screening and access', entries=screening_entries(view, selection, coverage)),

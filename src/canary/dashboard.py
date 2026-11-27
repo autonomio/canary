@@ -1565,6 +1565,25 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(409, unavailable)
                     return
                 if representation == 'methods':
+                    versions = view.get('protocol_versions', [])
+                    if versions:
+                        from .review_protocol import approval_records
+                        edition = review_history.edition(workspace, store=store)
+                        decisions = approval_records(versions, edition['entries'])
+                        details = []
+                        for version in versions:
+                            records = [r for r in decisions if r['version'] == version['sha256']]
+                            label = f"Protocol version {version['number']}"
+                            if not any(r['decision']['status'] == 'accepted' for r in records):
+                                details.append(methods.entry(label, 'No approval recorded.'))
+                            details.append(methods.entry('Decision subject for ' + label.lower(),
+                                                         'protocol:' + version['sha256']))
+                            for record in records:
+                                decision = record['decision']
+                                actor = decision.get('decided_by') or decision.get('proposed_by') or {}
+                                details.append(methods.entry(label, f"{decision['status'].capitalize()} · "
+                                    f"{actor.get('name', 'Unknown')} · {record['recorded_at']} · {decision['reason']}"))
+                        view['sections'].append(dict(title='Protocol approval', entries=details))
                     self._send(200, view)
                     return
                 edition = review_history.edition(workspace, store=store)

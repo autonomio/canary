@@ -171,6 +171,9 @@ def question_plan_schema(additional_sources=()):
                             "purpose": S, "collapse_reason": S})),
         "scope_note": S,
     })
+    shape['properties']['draft_author'] = obj({'name': S, 'kind': enum('software', 'person')})
+    shape['required'].append('draft_author')
+    shape['properties']['amendment_reason'] = S
     if additional_sources:
         query = shape['properties']['queries']['items']
         query['properties']['source'] = enum('openalex', *additional_sources)
@@ -392,6 +395,7 @@ In eligibility.core, eligibility.supporting and eligibility.exclusion, state onl
 Put operational directions, such as labeling publication type or documenting study overlap, in screening_instructions; use [] if none apply.
 Keep full_paper_checks for facts to verify in the full paper when applying eligibility criteria.
 {search}
+Identify the drafter in draft_author with name and kind. When revising a plan, supply amendment_reason and explain why any new results warrant the change.
 Discovery alone commits the validated question-plan.json; never overwrite that canonical file directly.
 2. Run {command} discover --plan question-plan-draft.json. Read search-progress.json and candidates.jsonl.
 Apply the saved eligibility criteria and follow screening_instructions during screening and full-paper review.
