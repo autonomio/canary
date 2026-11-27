@@ -788,7 +788,7 @@ def source(workspace, reference_id, *, match=None, page=None, context=2, limit=8
     return result
 
 
-def bind_payload(workspace, *, investigation=None):
+def bind_payload(workspace, *, investigation=None, record_edition=False):
     """Expose mechanical provenance failures without rewriting or blocking science."""
     workspace = Path(workspace).resolve()
     raw = investigation if investigation is not None else read(workspace / "investigation.json")
@@ -947,6 +947,9 @@ def bind_payload(workspace, *, investigation=None):
             issues.append("Study table: review protocol unreadable (" + unreadable + ")")
         issues.extend(message(issue) for issue in result_issues(
             raw.get("study_results"), raw.get("studies"), versions=None if unreadable else recorded, passages=passages))
+        if record_edition:
+            from .study_editions import record
+            payload["study_table_edition"] = record(workspace, raw, references)
     mechanical = {"at": now(), "pass": not issues, "issues": issues,
                   "claim_blocking_issues": claim_blocking_issues,
                   "claim_issues": {identifier: found for identifier, found in claim_issues.items() if found},
@@ -1438,7 +1441,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
             # A recorded researcher stop, not a failure: nothing is bound or audited.
             manifest.update(status="needs_clarification", clarification=clarification, research_finished_at=now())
             return {"clarification": clarification}
-        payload = bind_payload(workspace)
+        payload = bind_payload(workspace, record_edition=True)
         from .correction_runtime import verify
         payload = verify(workspace, payload, manifest, command, executable)
         audit = payload["independent_audit"]

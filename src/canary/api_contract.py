@@ -113,6 +113,9 @@ def schemas():
             'Fields follow Study with text as value and passage_ids as paragraph_ids.'),
         'protocol_outcomes':dict(arr(O),description='Outcome definitions of every recorded protocol version, each with '
             'protocol_version (the version sha256) and protocol_version_number.'),
+        'study_table_editions':dict(arr(O),description='Every recorded edition of the study table with its values, '
+            'units, report copies, the claims it served and the changes from the edition before.'),
+        'study_table_edition':dict(O,description='Number and SHA-256 of the study table edition behind the current synthesis.'),
         'study_summary':dict(O,description='Study and report counts. A subject total is null when a count is missing or studies share subjects.'),
         'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O),
         'history_manifest':arr(ref('RevisionDigest')),'claim_links':arr(ref('ClaimLink')),

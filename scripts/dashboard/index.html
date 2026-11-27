@@ -3361,9 +3361,17 @@
       unavailable_result_with_value:()=>`Result ${i.study_result_id} is marked ${i.status.replaceAll('_',' ')} but records values.`,
       missing_availability_evidence:()=>`Result ${i.study_result_id} is marked ${i.status.replaceAll('_',' ')} without a source passage.`,
       missing_planned_outcome:()=>`No result is recorded for planned outcome ${i.outcome || i.outcome_id}.`,
+      claim_uses_changed_value:()=>`Claim ${i.claim_id} was not revised after edition ${i.edition} changed result ${i.study_result_id} (${(i.fields || []).join(', ')}).`,
       superseded_protocol_version:()=>`Result ${i.study_result_id} cites protocol version ${i.version_number}; the latest is version ${i.latest_version_number}.`,
       protocol_unreadable:()=>`The review protocol could not be read: ${i.reason}.`}[i.kind]?.())
       || String(i.kind || 'Study record issue').replaceAll('_',' ');
+  }
+  function studyEditionsHtml(g) {
+    const editions=Array.isArray(g.study_table_editions) ? g.study_table_editions : [];
+    if(!editions.length) return '';
+    const current=editions[editions.length-1], shown=v=>v==null ? 'none' : typeof v==='object' ? JSON.stringify(v) : String(v);
+    const change=c=>`<li><p>${esc(c.study_result_id)} · ${c.removed ? 'removed' : esc((c.fields || []).join(', '))}</p><p class="hint">Before: ${esc(shown(c.before))}</p><p class="hint">After: ${esc(shown(c.after))}</p>${(c.claim_ids || []).length ? `<div class="finding-links">${c.claim_ids.map(id=>qaButton('data-qa-claim',id,`${id}${(c.unrevised_claim_ids || []).includes(id) ? ' · not revised' : ''}`)).join('')}</div>` : '<p class="hint">No claim used this result.</p>'}${(c.summary_indexes || []).length ? `<p class="hint">Summary paragraphs ${esc(c.summary_indexes.join(', '))}</p>` : ''}</li>`;
+    return `<p>Study table edition ${esc(current.number)} · <code>${esc(String(current.sha256 || '').slice(0,12))}</code> · ${esc(current.recorded_at || '')}</p>${editions.length>1 ? `<details data-detail="study-editions"><summary>Editions and changes (${editions.length})</summary>${editions.slice().reverse().map(e=>`<section><h4>Edition ${esc(e.number)} · <code>${esc(String(e.sha256 || '').slice(0,12))}</code></h4><p class="hint">${esc(e.recorded_at || '')}</p>${(e.changes || []).length ? `<ul>${e.changes.map(change).join('')}</ul>` : '<p class="hint">First recorded edition.</p>'}<details><summary>Values in this edition</summary><pre class="search-query">${esc(JSON.stringify({results:e.results,studies:e.studies},null,2))}</pre></details></section>`).join('')}</details>` : ''}`;
   }
   function studyTableHtml(g) {
     if(!Array.isArray(g?.studies)) return '';
@@ -3384,7 +3392,7 @@
     }).join('');
     const rowIds=new Set(studies.map(st=>st.id)), unassigned=issues.filter(i=>!rowIds.has(i.study_id)).map(i=>`<p role="alert">${esc(studyIssueText(i))}</p>`).join('');
     const orphans=(g.study_results || []).filter(x=>x.study_id!=null && !rowIds.has(x.study_id)).map(x=>studyResultButton(x.id,'')).join(' ');
-    return `<details class="coverage" data-detail="study-table"><summary>Studies · ${esc(summary.studies ?? studies.length)} from ${esc(summary.reports ?? 0)} reports</summary><p class="hint">Model-recorded study identity and characteristics. Each report shows whether its match to the study is confirmed, uncertain or disputed. A total counts each study once and stays unknown when a count is missing or studies share subjects.</p>${totals}${unassigned}${orphans ? `<p>Results naming an unrecorded study</p><div class="source-actions">${orphans}</div>` : ''}<div class="table-wrap" tabindex="0" aria-label="Studies behind the reviewed reports"><table><thead><tr><th scope="col">Study</th><th scope="col">Reports</th><th scope="col">Subjects</th>${columns.map(([,label])=>`<th scope="col">${label}</th>`).join('')}<th scope="col">Groups</th><th scope="col">Planned variables</th><th scope="col">Shared with</th><th scope="col">Results</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+    return `<details class="coverage" data-detail="study-table"><summary>Studies · ${esc(summary.studies ?? studies.length)} from ${esc(summary.reports ?? 0)} reports</summary><p class="hint">Model-recorded study identity and characteristics. Each report shows whether its match to the study is confirmed, uncertain or disputed. A total counts each study once and stays unknown when a count is missing or studies share subjects.</p>${totals}${studyEditionsHtml(g)}${unassigned}${orphans ? `<p>Results naming an unrecorded study</p><div class="source-actions">${orphans}</div>` : ''}<div class="table-wrap" tabindex="0" aria-label="Studies behind the reviewed reports"><table><thead><tr><th scope="col">Study</th><th scope="col">Reports</th><th scope="col">Subjects</th>${columns.map(([,label])=>`<th scope="col">${label}</th>`).join('')}<th scope="col">Groups</th><th scope="col">Planned variables</th><th scope="col">Shared with</th><th scope="col">Results</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
   }
   function studyResultButton(id,claimId) {
     return `<button type="button" class="text-action" data-qa-study="${esc(id)}" data-study-claim="${esc(claimId)}">${esc(id)} · Study result</button>`;

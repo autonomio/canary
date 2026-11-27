@@ -20,7 +20,7 @@ def protected(workspace):
     names = ('investigation.json', 'question-plan.json', 'review-protocol.json', 'selection.json', 'reviewed-papers.json',
              'references.json', 'research.yaml', 'run-spec.json', 'research-state.json', 'citation-leads.json', 'payload.json',
              'audit-input.json', 'mechanical-audit.json', 'coverage-map.json', 'scarcity.json',
-             'local-corpus.json', 'research-receipt.json')
+             'local-corpus.json', 'research-receipt.json', 'study-table-editions.json')
     paths = [workspace / name for name in names]
     for name in ('papers', 'texts', 'passages', 'download-receipts', 'rounds'):
         paths.extend(p for p in (workspace / name).rglob('*') if p.is_file())
@@ -225,7 +225,7 @@ def verify(workspace, payload, manifest, command, executable):
             if changed:
                 raise ValueError('Correction changed protected inputs instead of returning a typed revision')
             proposed, removed = corrections.apply(dict(payload, canonical_passage_ids=[p['id'] for p in passages]), audit, response)
-            corrected = engine.bind_payload(workspace, investigation=proposed)
+            corrected = engine.bind_payload(workspace, investigation=proposed, record_edition=True)
             history.append({'round': next_round, 'kind': 'correction', 'responses': response['responses'],
                 'investigation': proposed, 'payload': corrected, 'receipt': receipt,
                 **({'restored_inputs': restored_records} if restored_records else {})})

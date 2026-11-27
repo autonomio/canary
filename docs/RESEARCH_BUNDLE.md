@@ -411,3 +411,10 @@ study's wording. A planned outcome without a result in a study is listed with th
 
 Each study and study result lists the copy of every report it was read from, by the SHA-256 of
 the saved text and of the original file.
+
+Canary records an edition of the study table after the research round and after each correction
+round that changes it. An edition holds each result's values, unit and report copies and each
+study's subject count, with its number, SHA-256 and time. The export names the edition behind
+the current synthesis. Each later edition lists the results whose value, unit, denominator or
+report copy changed, the claims and summary paragraphs that used them and the claims that were
+not revised afterwards. Earlier editions stay readable in `study_table_editions`.

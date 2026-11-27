@@ -700,6 +700,16 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                                           for version in recorded for outcome in version.get("outcomes", [])]
             graph["binding_issues"].extend(dict(issue, section="studies") for issue in result_issues(
                 raw_study_results, studies, versions=None if unreadable else recorded, passages=located))
+            from .methods_search import working_file
+            from .study_editions import FILE as EDITIONS, stale_claims
+            located_editions = working_file(bundle, EDITIONS) or working_file(source, EDITIONS)
+            editions = _load(located_editions, []) if located_editions else []
+            graph["study_table_editions"] = editions if isinstance(editions, list) else []
+            if graph["study_table_editions"]:
+                latest = graph["study_table_editions"][-1]
+                graph["study_table_edition"] = {"number": latest.get("number"), "sha256": latest.get("sha256")}
+                graph["binding_issues"].extend(dict(issue, section="studies")
+                                               for issue in stale_claims(graph["study_table_editions"], investigation))
         used_passages.update(pid for pid in passage_ids(studies) if pid in spans)
         used_passages.update(pid for pid in result_passage_ids(raw_study_results) if pid in spans)
     audit = _load(bundle / "audit" / "audit.json", _load(bundle / "audit.json", {}))
