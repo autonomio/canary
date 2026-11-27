@@ -125,3 +125,43 @@ def test_resubmitting_queries_in_another_order_is_not_an_amendment(tmp_path):
     review_protocol.save_plan(tmp_path, plan)
     review_protocol.save_plan(tmp_path, dict(plan, queries=plan['queries'][::-1]))
     assert len(review_protocol.versions(tmp_path / review_protocol.FILE)) == 1
+
+
+def test_canonical_plan_matches_the_recorded_version(tmp_path):
+    from canary import review_protocol
+    from canary.coverage_runtime import read, write
+
+    write(tmp_path / 'run.json', {'protocol_version': 1})
+    plan = dict(question='When?', outcomes=[], amendment_reason='Not needed for a first plan.',
+                queries=[dict(id='Q2', search='yield'), dict(id='Q1', search='strength')])
+    review_protocol.save_plan(tmp_path, plan)
+    version, = review_protocol.versions(tmp_path / review_protocol.FILE)
+    assert read(tmp_path / 'question-plan.json') == version['plan']
+    assert 'amendment_reason' not in version['plan']
+
+
+def test_appendix_shows_empty_planned_fields_and_labels_current_eligibility(tmp_path):
+    from canary import methods, review_protocol
+
+    base = dict(question='When?', outcomes=[], other_variables=[], study_groups=[], eligibility={'core': 'Adults'})
+    review_protocol.save_plan(tmp_path, base)
+    revised = {k: v for k, v in base.items() if k != 'other_variables'}
+    review_protocol.save_plan(tmp_path, dict(revised, eligibility={'core': 'Children'}, study_groups=['Age band'],
+                                             amendment_reason='Screening found paediatric trials.'))
+    report = methods.report({'query_net': dict(base, eligibility={'core': 'Children'})}, tmp_path)
+    original = {(e['label'], e['text']) for e in report['sections'][0]['entries']}
+    assert {('Other variable', 'None recorded in the plan.'), ('Study group', 'None recorded in the plan.'),
+            ('Outcome', 'None recorded in the plan.')} <= original
+    amendment = next(s for s in report['sections'] if s['title'] == 'Protocol amendment 1')
+    changes = {(e['label'], e['text']) for e in amendment['entries']}
+    assert {('Removed · Other variables', 'None'), ('Added · Study groups', 'Age band')} <= changes
+    assert 'Current eligibility' in [s['title'] for s in report['sections']]
+    assert 'Eligibility' not in [s['title'] for s in report['sections']]
+
+
+def test_published_plan_schema_rejects_outcomes_with_only_a_name():
+    from canary import api_contract
+
+    items = api_contract._query_schema()['properties']['outcomes']['items']['anyOf']
+    assert {'type': 'string'} in items and len(items) == 2
+    assert set(items[0]['required']) == {'name', 'unit', 'time_point', 'effect_measure'}

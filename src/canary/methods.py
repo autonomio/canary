@@ -179,9 +179,9 @@ def automation_entries(view: dict, selection: dict, workspace: Path | None) -> l
 
 def _protocol_text(value: object) -> str:
     if isinstance(value, dict):
-        return ' · '.join(f"{key.replace('_', ' ')}: {_protocol_text(part)}" for key, part in value.items()) or '{}'
+        return ' · '.join(f"{key.replace('_', ' ')}: {_protocol_text(part)}" for key, part in value.items()) or 'None'
     if isinstance(value, list):
-        return ', '.join(_protocol_text(part) for part in value) or '[]'
+        return ', '.join(_protocol_text(part) for part in value) or 'None'
     return str(value) if value is not None else 'Unspecified'
 
 
@@ -289,7 +289,12 @@ def report(view: dict, workspace: Path | None) -> Appendix:
         for field, label in [('rationale', 'Rationale'), ('other_variables', 'Other variable'),
                              ('study_groups', 'Study group'), ('result_selection', 'Choosing results'),
                              ('missing_information', 'Missing information')]:
-            protocol_entries.extend(entry(label, text) for text in strings(saved_plan.get(field)))
+            texts = strings(saved_plan.get(field))
+            if not texts and saved_plan.get(field) == []:
+                texts = ['None recorded in the plan.']
+            protocol_entries.extend(entry(label, text) for text in texts)
+        if saved_plan.get('outcomes') == []:
+            protocol_entries.append(entry('Outcome', 'None recorded in the plan.'))
         for outcome in version.get('outcomes') or outcome_definitions(saved_plan.get('outcomes', [])):
             details = [f"{label}: {outcome[field]}" for field, label in
                        [('unit', 'Unit'), ('time_point', 'Time point'), ('effect_measure', 'Effect measure')]
@@ -320,7 +325,8 @@ def report(view: dict, workspace: Path | None) -> Appendix:
                 protocol_versions=versions, searches=query_rows,
                 sections=([dict(title='Limits of the saved record', entries=missing)] if missing else []) +
                          protocol_sections +
-                         [dict(title='Eligibility', entries=criteria_entries(plan)),
+                         [dict(title='Current eligibility' if len(versions) > 1 else 'Eligibility',
+                               entries=criteria_entries(plan)),
                           dict(title='Searches', entries=search),
                           dict(title='Screening and access', entries=screening_entries(view, selection, coverage)),
                           dict(title='Automation and checks', entries=automation_entries(view, selection, workspace)),

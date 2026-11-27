@@ -77,7 +77,7 @@ def save_plan(workspace: Path, plan: dict) -> None:
         history.append(_record(content, history, author=author, reason=reason, original=not history, stage=stage))
     if previous or changed:
         write(path, history)
-    write(current, plan)
+    write(current, content)
 
 
 def approval_records(history: list[dict], entries: list[dict]) -> list[dict]:

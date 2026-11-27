@@ -301,13 +301,14 @@ def schemas():
 def _query_schema():
     shape = protocol.question_plan_schema(ADDITIONAL_SOURCES)
     outcomes = shape['properties']['outcomes']
-    outcomes['items'] = {'anyOf': [outcomes['items'], S, dict(O, required=['name'])]}
+    outcomes['items'] = {'anyOf': [outcomes['items'], S]}
     shape['properties']['queries']['items']['required'].remove('source')
     for field in ('screening_instructions', *protocol.PROTOCOL_FIELDS):
         shape['required'].remove(field)
     shape['description'] = ('Runs that record a review protocol require ' + ', '.join(protocol.PROTOCOL_FIELDS) +
                             ' and an object with name, unit, time_point and effect_measure for each outcome. '
-                            'Earlier runs also accept outcome names as strings.')
+                            'Earlier runs also accept outcome names as strings. A plan that changes the '
+                            'recorded protocol requires amendment_reason.')
     return shape
 
 
