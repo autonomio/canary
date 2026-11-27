@@ -213,6 +213,7 @@ def _import_history(root: Path, target: Path, bundle_id: str, checksum: str | No
                 with _connect(target / NAME) as stored, stored:
                     _merge_history(stored, incoming, bundle_id, head)
                 return
+            _methods(incoming, bundle_id)
         path.replace(target / NAME)
 
 
