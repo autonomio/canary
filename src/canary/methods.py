@@ -250,7 +250,7 @@ def _amendment(previous: dict, version: dict) -> Section:
     return dict(title=f"Protocol amendment {version['number'] - 1}", entries=entries)
 
 
-def report(view: dict, workspace: Path | None) -> Appendix:
+def report(view: dict, workspace: Path | None, inventory: list[dict] | None = None) -> Appendix:
     """Assemble the appendix from the projection and available working records."""
     graph = view.get('answer') or {}
     plan = view.get('query_net') or {}
@@ -270,8 +270,8 @@ def report(view: dict, workspace: Path | None) -> Appendix:
                     target.update(saved)
                 else:
                     missing.append(entry(name, f'Canary could not read the saved {name} record.'))
-    from .review_protocol import FILE, versions as read_versions, outcome_definitions
-    history = working_file(workspace, FILE)
+    from .review_protocol import history_file, versions as read_versions, outcome_definitions
+    history = history_file(workspace, inventory)
     versions = read_versions(history) if history else []
     protocol_sections = []
     for index, version in enumerate(versions):
@@ -345,4 +345,4 @@ def for_bundle(workspace: Path, manifest: dict, store: Path | None = None) -> Ap
         result['sections'].insert(0, dict(title='Limits of the saved record', entries=[
             entry('Older bundle', 'Detailed search receipts, access decisions and session prompts were not retained.')]))
         return result
-    return report(dashboard.research_bundle(workspace), workspace)
+    return report(dashboard.research_bundle(workspace), workspace, manifest['artifacts'])

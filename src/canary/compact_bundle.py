@@ -97,6 +97,14 @@ def retain(workspace):
         return _retain(workspace)
 
 
+def _sealed_inventory(workspace):
+    path = workspace / 'bundle.json'
+    if not path.is_file():
+        return None
+    sealed = json.loads(path.read_text(encoding='utf-8'))
+    return sealed.get('artifacts') if sealed.get('state') == 'finished' else None
+
+
 def _retain(workspace):
     from . import bundle_connectors, dashboard, methods, review_history, runs
     if exists(workspace):
@@ -107,7 +115,7 @@ def _retain(workspace):
             if (workspace / 'run.json').exists() and not review_history.has_methods(workspace):
                 run = json.loads((workspace / 'run.json').read_text())
                 view = dashboard.question_research_bundle(workspace, run)
-                appendix = methods.report(view, workspace)
+                appendix = methods.report(view, workspace, _sealed_inventory(workspace))
             review_history.bind(workspace, retained['id'], checksum, appendix)
             _release(workspace)
         return retained
@@ -117,6 +125,7 @@ def _retain(workspace):
     if not (workspace / '.run-reservation').is_file():
         raise ValueError('Only a newly reserved research workspace can be released')
     contribution = bundle_connectors.resolvent(workspace)
+    inventory = _sealed_inventory(workspace)
     run = json.loads((workspace / 'run.json').read_text())
     view = dashboard.question_research_bundle(workspace, run)
     parsed = runs.parse_bundle(workspace)
@@ -149,7 +158,7 @@ def _retain(workspace):
     try:
         retained = manifest(workspace)  # Verify inputs and reconstruction before release.
         review_history.bind(workspace, retained['id'], (workspace / CHECKSUM).read_text().strip(),
-                            methods.report(view, workspace))
+                            methods.report(view, workspace, inventory))
     except Exception:
         # Leave the working bundle available for inspection and a corrected retry.
         (workspace / NAME).unlink()

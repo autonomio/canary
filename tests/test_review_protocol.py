@@ -118,13 +118,14 @@ def test_protocol_byline_comes_from_the_declaration(tmp_path):
 
 def test_resubmitting_queries_in_another_order_is_not_an_amendment(tmp_path):
     from canary import review_protocol
-    from canary.coverage_runtime import write
+    from canary.coverage_runtime import read, write
 
     write(tmp_path / 'run.json', {'protocol_version': 1})
     plan = dict(question='When?', outcomes=[], queries=[dict(id='Q1', search='strength'), dict(id='Q2', search='yield')])
     review_protocol.save_plan(tmp_path, plan)
     review_protocol.save_plan(tmp_path, dict(plan, queries=plan['queries'][::-1]))
-    assert len(review_protocol.versions(tmp_path / review_protocol.FILE)) == 1
+    version, = review_protocol.versions(tmp_path / review_protocol.FILE)
+    assert read(tmp_path / 'question-plan.json') == version['plan'] == plan
 
 
 def test_canonical_plan_matches_the_recorded_version(tmp_path):
@@ -165,3 +166,28 @@ def test_published_plan_schema_rejects_outcomes_with_only_a_name():
     items = api_contract._query_schema()['properties']['outcomes']['items']['anyOf']
     assert {'type': 'string'} in items and len(items) == 2
     assert set(items[0]['required']) == {'name', 'unit', 'time_point', 'effect_measure'}
+
+
+def test_sealed_protocol_must_match_the_bundle_inventory(tmp_path):
+    import pytest
+    from canary import review_protocol
+    from canary.coverage_runtime import read, write
+    from canary.research_bundle import file_hash
+
+    review_protocol.save_plan(tmp_path, dict(question='When?', outcomes=[]))
+    path = tmp_path / review_protocol.FILE
+    inventory = [dict(path=review_protocol.FILE, bytes=path.stat().st_size, sha256=file_hash(path))]
+    assert review_protocol.history_file(tmp_path, inventory) == path
+    write(path, read(path)[:0])
+    with pytest.raises(ValueError, match='changed'):
+        review_protocol.history_file(tmp_path, inventory)
+    with pytest.raises(ValueError, match='sealed bundle inventory'):
+        review_protocol.history_file(tmp_path, [])
+    assert review_protocol.history_file(tmp_path) == path
+
+
+def test_published_registration_schema_requires_the_record_for_a_date():
+    from canary import api_contract
+
+    registered = api_contract.schemas()['ResearchDeclaration']['properties']['registration']['oneOf'][1]
+    assert registered['dependentRequired'] == {'registered_on': ['record_url']}

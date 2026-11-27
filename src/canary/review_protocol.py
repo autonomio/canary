@@ -50,6 +50,22 @@ def _comparable(plan: dict) -> dict:
     return plan
 
 
+def history_file(workspace: Path | None, inventory: list[dict] | None = None) -> Path | None:
+    """Locate the protocol history, verified against a sealed inventory when one is given."""
+    from .methods_search import working_file
+    path = working_file(workspace, FILE)
+    if inventory is None or workspace is None:
+        return path
+    from .research_bundle import verified_artifact
+    records = {record['path']: record for record in inventory}
+    for name in (FILE, 'common/' + FILE, 'research/' + FILE):
+        if name in records:
+            return verified_artifact(workspace, records[name])
+    if path is not None:
+        raise ValueError('The review protocol is missing from the sealed bundle inventory')
+    return None
+
+
 def save_plan(workspace: Path, plan: dict) -> None:
     path = workspace / FILE
     current = workspace / 'question-plan.json'
@@ -77,7 +93,7 @@ def save_plan(workspace: Path, plan: dict) -> None:
         history.append(_record(content, history, author=author, reason=reason, original=not history, stage=stage))
     if previous or changed:
         write(path, history)
-    write(current, content)
+    write(current, history[-1]['plan'])
 
 
 def approval_records(history: list[dict], entries: list[dict]) -> list[dict]:

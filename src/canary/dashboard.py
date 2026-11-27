@@ -1556,7 +1556,8 @@ class Handler(BaseHTTPRequestHandler):
                     if compact_bundle.exists(workspace):
                         versions = methods.for_bundle(workspace, manifest, store).get('protocol_versions', [])
                     else:
-                        path = methods.working_file(workspace, review_protocol.FILE)
+                        sealed = manifest['artifacts'] if manifest['state'] == 'finished' else None
+                        path = review_protocol.history_file(workspace, sealed)
                         versions = review_protocol.versions(path) if path else []
                 if not versions or not manifest['id']:
                     self._send(409, {'error': 'No protocol has been recorded for this run', 'code': 'protocol_unavailable'})

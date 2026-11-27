@@ -1050,6 +1050,7 @@
           </div>
           <details class="advanced" id="study-brief"><summary>Study brief</summary>
             <div class="field"><label for="f-protocol-author">Protocol author (optional)</label><input id="f-protocol-author" maxlength="200"></div>
+            <input type="hidden" id="f-registration" value=""><p class="hint" id="registration-note" hidden></p>
             <div class="field"><label for="f-study-brief">Study design and scope</label><textarea id="f-study-brief" rows="5" maxlength="20000"></textarea><p class="hint">Add comparators, outcomes and references you want the research to consider.</p></div>
           </details>
           <details class="advanced" id="prior-research"><summary>Prior research</summary>
@@ -2559,6 +2560,7 @@
         "mode",
         "study-brief",
         "protocol-author",
+        "registration",
         "selection",
         "target",
         "corrections",
@@ -2626,6 +2628,10 @@
         const author = v["protocol-author"]?.trim();
         if (author && (override || v.mode === "cycle")) throw new Error("Protocol authors are available for question research.");
         if (author) spec.protocol_author = author;
+        if (v.registration) {
+          if (override || v.mode === "cycle") throw new Error("Protocol registration is available for question research.");
+          spec.registration = typeof v.registration === "string" ? JSON.parse(v.registration) : v.registration;
+        }
         const additional = v.additional_sources || [];
         if(!Array.isArray(additional) || additional.some(n=>!["clinicaltrials","epo","osf"].includes(n)) || new Set(additional).size!==additional.length)
           throw new Error("Choose supported additional sources once each.");
@@ -2755,18 +2761,33 @@
       }
       function applyDeclaration(question, spec) {
         const retrieval = spec?.retrieval;
-        const values = {q: question, mode: "question", argv: "", "protocol-author": spec?.protocol_author || "", "study-brief": spec?.study_brief || "",
+        const values = {q: question, mode: "question", argv: "", "protocol-author": spec?.protocol_author || "",
+          registration: spec?.registration ? JSON.stringify(spec.registration) : "", "study-brief": spec?.study_brief || "",
           target: retrieval?.target_papers ?? 50, corrections: spec?.audit?.max_correction_rounds ?? 3,
           corpus: retrieval?.corpus || "fresh", selection: retrieval?.selection || "coverage",
           directory: retrieval?.local_text?.directory || "", metadata: retrieval?.local_text?.metadata || "",
           "research-state": spec?.research_state ? JSON.stringify(spec.research_state, null, 2) : ""};
         for (const [field, value] of Object.entries(values)) document.getElementById("f-" + field).value = value;
+        showRegistration();
         document.getElementById("f-continue-research").checked = !!spec?.continue_research;
         document.getElementById("f-background-research").checked = !spec?.continue_research;
         document.querySelectorAll("[data-add-source]").forEach(el => {
           el.checked = (retrieval?.additional_sources || []).includes(el.value);
         });
         updateSourceConfiguration();
+      }
+      function registrationText(record) {
+        if (record?.status === "unregistered") return "Declared unregistered.";
+        if (record?.status !== "registered") return "";
+        return `Registered with ${record.registry} as ${record.identifier}` +
+          (record.registered_on ? ` on ${record.registered_on}` : "") + (record.record_url ? ` · ${record.record_url}` : "") + ".";
+      }
+      function showRegistration() {
+        const note = document.getElementById("registration-note");
+        let record = null;
+        try { record = JSON.parse(document.getElementById("f-registration").value || "null"); } catch { record = null; }
+        note.textContent = record ? "Registration from the imported declaration: " + registrationText(record) : "";
+        note.hidden = !record;
       }
       function openComposer(question, spec) {
         S.draftRevision++;
@@ -2870,7 +2891,7 @@
         try {
           const v = formValues();
           const payload = buildLaunch(v.mode === "cycle" ? { ...v, corpus: "fresh", selection: "coverage",
-            "study-brief": "", "protocol-author": "", "research-state": "", continue_research: false } : { ...v, argv: "",
+            "study-brief": "", "protocol-author": "", registration: "", "research-state": "", continue_research: false } : { ...v, argv: "",
             selection: v.corpus === "local_text" ? "coverage" : v.selection });
           const spec = payload.spec || (payload.kind === "question" ? { question: payload.question,
             ...(payload.research_state ? { research_state: payload.research_state, continue_research: payload.continue_research } : {}) } : null);
@@ -3011,6 +3032,7 @@
           if (dialog.open) dialog.close();
           if (S.draftRevision === revision) {
             document.getElementById("research-form").reset();
+            showRegistration();
             try { sessionStorage.removeItem("canary-research-draft"); } catch {}
           }
           toast("Research started.");
@@ -3948,6 +3970,7 @@
           if (v) {
             for (const f of fields)
               if (v[f] != null) document.getElementById("f-" + f).value = v[f];
+            showRegistration();
             document.getElementById("f-maint").checked = !!v.maintenance;
             document.getElementById("f-continue-research").checked = !!v.continue_research;
             document.getElementById("f-background-research").checked = !v.continue_research;
