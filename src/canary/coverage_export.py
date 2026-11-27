@@ -681,13 +681,14 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
             exported["study_result_occurrence"] = study_occurrences[record.get("id")]
         graph["study_results"].append(exported)
     if "studies" in investigation or run.get("study_table_version"):
-        from .study_table import export as export_studies, issues as study_issues, passage_ids
+        from .study_table import export as export_studies, issues as study_issues, passage_ids, summary
         studies = investigation.get("studies")
         graph["studies"] = export_studies(studies)
+        graph["study_summary"] = summary(studies)
         if run.get("study_table_version"):
             located = {pid: {"reference_id": span.get("reference_id", span.get("source_id"))} for pid, span in spans.items()}
-            graph["binding_issues"].extend(study_issues(studies, references=refs, passages=located,
-                                                        reviews=list(admitted.values()), plan=plan))
+            graph["binding_issues"].extend(dict(issue, section="studies") for issue in study_issues(
+                studies, references=refs, passages=located, reviews=list(admitted.values()), plan=plan))
         used_passages.update(pid for pid in passage_ids(studies) if pid in spans)
     audit = _load(bundle / "audit" / "audit.json", _load(bundle / "audit.json", {}))
     audit = audit if isinstance(audit, dict) else {}

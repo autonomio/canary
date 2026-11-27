@@ -87,6 +87,33 @@ def passage_ids(studies):
                 yield from field.get('passage_ids', [])
 
 
+def summary(studies):
+    """Count studies and reports; a subject total stays unknown unless each subject is counted once."""
+    studies = _rows(studies)
+    kinds = {study.get('id'): study.get('subject') for study in studies}
+    repeated = {key for key, count in Counter(study.get('id') for study in studies).items() if count > 1}
+    linked = {}
+    for study in studies:
+        for link in _rows(study.get('shared_with')):
+            if link.get('study_id') != study.get('id'):
+                pair = tuple(sorted((study.get('id'), link.get('study_id')), key=str))
+                linked.setdefault(pair, set()).add(str(link.get('shares')))
+    subjects = []
+    for subject in dict.fromkeys(study.get('subject') for study in studies):
+        members = [study for study in studies if study.get('subject') == subject]
+        reasons = [f"Study {study.get('id')} does not report its number of {subject}."
+                   for study in members if type(study.get('subject_count')) is not int]
+        reasons.extend(f"Study {key} is recorded more than once." for key in sorted(repeated, key=str)
+                       if kinds.get(key) == subject)
+        reasons.extend(f"Studies {a} and {b} share {' and '.join(sorted(shared))}, so their counts of {subject} may overlap."
+                       for (a, b), shared in sorted(linked.items(), key=str)
+                       if kinds.get(a) == subject and kinds.get(b) == subject)
+        subjects.append({'subject': subject, 'studies': len(members), 'reasons': reasons,
+                         'total': None if reasons else sum(study['subject_count'] for study in members)})
+    reports = {r.get('reference_id') for study in studies for r in _rows(study.get('reports'))}
+    return {'studies': len(studies), 'reports': len(reports), 'subjects': subjects}
+
+
 def message(issue):
     detail = ', '.join(f"{key.replace('_', ' ')} {value}" for key, value in issue.items() if key != 'kind')
     return 'Study table: ' + issue['kind'].replace('_', ' ') + (' (' + detail + ')' if detail else '')

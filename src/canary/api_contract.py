@@ -111,6 +111,7 @@ def schemas():
         'gaps':arr(O),'residue':arr(O),'contradictions':arr(O),'study_results':arr(O),
         'studies':dict(arr(O),description='Studies behind the reviewed reports, present when the research recorded them. '
             'Fields follow Study with text as value and passage_ids as paragraph_ids.'),
+        'study_summary':dict(O,description='Study and report counts. A subject total is null when a count is missing or studies share subjects.'),
         'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O),
         'history_manifest':arr(ref('RevisionDigest')),'claim_links':arr(ref('ClaimLink')),
         'verification_progress':nullable(obj({'phase':S,'round':I})),
@@ -284,6 +285,9 @@ def schemas():
             'status':dict(S,description='publication_identity_unverified means no acquired copy satisfied the bibliographic check.'),
             'reason':S,'public_timeout_seen':B,'reference':ref('AgentReference')},['work_id','status'],closed=False))},
             ['attempted','sources_available','receipts']),
+        'StudyTable':obj({'key':S,'studies':arr(O),'summary':obj({'studies':I,'reports':I,'subjects':arr(obj({
+            'subject':S,'studies':I,'total':nullable(I),'reasons':arr(S)},['subject','studies','total','reasons']))},
+            ['studies','reports','subjects']),'issues':arr(O)},['key','studies','summary','issues']),
         'ReviewProtocol':obj({'bundle_id':S,'registration':O,'versions':arr(O),'decisions':arr(O)},
                              ['bundle_id','registration','versions','decisions']),
         'MethodsAppendix':typed(methods.Appendix),
@@ -359,6 +363,7 @@ def document():
     op('revision','get','/api/runs/{key}/revisions/{round}/{kind}','Read a hash-checked original research, audit or correction record after source cleanup','RevisionArtifact',
         params=[key,('round','path',dict(I,minimum=0),True),('kind','path',{'enum':['research','audit','correction']},True)],mcp=True)
     op('bundle','get','/api/runs/{key}/bundle','Read bundle settings, artifact hashes and findings','BundleResponse',params=[key],mcp=True)
+    op('study_table','get','/api/runs/{key}/studies','Read the studies behind the reviewed reports','StudyTable',params=[key],mcp=True)
     op('review_protocol','get','/api/runs/{key}/prisma/protocol','Export the dated review protocol','ReviewProtocol',params=[key],mcp=True)
     op('methods_appendix','get','/api/runs/{key}/prisma/methods','Read the methods appendix','MethodsAppendix',params=[key],mcp=True)
     op('prisma_checklist','get','/api/runs/{key}/prisma/checklist','Read the linked PRISMA checklist','PrismaReport',params=[key],mcp=True)

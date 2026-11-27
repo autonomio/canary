@@ -126,3 +126,75 @@ def test_a_group_without_a_cited_description_keeps_its_sample_size():
     record = study(groups=[{'id': 'G1', 'description': None, 'sample_size': field('R1-p1')}])
     jsonschema.Draft202012Validator(shape).validate(record)
     assert kinds([record]) == []
+
+
+def test_a_subject_total_counts_each_study_once():
+    first = study(subject_count=40)
+    later = study(id='S2', subject_count=25, reports=[{'reference_id': 'R3', 'status': 'confirmed',
+                                                      'basis': 'Separate cohort.', 'passage_ids': ['R3-p1']}])
+    assert study_table.summary([first, later]) == {'studies': 2, 'reports': 3, 'subjects': [
+        {'subject': 'participants', 'studies': 2, 'reasons': [], 'total': 65}]}
+    shared = dict(later, shared_with=[{'study_id': 'S1', 'shares': 'participants', 'status': 'uncertain',
+                                       'basis': 'Overlapping enrolment.', 'passage_ids': ['R3-p1']}])
+    unknown = dict(first, subject_count=None, shared_with=[{'study_id': 'S2', 'shares': 'participants',
+                                                           'status': 'confirmed', 'basis': 'Same registry.',
+                                                           'passage_ids': ['R1-p1']}])
+    subjects, = study_table.summary([unknown, shared])['subjects']
+    assert subjects['total'] is None
+    assert subjects['reasons'] == ['Study S1 does not report its number of participants.',
+                                   'Studies S1 and S2 share participants, so their counts of participants may overlap.']
+    linked = dict(shared, shared_with=[dict(shared['shared_with'][0], shares='datasets')])
+    assert study_table.summary([first, linked])['subjects'][0]['reasons'] == [
+        'Studies S1 and S2 share datasets, so their counts of participants may overlap.']
+    repeated, = study_table.summary([first, first])['subjects']
+    assert repeated['total'] is None and repeated['reasons'] == ['Study S1 is recorded more than once.']
+    specimens = study(id='S3', subject='specimens', subject_count=12, reports=[])
+    assert [s['total'] for s in study_table.summary([first, specimens])['subjects']] == [40, 12]
+
+
+def test_the_study_table_is_served_with_its_summary_and_issues(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from canary import dashboard, runs
+
+    answer = {'studies': [{'id': 'S1'}], 'study_summary': {'studies': 1, 'reports': 0, 'subjects': []},
+              'binding_issues': [{'kind': 'report_without_study', 'section': 'studies'}, {'kind': 'lacks_evidence'}]}
+    handler = object.__new__(dashboard.Handler)
+    handler.supervisor = SimpleNamespace(root=tmp_path, registry=None)
+    handler.dashboard_enabled = True
+    responses = []
+    handler._send = lambda *args: responses.append(args)
+    monkeypatch.setattr(runs, 'get', lambda key, registry: {'key': key, 'bundle': str(tmp_path)} if key == 'review' else None)
+    monkeypatch.setattr(dashboard, 'research_for_row', lambda row, supervisor: ({'answer': answer}, False))
+    for path in ('/api/runs/review/studies', '/api/runs/missing/studies'):
+        handler.path = path
+        handler.do_GET()
+    answer.pop('studies')
+    handler.path = '/api/runs/review/studies'
+    handler.do_GET()
+    assert [status for status, _ in responses] == [200, 404, 409]
+    assert responses[0][1] == {'key': 'review', 'studies': [{'id': 'S1'}], 'summary': answer['study_summary'],
+                               'issues': [{'kind': 'report_without_study', 'section': 'studies'}]}
+
+
+def test_the_dashboard_shows_each_study_with_its_reports_and_unknown_total(tmp_path):
+    from test_coverage_evidence_ui import run_dashboard
+
+    graph = {'passages': [{'id': 'R1-p1', 'source_id': 'R1'}],
+             'studies': study_table.export([study(subject_count=None, reports=study()['reports'][:1])]),
+             'study_summary': study_table.summary([study(subject_count=None)]),
+             'binding_issues': [{'kind': 'report_without_study', 'section': 'studies', 'reference_id': 'R3',
+                                 'review_study_ids': []}]}
+    run_dashboard(tmp_path, graph, r'''
+const html=studyTableHtml(graph);
+assert.match(html,/Studies · 1 from 2 reports/);
+assert.match(html,/Total unknown participants across 1 study/);
+assert.match(html,/Study S1 does not report its number of participants/);
+assert.match(html,/R1 · confirmed/);
+assert.match(html,/data-qa-passage="R1-p1"/);
+assert.match(html,/Included report R3 belongs to no study; its review names no study/);
+assert.doesNotMatch(html,/R2-p1/);
+assert.equal(studyTableHtml({}),'');
+const sized=studyTableHtml({...graph,studies:[{...graph.studies[0],groups:[{id:'G1',description:null,sample_size:{value:'n = 40',paragraph_ids:['R1-p1']}}]}]});
+assert.match(sized,/G1<\/p><p class="hint">Sample size<\/p><p>n = 40<\/p><div class="source-actions"><button[^>]*data-qa-passage="R1-p1"/);
+assert.equal(qaGraph({answer:{studies:graph.studies}}).studies,graph.studies);
+''')

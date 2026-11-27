@@ -369,3 +369,21 @@ A review without a supplied name has no byline.
 A decision with subject ID `protocol:<version digest>` records approval or rejection
 of that version. Its decision history identifies the reviewer and the time of the
 decision. A software draft on its own carries no approval.
+
+### Studies
+
+A study is the group of participants, specimens, experiments or datasets behind one or more
+reports. Registrations, interim reports and follow-ups of the same study are listed together.
+Each report shows whether its match to the study is confirmed, uncertain or disputed, with the
+basis and passages for that match. Subjects shared by separate studies are recorded in
+`shared_with` and leave the study identity unchanged.
+
+Each study records its citation, design, setting, population, sample size, follow-up, funding,
+groups and the other variables named in the protocol. Each value cites passages from the
+study's own reports, or is null when the reports do not give it.
+
+Open **Studies** in the dashboard, run `canary studies RUN_KEY` or call
+`GET /api/runs/{key}/studies`. A subject total counts each study once. It stays unknown when a
+study does not report its count or when studies share subjects. Defects in the study records,
+such as an included report with no study, are listed with the table and in the mechanical
+audit. They do not withhold claims.

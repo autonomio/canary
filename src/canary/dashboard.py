@@ -1541,6 +1541,18 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             self._send(200, content, kind,
                                        {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
+            elif re.fullmatch(r"/api/runs/[^/]+/studies", parsed.path):
+                key = unquote(parsed.path.split('/')[3])
+                row = runs.get(key, self.supervisor.registry)
+                if not row:
+                    self._send(404, {'error': 'Unknown research run', 'code': 'unknown_run'})
+                    return
+                answer = research_for_row(row, self.supervisor)[0].get('answer') or {}
+                if 'studies' not in answer:
+                    self._send(409, {'error': 'No study table has been recorded for this run', 'code': 'studies_unavailable'})
+                    return
+                self._send(200, {'key': key, 'studies': answer['studies'], 'summary': answer.get('study_summary'),
+                                 'issues': [i for i in answer.get('binding_issues', []) if i.get('section') == 'studies']})
             elif re.fullmatch(r"/api/runs/[^/]+/prisma/protocol", parsed.path):
                 from . import compact_bundle, review_protocol
                 row = runs.get(unquote(parsed.path.split('/')[3]), self.supervisor.registry)
