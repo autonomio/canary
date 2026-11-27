@@ -936,6 +936,11 @@ def bind_payload(workspace, *, investigation=None):
             issues.append(issue)
             for identifier in record["claim_ids"]:
                 claim_issues.setdefault(identifier, []).append(issue)
+    if read(workspace / "run.json", {}).get("study_table_version"):
+        from .study_table import issues as study_issues, message
+        issues.extend(message(issue) for issue in study_issues(
+            raw.get("studies"), references=references, passages=passages,
+            reviews=admitted + additional_admitted, plan=plan))
     mechanical = {"at": now(), "pass": not issues, "issues": issues,
                   "claim_blocking_issues": claim_blocking_issues,
                   "claim_issues": {identifier: found for identifier, found in claim_issues.items() if found},
@@ -1385,6 +1390,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
         "selection_method": "coverage-guided", "minimum_papers": minimum_papers, "research_model": protocol.RESEARCH_MODEL,
         "research_effort": protocol.RESEARCH_EFFORT, "audit_model": protocol.AUDIT_MODEL, "audit_effort": protocol.AUDIT_EFFORT,
         "max_correction_rounds": max_correction_rounds, "verification_version": 1, "protocol_version": 1,
+        "study_table_version": 1,
         "agent_paper_metadata_fields": list(protocol.AGENT_PAPER_METADATA_FIELDS),
         "no_subagents": True, "fresh_assets_only": not bool(local_text),
         **({"local_text": local_text, "corpus": "local_text"} if local_text else {}), "audit_budget_seconds": audit_seconds,

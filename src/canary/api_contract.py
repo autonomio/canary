@@ -109,6 +109,8 @@ def schemas():
         'export_policy':obj({'connector_version':I}),
         'evidence':arr(ref('RecordedEvidence')),'passages':arr(ref('Passage')),'references':arr(O),
         'gaps':arr(O),'residue':arr(O),'contradictions':arr(O),'study_results':arr(O),
+        'studies':dict(arr(O),description='Studies behind the reviewed reports, present when the research recorded them. '
+            'Fields follow Study with text as value and passage_ids as paragraph_ids.'),
         'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O),
         'history_manifest':arr(ref('RevisionDigest')),'claim_links':arr(ref('ClaimLink')),
         'verification_progress':nullable(obj({'phase':S,'round':I})),
@@ -155,7 +157,7 @@ def schemas():
         '(resumed is true once that turn started). A response still invalid after it fails the correction round.')
     named_findings = {name:generated['properties'][field]['items'] for name,field in (
         ('GeneratedClaim','claims'),('GeneratedEvidence','evidence'),('Gap','gaps'),('Residue','residue'),
-        ('StudyResult','study_results'),('Contradiction','contradictions'),('NextQuestion','next_questions'))}
+        ('Study','studies'),('StudyResult','study_results'),('Contradiction','contradictions'),('NextQuestion','next_questions'))}
     return {**named_findings,'Object':deepcopy(O),'Error':obj({'error':S,'code':S,'issues':arr(O)},['error'],closed=False),
         'ResearchDeclaration':declaration,'NativeSubmission':native,
         'CompileRequest':dict(native,properties={k:v for k,v in native['properties'].items() if k in ('yaml','spec')}),

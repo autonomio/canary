@@ -41,7 +41,7 @@ def prepared(path, rounds=3):
 
 
 def response(payload, action='revise', split=False):
-    raw = {k: deepcopy(payload[k]) for k in engine.protocol.investigation_schema()['properties']}
+    raw = {k: deepcopy(payload.get(k, [])) for k in engine.protocol.investigation_schema()['properties']}
     for result in raw['study_results']:
         for field in result.get('fields', {}).values():
             if isinstance(field, dict): field.pop('verbatims', None)

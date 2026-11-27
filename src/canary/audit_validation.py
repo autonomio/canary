@@ -16,8 +16,12 @@ SNAPSHOT_FIELDS = ('claims', 'evidence', 'study_results', 'references', 'contrad
                    'coverage', 'coverage_map', 'accounting', 'mechanical_audit', 'claim_review_checks')
 
 
+RECORDED_FIELDS = ('studies',)
+
+
 def snapshot(payload):
     value = {field: payload.get(field) for field in SNAPSHOT_FIELDS}
+    value.update({field: payload[field] for field in RECORDED_FIELDS if field in payload})
     if isinstance(value.get('mechanical_audit'), dict):
         value['mechanical_audit'] = {k: v for k, v in value['mechanical_audit'].items() if k != 'at'}
     return digest(value)

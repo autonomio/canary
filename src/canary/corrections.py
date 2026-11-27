@@ -244,7 +244,8 @@ def finalize(payload, audit, history, withdrawn=(), *, failure=None, stopped=Non
     final = deepcopy(payload)
     final.update(claims=accepted, withheld_claims=withheld, claim_revisions=deepcopy(history),
         independent_audit=deepcopy(audit), verification={'version': VERSION, 'projection_version': PROJECTION,
-            'audit_basis': {k: original.get(k) for k in audit_validation.SNAPSHOT_FIELDS},
+            'audit_basis': {**{k: original.get(k) for k in audit_validation.SNAPSHOT_FIELDS},
+                            **{k: original[k] for k in audit_validation.RECORDED_FIELDS if k in original}},
             'candidate_claims': len(payload.get('claims', [])) + len(withdrawn),
             'supported_claims': len(accepted), 'withheld_claims': len(withheld),
             'withheld_share': len(withheld)/(len(accepted)+len(withheld)) if accepted or withheld else 0,
@@ -297,7 +298,7 @@ def audit_basis(payload):
     current['claims'].extend(c for identifier, c in active.items() if identifier not in known)
     if known - active.keys() - withheld:
         current['claims'] = payload.get('claims', [])  # Undocumented removal is not a valid projection.
-    for field in audit_validation.SNAPSHOT_FIELDS:
+    for field in (*audit_validation.SNAPSHOT_FIELDS, *audit_validation.RECORDED_FIELDS):
         if field == 'claims':
             continue
         expected = deepcopy(basis.get(field))

@@ -198,6 +198,21 @@ def published_question_plan(plan):
                 screening_instructions=instructions)
 
 
+def _studies_schema(field):
+    from .study_table import CHARACTERISTICS, MATCHES, SUBJECTS
+    optional = {"anyOf": [field, {"type": "null"}]}
+    evidence = {"status": enum(*MATCHES), "basis": S, "passage_ids": SS}
+    return arr(obj({
+        "id": S, "citation": S, "subject": enum(*SUBJECTS),
+        "subject_count": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
+        "reports": arr(obj({"reference_id": S, **evidence})),
+        "characteristics": obj({name: optional for name in CHARACTERISTICS}),
+        "groups": arr(obj({"id": S, "description": optional, "sample_size": optional})),
+        "planned_variables": arr(obj({"name": S, "value": optional})),
+        "shared_with": arr(obj({"study_id": S, "shares": enum(*SUBJECTS[:-1]), **evidence})),
+    }))
+
+
 def investigation_schema():
     field = obj({"text": S, "passage_ids": SS})
     uncertainty = obj({"class": enum("low", "moderate", "high"),
@@ -209,6 +224,7 @@ def investigation_schema():
             "uncertainty": uncertainty, "freshness": freshness_schema(), "evidence_ids": SS, "study_result_ids": SS})),
         "evidence": arr(obj({"id": S, "passage_ids": SS, "interpretation": S,
                              "relation": enum("supports", "qualifies", "contradicts"), "premise_claim_ids": SS})),
+        "studies": _studies_schema(field),
         "study_results": arr(obj({"id": S, "reference_ids": SS,
             "result_type": enum("measured", "fitted", "simulated", "association", "qualitative", "secondary_report"),
             "fields": obj({name: {"anyOf": [field, {"type": "null"}]} for name in (
@@ -422,6 +438,7 @@ If fewer than {minimum_papers} remain, edit question-plan-draft.json with target
 A timeout or inaccessible copy alone does not prove topic scarcity. The target is not {minimum_papers} independent trials: role/family accounting is essential.
 5. Save investigation.json conforming to investigation-schema.json, and return that same JSON as the final response.
 Claims -> evidence -> canonical passages -> references; executive prose links claims. Study-result fields each cite actual supporting passages or are null.
+Record one studies entry per underlying study and list each of its reports: registrations, interim reports and follow-ups that describe the same participants, specimens, experiments or datasets. Use these study IDs as related_study_ids in reviewed-papers.json; every included report belongs to a study. Mark each report match confirmed, uncertain or disputed and give its basis and passages. Record subjects that separate studies share in shared_with, with the same status, basis and passages. Each characteristic, group and planned variable cites passages from the study's own reports or is null when unreported. List every other_variables entry from question-plan.json in planned_variables. subject_count is the number of distinct subjects the study reports, or null.
 Include typed contradictions, gaps, residue, justified next questions, caveats and honest reviewed scope.
 Residue preserves relevant material that is neither a claim nor a gap: what must not be lost. Bind its basis, claim/evidence links and scope; do not require a resolution, alternative explanation or follow-up test. Gaps describe what remains unanswered and what would resolve it.
 {previous}
@@ -452,6 +469,7 @@ Independent requires inspected, addressable original-source evidence and a reaso
 Read claim_review_checks in audit-input.json. Missing linked study results are structural failures to correct.
 Context wording and possible duplicate checks are review cues, not semantic verdicts. Resolve them against the sources; do not mechanically reject or merge claims.
 Audit claim_links and evidence premise_claim_ids for source support, direction, scope and dependencies; attach material defects to the affected claim IDs.
+Check studies against the sources: which reports describe each study, the status and basis of each match, shared subjects and each recorded characteristic. Report a material defect as a finding.
 Audit the actual claim/result scope, exact source meaning, arithmetic, experiment attribution, selection/coverage and paper-role/family counts.
 Findings name only current claim IDs from audit-input.json; a defect in specific claims names them and is reflected in their claim_checks. Use claim_ids [] only for a run-level finding, such as a selection, coverage or count defect, that no claim's correction can resolve; it is reported with the run and changes no claim verdict.
 Do not reward paper quantity or confidence; identify irrelevant padding, preview inclusion, important adverse alternatives and unsupported claims.
