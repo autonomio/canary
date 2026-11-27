@@ -32,22 +32,29 @@ def canonical_sha(value):
     return sha(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8'))
 
 
-def verify_archive(manifest, content, handoff, read_original=None):
+def verify_archive(manifest, content, handoff, read_download=None):
     """Verify transport; reconstruct whole-text slices only when bytes are retained."""
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         names = archive.namelist()
         assert len(names) == len(set(names)), 'Duplicate archive paths'
-        inventory = {r['path']: r for r in json.loads(archive.read('bundle.json'))['artifacts']}
+        archived = json.loads(archive.read('bundle.json'))
+        assert archived['id'] == manifest['id']
+        inventory = {r['path']: r for r in archived['artifacts']}
+        assert len(inventory) == len(archived['artifacts'])
+        assert inventory.keys() == {r['path'] for r in manifest['artifacts']}
         for artifact in manifest['artifacts']:
             name = artifact['path']
             body = archive.read(name)
             exported = inventory[name]
             assert len(body) == exported['bytes'] and sha(body) == exported['sha256'], name
             if exported != artifact:
-                assert Path(name).name in research_bundle.REQUEST_LOGS and read_original is not None, name
-                original = read_original(name)
-                assert len(original) == artifact['bytes'] and sha(original) == artifact['sha256'], name
-                assert body == research_bundle.archive_log(name, original), name
+                assert research_bundle.has_request_urls(name), name
+                assert exported == dict(artifact, bytes=len(body), sha256=sha(body),
+                                        original=dict(bytes=artifact['bytes'], sha256=artifact['sha256'])), name
+                if read_download is not None:
+                    assert read_download(name) == body, name
+            if research_bundle.has_request_urls(name):
+                assert research_bundle.archive_log(name, body) is None, name
         assert handoff['method_metadata']['bundle_id'] == manifest['id']
         if manifest.get('retention', {}).get('mode') == 'bundle_only':
             from canary import bundle_encoding, compact_bundle

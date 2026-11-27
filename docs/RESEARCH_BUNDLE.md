@@ -323,6 +323,13 @@ The full ZIP includes `methods-appendix.json`. The dashboard and
 working files, Canary saves it in `review-decisions.sqlite3` and binds that
 file to the compact bundle. The Resolvent contribution keeps its existing format.
 
+When you download a request log or paper download receipt, Canary removes login details,
+query strings and fragments from request URLs. The same rule applies to older receipts
+in the download history, the reference fields in generated review files, and copies in the ZIP. For each file changed during export,
+the ZIP inventory gives the exported size and SHA-256 alongside the sealed file’s size
+and SHA-256 under `original`. The receiver can check the downloaded bytes and compare
+the recorded original hashes with the sealed inventory without retrieving private URLs.
+
 Each search round lists the exact terms, the source’s match count, the
 number of records retrieved and the last recorded request. A paper found by
 two queries counts in each query. Older reviews can show a match count

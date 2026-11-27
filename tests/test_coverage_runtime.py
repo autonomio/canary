@@ -610,7 +610,7 @@ def test_public_acquisition_saves_the_validated_extraction_once(tmp_path, monkey
     setup_sources(tmp_path, ids=('W1',))
     # An actual public-copy resolution path, with only HTTP/DNS replaced.
     selected = dict(work('W1'), doi=None, primary_location={
-        'is_oa': True, 'pdf_url': 'https://example.org/paper'})
+        'is_oa': True, 'pdf_url': 'https://example.org/paper?signature=synthetic'})
     runtime.write(tmp_path / 'works.json', [selected])
     text = 'Methods\n' + 'Measured synthetic results, with source boundaries retained. ' * 20
     if kind == 'application/pdf':
@@ -636,6 +636,7 @@ def test_public_acquisition_saves_the_validated_extraction_once(tmp_path, monkey
     assert rows[0]['validated_text_reused'] is True
     assert calls == [raw]
     ref = rows[0]['reference']
+    assert ref['url'] == rows[0]['url'] == 'https://example.org/paper?signature=synthetic'
     saved = (tmp_path / ref['text_file']).read_text()
     expected = runtime._extract(raw, kind, selected)[0].replace('\r\n', '\n').replace('\r', '\n')
     assert saved == expected
