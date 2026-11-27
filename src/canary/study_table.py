@@ -307,12 +307,22 @@ def summary(studies):
     return {'studies': len(studies), 'reports': len(reports), 'subjects': subjects}
 
 
+def document_versions(reference_ids, references):
+    """The copy of each report the values were read from."""
+    versions = []
+    for identifier in dict.fromkeys(reference_ids):
+        reference = references.get(identifier) or {}
+        versions.append({'reference_id': identifier, 'text_sha256': reference.get('text_sha256'),
+                         'body_sha256': reference.get('body_sha256')})
+    return versions
+
+
 def message(issue):
     detail = ', '.join(f"{key.replace('_', ' ')} {value}" for key, value in issue.items() if key != 'kind')
     return 'Study table: ' + issue['kind'].replace('_', ' ') + (' (' + detail + ')' if detail else '')
 
 
-def export(studies):
+def export(studies, references=None):
     """Name passage links the way exported study results do."""
     def bound(field):
         return {'value': field.get('text'), 'paragraph_ids': list(field.get('passage_ids', []))} if isinstance(field, dict) else None
@@ -323,4 +333,7 @@ def export(studies):
                              groups=[dict(g, description=bound(g.get('description')), sample_size=bound(g.get('sample_size')))
                                      for g in _rows(study.get('groups'))],
                              planned_variables=[dict(v, value=bound(v.get('value'))) for v in _rows(study.get('planned_variables'))]))
+        if references is not None:
+            exported[-1]['document_versions'] = document_versions(
+                [r.get('reference_id') for r in _rows(study.get('reports'))], references)
     return exported

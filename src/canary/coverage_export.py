@@ -677,9 +677,8 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         exported = dict(record, source_id=sources[0] if len(sources) == 1 else None,
                         source_ids=sources, fields=fields,
                         result_type=type_map.get(record.get("result_type"), record.get("result_type")))
-        if isinstance(record.get("outcome_result"), dict):
-            from .study_table import export_result
-            exported.update(export_result(record))
+        from .study_table import document_versions, export_result
+        exported.update(export_result(record), document_versions=document_versions(sources, refs))
         if study_counts[record.get("id")] > 1:
             exported["study_result_occurrence"] = study_occurrences[record.get("id")]
         graph["study_results"].append(exported)
@@ -687,7 +686,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         from .study_table import (export as export_studies, issues as study_issues, passage_ids, result_issues,
                                   result_passage_ids, summary)
         studies = investigation.get("studies")
-        graph["studies"] = export_studies(studies)
+        graph["studies"] = export_studies(studies, refs)
         graph["study_summary"] = summary(studies)
         if run.get("study_table_version"):
             located = {pid: {"reference_id": span.get("reference_id", span.get("source_id"))} for pid, span in spans.items()}

@@ -426,3 +426,37 @@ assert.match(html,/Result<\/dt><dd><p>Measured but not reported<\/p><p class="hi
 assert.match(html,/Result in words<\/dt><dd><p>Fewer fractures.<\/p>/);
 assert.match(studyTableHtml(graph),/No result is recorded for planned outcome Breaking force\./);
 ''')
+
+
+def test_each_value_names_the_copy_of_the_report_it_was_read_from(tmp_path):
+    from canary import coverage_export
+
+    research_bundle.initialize(tmp_path, research_spec.compile_mapping(
+        {'question': 'Synthetic fixture question?', 'retrieval': {'target_papers': 1}}))
+    researched(tmp_path)
+    passage = engine.read(tmp_path / 'reviewed-papers.json')[0]['passage_ids_read'][0]
+    reference, = engine.catalog(tmp_path)
+    raw = json.loads((tmp_path / 'investigation.json').read_text())
+    raw['studies'] = [study(id='F1', planned_variables=[], groups=[], characteristics={},
+                           reports=[{'reference_id': 'W1', 'status': 'confirmed', 'basis': 'Single report.',
+                                     'passage_ids': [passage]}])]
+    raw['study_results'] = [{'id': 'SR1', 'reference_ids': ['W1'], 'result_type': 'measured', 'version_or_cohort_note': '',
+                             'fields': {'value': {'text': '4', 'passage_ids': [passage]}}}]
+    engine.write(tmp_path / 'investigation.json', raw)
+    graph = coverage_export.export_bundle(tmp_path)['answer']
+    expected = [{'reference_id': 'W1', 'text_sha256': reference['text_sha256'], 'body_sha256': reference['body_sha256']}]
+    assert graph['study_results'][0]['document_versions'] == expected
+    assert graph['studies'][0]['document_versions'] == expected
+
+
+def test_the_dashboard_names_the_copy_each_value_was_read_from(tmp_path):
+    from test_coverage_evidence_ui import run_dashboard
+
+    copy = [{'reference_id': 'R1', 'text_sha256': 'a' * 64, 'body_sha256': 'b' * 64}]
+    graph = {'passages': [], 'study_results': [dict(result(), fields={}, document_versions=copy)],
+             'studies': [dict(study_table.export([study()])[0], document_versions=copy)],
+             'study_summary': study_table.summary([study()]), 'binding_issues': []}
+    run_dashboard(tmp_path, graph, r'''
+assert.match(outcomeResultHtml(graph,graph.study_results[0]),/Read from R1 · text <code>aaaaaaaaaaaa<\/code>/);
+assert.match(studyTableHtml(graph),/Read from R1 <code>aaaaaaaaaaaa<\/code>/);
+''')

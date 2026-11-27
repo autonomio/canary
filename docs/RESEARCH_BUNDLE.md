@@ -408,3 +408,6 @@ Every study has a result for every outcome in the latest protocol version. Its s
 reported, not measured, measured but not reported, or unclear, with the basis and passages.
 Not measured and measured but not reported need a passage. A result given in words keeps the
 study's wording. A planned outcome without a result in a study is listed with the study table.
+
+Each study and study result lists the copy of every report it was read from, by the SHA-256 of
+the saved text and of the original file.
