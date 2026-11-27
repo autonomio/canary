@@ -435,8 +435,12 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
     workspace = Path(workspace).resolve()
     root = Path(root) if root is not None else data_root()
     run = read(workspace / "run.json", {})
-    plan = validate_plan(read(Path(plan_path)), require_protocol=bool(run.get("protocol_version")))
-    additional = read(workspace / 'run.json', {}).get('additional_sources', [])
+    submitted = isinstance(plan_path, dict)
+    draft = plan_path if submitted else read(Path(plan_path))
+    plan = validate_plan(draft, require_protocol=bool(run.get("protocol_version")))
+    if submitted:
+        plan = dict(plan, queries=list(plan['queries']))
+    additional = run.get('additional_sources', [])
     if any(q.get('source', 'openalex') not in ('openalex', *additional) for q in plan['queries']):
         raise ValueError('Query requests a source not enabled for this run')
     if additional and not (workspace / 'question-plan.json').exists():
@@ -445,6 +449,8 @@ def discover(workspace, plan_path, *, root=None, pages=5, client=None):
     if pages < 1:
         raise ValueError("Search page limit must be positive")
     with workspace_lock(workspace, "discovery"), ExitStack() as lifetime:
+        if submitted:
+            write(workspace / "question-plan-submitted.json", plan)
         local = read(workspace / 'run.json', {}).get('local_text')
         if local:
             from .local_text import discover as local_discover

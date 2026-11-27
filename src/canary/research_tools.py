@@ -102,10 +102,9 @@ def execute(row, action: str, body: ToolRequest, root: Path):
     if action in writes and row.get('status') == 'cancelling':
         raise ValueError('This run is stopping; committed sources remain readable')
     if action == 'discover':
-        engine.validate_plan(body.get('plan'))
-        path = workspace/'question-plan-submitted.json'
-        engine.write(path, body['plan'])
-        return engine.discover(workspace, path, root=root, pages=body.get('pages', 5))
+        if not isinstance(body.get('plan'), dict):
+            raise ValueError('Discovery requires a question plan')
+        return engine.discover(workspace, body['plan'], root=root, pages=body.get('pages', 5))
     if action == 'citation-leads':
         if not engine.read(workspace/'run.json', {}).get('citation_graph_requested'):
             raise ValueError('Enable citation_graph selection in the research declaration.')
