@@ -323,8 +323,9 @@ The full ZIP includes `methods-appendix.json`. The dashboard and
 working files, Canary saves it in `review-decisions.sqlite3` and binds that
 file to the compact bundle. The Resolvent contribution keeps its existing format.
 
-New runs record search requests and paper download addresses without login details,
-query strings or fragments. ZIPs and individual artifact downloads preserve the sealed
+New runs record only the endpoint for search requests. Saved paper links keep query
+parameters that identify the paper. Canary removes login details, fragments and
+recognised credential or signing parameters from those links. ZIPs and individual artifact downloads preserve the sealed
 files byte for byte. Older receipts can therefore contain full addresses. Original papers
 and raw provider responses can also contain links as supplied by their authors or providers.
 

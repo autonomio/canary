@@ -28,7 +28,7 @@ import uuid
 
 import httpx
 
-from .methods_search import request_address
+from .methods_search import paper_address, request_address
 from .api_client import endpoint
 
 from .claim_uncertainty import unassessed as unassessed_uncertainty
@@ -685,7 +685,7 @@ def acquire(workspace, ids, *, workers=12, retry_failed=False, fetch=None, extra
                 else:
                     raw, kind, url = result[:3]
                     if url:
-                        url = request_address(httpx.URL(url))
+                        url = paper_address(httpx.URL(url))
                     reused = isinstance(result, PaperCopy) and extract is _extract
                     text, pages, blank, extension = result.extraction if reused else extract(raw, kind, work)
                     receipt['validated_text_reused'] = reused

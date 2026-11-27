@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import TypeVar
 from urllib.parse import parse_qsl, urlsplit
 
+from .methods_search import private_query_key
+
 
 Record = TypeVar('Record', dict, list)
 
@@ -18,9 +20,8 @@ def evaluation_url(value: object) -> str | None:
         return None
     try:
         url = urlsplit(value)
-        private = {'access_token', 'token', 'api_key', 'key', 'signature', 'x-amz-signature'}
         if url.hostname and not url.username and not url.password and not any(
-                key.lower() in private for key, _ in parse_qsl(url.query)):
+                private_query_key(key) for key, _ in parse_qsl(url.query, keep_blank_values=True)):
             return value
     except ValueError:
         pass

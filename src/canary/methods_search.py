@@ -3,6 +3,7 @@ import json
 from collections import defaultdict
 from collections.abc import Iterable
 from pathlib import Path
+from urllib.parse import unquote_plus
 
 from httpx import URL
 
@@ -10,6 +11,22 @@ from httpx import URL
 def request_address(url: URL) -> str:
     """Keep only the public endpoint of a request URL."""
     return str(url.copy_with(username=None, password=None, query=None, fragment=None))
+
+
+def private_query_key(key: str) -> bool:
+    key = key.lower()
+    return key.startswith(('x-amz-', 'x-goog-')) or key.replace('-', '').replace('_', '') in {
+        'accesstoken', 'token', 'apikey', 'key', 'signature', 'sig', 'expires', 'policy', 'keypairid',
+        'awsaccesskeyid', 'googleaccessid', 'password', 'secret', 'credential', 'refreshtoken', 'idtoken',
+        'clientsecret', 'securitytoken',
+    }
+
+
+def paper_address(url: URL) -> str:
+    """Preserve paper query fields while removing recognised credentials."""
+    fields = (field for field in url.query.split(b'&')
+              if not private_query_key(unquote_plus(field.partition(b'=')[0].decode('utf-8', errors='replace'))))
+    return str(url.copy_with(username=None, password=None, query=b'&'.join(fields) or None, fragment=None))
 
 
 def start_round(workspace: Path, page_limit: int) -> int:

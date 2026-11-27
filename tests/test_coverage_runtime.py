@@ -609,8 +609,10 @@ def test_public_acquisition_saves_the_validated_extraction_once(tmp_path, monkey
     monkeypatch.setenv('CANARY_DATA_DIR', str(tmp_path / 'service'))
     setup_sources(tmp_path, ids=('W1',))
     # An actual public-copy resolution path, with only HTTP/DNS replaced.
-    selected = dict(work('W1'), doi=None, primary_location={
-        'is_oa': True, 'pdf_url': 'https://example.org/paper?signature=synthetic'})
+    paper = 'https://europepmc.org/backend/ptpmcrender.fcgi?accid=PMC123&blobtype=pdf'
+    signing = ('&signature=synthetic&X-Amz-Credential=fixture&Policy=fixture&AWSAccessKeyId=fixture'
+               '&GoogleAccessId=fixture&apiKey=fixture&api-key=fixture&refresh_token=fixture')
+    selected = dict(work('W1'), doi=None, primary_location={'is_oa': True, 'pdf_url': paper + signing})
     runtime.write(tmp_path / 'works.json', [selected])
     text = 'Methods\n' + 'Measured synthetic results, with source boundaries retained. ' * 20
     if kind == 'application/pdf':
@@ -636,7 +638,7 @@ def test_public_acquisition_saves_the_validated_extraction_once(tmp_path, monkey
     assert rows[0]['validated_text_reused'] is True
     assert calls == [raw]
     ref = rows[0]['reference']
-    assert ref['url'] == rows[0]['url'] == 'https://example.org/paper'
+    assert ref['url'] == rows[0]['url'] == paper
     assert runtime.read(tmp_path / 'references.json')[0]['url'] == ref['url']
     assert 'signature=synthetic' not in (tmp_path / 'download-receipts/W1.json').read_text()
     saved = (tmp_path / ref['text_file']).read_text()
