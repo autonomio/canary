@@ -150,7 +150,7 @@ def test_published_eligibility_stays_separate_from_screening(api, capsys, legacy
     if legacy:
         plan['eligibility']['core'] = criteria['core'].removesuffix('.') + '; label publication type and overlap.'
     else:
-        plan.update(draft_author={'name': 'Fixture', 'kind': 'software'}, rationale='Resolve conflicting timing estimates.', other_variables=[], study_groups=[],
+        plan.update(rationale='Resolve conflicting timing estimates.', other_variables=[], study_groups=[],
                     result_selection='Use all reported timings.', missing_information='Record missing timings.')
         plan['screening_instructions'] = [instruction, 'Record <unknown> when overlap cannot be established.']
     expected = dict(plan, eligibility=criteria,

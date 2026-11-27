@@ -75,6 +75,7 @@ def schemas():
                                  obj({'status':fixed('registered'), 'registry':S, 'identifier':S,
                                       'registered_on':dict(S, format='date'), 'record_url':dict(S, pattern='^https://')},
                                      ['status', 'registry', 'identifier'])]},
+        'protocol_author':dict(S,minLength=1,maxLength=200,description='Human author named by the person submitting the review.'),
         'study_brief':dict(S,minLength=1,maxLength=20000,description='Optional study design and scope for the submitted question.'),
         'research_state':nullable(dict(O,description='Supplied current research state, at most 10 MiB. Preserved as untrusted background, including paper references and review records.')),
         'continue_research':dict(B,default=False,description='Continue from supplied research_state; avoid reselecting previously reviewed publications. Existing paper target and scientific workflow are unchanged.'),
@@ -302,7 +303,7 @@ def _query_schema():
     outcomes = shape['properties']['outcomes']
     outcomes['items'] = {'anyOf': [outcomes['items'], S, dict(O, required=['name'])]}
     shape['properties']['queries']['items']['required'].remove('source')
-    for field in ('screening_instructions', 'draft_author', *protocol.PROTOCOL_FIELDS):
+    for field in ('screening_instructions', *protocol.PROTOCOL_FIELDS):
         shape['required'].remove(field)
     return shape
 

@@ -43,6 +43,8 @@ def run(args, port):
                 if args.citation_graph:
                     retrieval['selection'] = 'citation_graph'
                 spec = {'question': args.question, 'retrieval': retrieval}
+                if args.protocol_author is not None:
+                    spec['protocol_author'] = args.protocol_author
                 if args.study_brief is not None:
                     spec['study_brief'] = args.study_brief
                 value = request(client, 'POST', '/api/runs', json={'spec': spec})

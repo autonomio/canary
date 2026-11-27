@@ -71,7 +71,7 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
             raise CompileError(path, 'Unknown fields are not accepted.')
         return value
 
-    block(draft, {'version', 'question', 'research', 'audit', 'retrieval', 'subagents', 'research_state', 'continue_research', 'study_brief', 'registration'}, 'spec')
+    block(draft, {'version', 'question', 'research', 'audit', 'retrieval', 'subagents', 'research_state', 'continue_research', 'study_brief', 'registration', 'protocol_author'}, 'spec')
     version = draft.get('version', 1)
     if type(version) is not int or version != 1:
         raise CompileError('version', 'Only version 1 is supported.')
@@ -140,6 +140,11 @@ def compile_mapping(draft, *, source: str | None = None) -> CompiledResearch:
                               **({'local_text': dict(local)} if local is not None else {}),
                               **({'additional_sources': additional} if additional else {})},
                 'subagents': False}
+    if 'protocol_author' in draft:
+        name = draft['protocol_author']
+        if not isinstance(name, str) or not name.strip() or len(name) > 200:
+            raise CompileError('protocol_author', 'Give a name of up to 200 characters.')
+        resolved['protocol_author'] = name.strip()
     if 'registration' in draft:
         record = block(draft['registration'], {'status', 'registry', 'identifier', 'registered_on', 'record_url'}, 'registration')
         if record.get('status') == 'unregistered' and set(record) == {'status'}:

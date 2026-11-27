@@ -1049,6 +1049,7 @@
             <div class="field"><label for="f-corrections">Maximum correction rounds</label><input id="f-corrections" type="number" min="0" step="1" value="3" aria-describedby="correction-help" /><p class="hint" id="correction-help">The independent audit still runs at zero. Corrections give Canary a chance to repair findings and audit them again.</p></div>
           </div>
           <details class="advanced" id="study-brief"><summary>Study brief</summary>
+            <div class="field"><label for="f-protocol-author">Protocol author (optional)</label><input id="f-protocol-author" maxlength="200"></div>
             <div class="field"><label for="f-study-brief">Study design and scope</label><textarea id="f-study-brief" rows="5" maxlength="20000"></textarea><p class="hint">Add comparators, outcomes and references you want the research to consider.</p></div>
           </details>
           <details class="advanced" id="prior-research"><summary>Prior research</summary>
@@ -2027,6 +2028,7 @@
       function methodsSectionHtml(section) {
         const groups = new Map();
         for (const row of section.entries || []) {
+          if (row.label === "Drafted by" && /^(Original protocol|Earliest retained protocol|Protocol amendment \d+)$/.test(section.title)) continue;
           if (!groups.has(row.label)) groups.set(row.label, []);
           const evaluation = row.url && /^https:\/\//i.test(row.url)
             ? `<a href="${esc(row.url)}" target="_blank" rel="noopener">Read the evaluation</a>` : "";
@@ -2557,6 +2559,7 @@
       const fields = [
         "mode",
         "study-brief",
+        "protocol-author",
         "selection",
         "target",
         "corrections",
@@ -2621,6 +2624,9 @@
         if (citationGraph && (override || v.mode === "cycle" || v.corpus === "local_text"))
           throw new Error("Citation-guided selection requires public literature search.");
         const spec = studyBrief ? {question:q,study_brief:studyBrief} : {question:q};
+        const author = v["protocol-author"]?.trim();
+        if (author && (override || v.mode === "cycle")) throw new Error("Protocol authors are available for question research.");
+        if (author) spec.protocol_author = author;
         const additional = v.additional_sources || [];
         if(!Array.isArray(additional) || additional.some(n=>!["clinicaltrials","epo","osf"].includes(n)) || new Set(additional).size!==additional.length)
           throw new Error("Choose supported additional sources once each.");
@@ -2750,7 +2756,7 @@
       }
       function applyDeclaration(question, spec) {
         const retrieval = spec?.retrieval;
-        const values = {q: question, mode: "question", argv: "", "study-brief": spec?.study_brief || "",
+        const values = {q: question, mode: "question", argv: "", "protocol-author": spec?.protocol_author || "", "study-brief": spec?.study_brief || "",
           target: retrieval?.target_papers ?? 50, corrections: spec?.audit?.max_correction_rounds ?? 3,
           corpus: retrieval?.corpus || "fresh", selection: retrieval?.selection || "coverage",
           directory: retrieval?.local_text?.directory || "", metadata: retrieval?.local_text?.metadata || "",
@@ -2865,7 +2871,7 @@
         try {
           const v = formValues();
           const payload = buildLaunch(v.mode === "cycle" ? { ...v, corpus: "fresh", selection: "coverage",
-            "study-brief": "", "research-state": "", continue_research: false } : { ...v, argv: "",
+            "study-brief": "", "protocol-author": "", "research-state": "", continue_research: false } : { ...v, argv: "",
             selection: v.corpus === "local_text" ? "coverage" : v.selection });
           const spec = payload.spec || (payload.kind === "question" ? { question: payload.question,
             ...(payload.research_state ? { research_state: payload.research_state, continue_research: payload.continue_research } : {}) } : null);

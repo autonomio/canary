@@ -60,6 +60,8 @@ const launch=buildLaunch({q:"Which outcome?",mode:"question","study-brief":"Comp
 assert.deepEqual(launch.spec,{question:"Which outcome?",study_brief:"Compare A and B."});
 assert.throws(()=>buildLaunch({q:"","study-brief":"Compare A and B."}),/research question/);
 const local=buildLaunch({q:"Which outcome?",mode:"question",corpus:"local_text",directory:"/papers","study-brief":"Compare A and B."});
+assert.equal(buildLaunch({q:"Which outcome?","protocol-author":"A. Rivera"}).spec.protocol_author,"A. Rivera");
+assert.throws(()=>buildLaunch({q:"Which outcome?",argv:"custom","protocol-author":"A. Rivera"}),/Protocol authors/);
 assert.equal(local.spec.study_brief,"Compare A and B.");
 assert.equal(local.spec.retrieval.corpus,"local_text");
 assert.match(studyBriefHtml({study_brief:"<brief>"}),/&lt;brief&gt;/);

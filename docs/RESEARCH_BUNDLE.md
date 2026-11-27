@@ -362,6 +362,10 @@ date, supply `registered_on` as a quoted calendar date and `record_url` as the p
 registry link. Omission leaves the status unknown. Canary records local times for each
 version. The cited registry record is the independent source for the registration date.
 
+The optional `protocol_author` in the review declaration names the human author.
+You can enter it under **Study brief** in the dashboard or with `canary ask --protocol-author`.
+A review without a supplied name has no byline.
+
 A decision with subject ID `protocol:<version digest>` records approval or rejection
 of that version. Its decision history identifies the reviewer and the time of the
 decision. A software draft on its own carries no approval.

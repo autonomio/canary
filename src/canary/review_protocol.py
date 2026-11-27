@@ -57,8 +57,10 @@ def save_plan(workspace: Path, plan: dict) -> None:
     if previous:
         history.append(_record(previous, history, author='Not recorded', reason=None,
                                original=False, stage='Earlier plan; original timing unknown'))
-    content = {k: v for k, v in plan.items() if k != 'amendment_reason'}
-    changed = not history or history[-1]['plan'] != content
+    content = {k: v for k, v in plan.items() if k not in ('amendment_reason', 'draft_author')}
+    prior_plan = dict(history[-1]['plan']) if history else {}
+    prior_plan.pop('draft_author', None)
+    changed = not history or prior_plan != content
     if changed:
         reason = plan.get('amendment_reason') if history else None
         if history and run.get('protocol_version') and (not isinstance(reason, str) or not reason.strip()):
@@ -71,12 +73,11 @@ def save_plan(workspace: Path, plan: dict) -> None:
             stage = 'After search results were available'
         else:
             stage = 'Before recorded search results'
-        draft = plan.get('draft_author')
-        author = f"{draft['name']} ({draft['kind']}, as declared)" if draft else 'Not recorded'
+        author = read(workspace / 'run-spec.json', {}).get('protocol_author') or 'Not recorded'
         history.append(_record(content, history, author=author, reason=reason, original=not history, stage=stage))
     if previous or changed:
         write(path, history)
-    write(current, plan)
+    write(current, {k: v for k, v in plan.items() if k != 'draft_author'})
 
 
 def approval_records(history: list[dict], entries: list[dict]) -> list[dict]:

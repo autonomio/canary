@@ -16,8 +16,7 @@ def test_amendment_preserves_both_plans_and_retries_once(tmp_path):
     from canary import review_protocol as protocol
     from canary.coverage_runtime import write
     write(tmp_path / 'run.json', {'protocol_version': 1})
-    author = dict(kind='software', name='Researcher')
-    initial = dict(question='When?', outcomes=['At six weeks'], draft_author=author)
+    initial = dict(question='When?', outcomes=['At six weeks'])
     protocol.save_plan(tmp_path, initial)
     write(tmp_path / 'selection.json', {'decisions': [{'work_id': 'A'}]})
     updated = dict(initial, outcomes=['At six weeks', 'At six months'])
@@ -74,3 +73,45 @@ def test_registration_keeps_its_external_date_and_source():
         compile_mapping({'question': 'When?', 'registration': record})
     assert compile_mapping({'question': 'When?', 'registration': {'status': 'unregistered'}})['resolved'][
         'registration'] == {'status': 'unregistered'}
+
+
+def test_amendment_lists_only_changes_to_the_previous_version(tmp_path):
+    from canary import methods, review_protocol
+
+    base = dict(question='When?', eligibility={'core': 'Adults'}, outcomes=['Strength'],
+                queries=[dict(id='Q1', search='strength'), dict(id='Q2', search='yield')])
+    review_protocol.save_plan(tmp_path, base)
+    revised = dict(base, eligibility={'core': 'Adults and children'},
+                   queries=[base['queries'][0], dict(id='Q3', search='tensile porosity')],
+                   amendment_reason='The first search missed tensile tests.')
+    review_protocol.save_plan(tmp_path, revised)
+    report = methods.report({}, tmp_path)
+    amendment = next(s for s in report['sections'] if s['title'] == 'Protocol amendment 1')
+    changes = {row['label']: row['text'] for row in amendment['entries']}
+    assert changes['Added search · Q3'] == 'tensile porosity'
+    assert changes['Removed search · Q2'] == 'yield'
+    assert changes['Previously · Eligibility · Core'] == 'Adults'
+    assert changes['Now · Eligibility · Core'] == 'Adults and children'
+    assert changes['Reason'] == revised['amendment_reason']
+    assert 'strength' not in changes.values() and 'Strength' not in changes.values()
+    assert 'Question' not in changes
+    assert report['protocol_versions'][0]['plan'] == base
+
+
+def test_protocol_byline_comes_from_the_declaration(tmp_path):
+    from canary import coverage_runtime as runtime, methods, research_spec, review_protocol
+
+    draft = dict(question='When?', outcomes=[], draft_author={'kind': 'person', 'name': 'From the draft'})
+    for index, author in enumerate([None, 'A. Rivera']):
+        workspace = tmp_path / str(index)
+        declaration = {'question': 'When?'}
+        if author:
+            declaration['protocol_author'] = author
+        runtime.write(workspace / 'run-spec.json', research_spec.compile_mapping(declaration)['resolved'])
+        review_protocol.save_plan(workspace, draft)
+        report = methods.report({}, workspace)
+        version, = report['protocol_versions']
+        assert version['author'] == (author or 'Not recorded')
+        assert 'draft_author' not in version['plan']
+        bylines = [e['text'] for e in report['sections'][0]['entries'] if e['label'] == 'Protocol author']
+        assert bylines == ([author] if author else [])

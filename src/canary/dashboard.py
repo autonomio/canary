@@ -1582,7 +1582,7 @@ class Handler(BaseHTTPRequestHandler):
                     manifest = bundle_store.read(workspace)
                     finished = manifest['state'] == 'finished'
                     if finished and representation == 'methods':
-                        view = methods.for_bundle(workspace, manifest, store)
+                        view = methods.for_bundle(workspace, manifest, store, display=True)
                     else:
                         view = research_bundle(workspace) if finished else None
                 if view is None:
