@@ -683,7 +683,7 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         if study_counts[record.get("id")] > 1:
             exported["study_result_occurrence"] = study_occurrences[record.get("id")]
         graph["study_results"].append(exported)
-    if "studies" in investigation or run.get("study_table_version"):
+    if "studies" in investigation or (run.get("study_table_version") and investigation):
         from .study_table import (export as export_studies, issues as study_issues, passage_ids, result_issues,
                                   result_passage_ids, summary)
         studies = investigation.get("studies")

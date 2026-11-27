@@ -478,3 +478,15 @@ def test_a_value_names_only_the_copies_its_own_passages_come_from(tmp_path):
 const html=outcomeResultHtml(graph,graph.study_results[0]);
 assert.match(html,/Effect estimate<\/dt><dd><p>0.12 <span class="hint">Calculated<\/span><\/p><p class="hint">Read from R2 <code>cccccccccccc<\/code><\/p>/);
 ''')
+
+
+def test_a_run_shows_no_study_table_before_the_research_is_written(tmp_path):
+    from canary import coverage_export
+
+    research_bundle.initialize(tmp_path, research_spec.compile_mapping(
+        {'question': 'Synthetic fixture question?', 'retrieval': {'target_papers': 1}}))
+    researched(tmp_path)
+    engine.write(tmp_path / 'run.json', dict(engine.read(tmp_path / 'run.json'), study_table_version=1))
+    (tmp_path / 'investigation.json').unlink()
+    (tmp_path / 'payload.json').unlink(missing_ok=True)
+    assert 'studies' not in coverage_export.export_bundle(tmp_path)['answer']
