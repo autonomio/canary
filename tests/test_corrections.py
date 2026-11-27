@@ -43,6 +43,8 @@ def prepared(path, rounds=3):
 def response(payload, action='revise', split=False):
     raw = {k: deepcopy(payload.get(k, [])) for k in engine.protocol.investigation_schema()['properties']}
     for result in raw['study_results']:
+        for key in ('study_id', 'outcome', 'outcome_result'):
+            result.setdefault(key, None)
         for field in result.get('fields', {}).values():
             if isinstance(field, dict): field.pop('verbatims', None)
     raw['evidence'] = [{k:e[k] for k in ('id','passage_ids','interpretation','relation','premise_claim_ids')} for e in raw['evidence']]

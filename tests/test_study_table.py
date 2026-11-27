@@ -198,3 +198,134 @@ const sized=studyTableHtml({...graph,studies:[{...graph.studies[0],groups:[{id:'
 assert.match(sized,/G1<\/p><p class="hint">Sample size<\/p><p>n = 40<\/p><div class="source-actions"><button[^>]*data-qa-passage="R1-p1"/);
 assert.equal(qaGraph({answer:{studies:graph.studies}}).studies,graph.studies);
 ''')
+
+
+VERSIONS = [{'sha256': 'V1', 'number': 1, 'outcomes': [
+    {'id': 'O1', 'name': 'Breaking force', 'unit': 'N', 'time_point': '24 hours', 'effect_measure': 'mean difference'}]}]
+
+
+def result(**changes):
+    record = {'id': 'SR1', 'reference_ids': ['R1'], 'study_id': 'S1', 'outcome': {'id': 'O1', 'protocol_version': 'V1'},
+              'fields': {'units': {'text': 'N', 'passage_ids': ['R1-p1']}},
+              'outcome_result': {'time_point': field('R1-p1') | {'text': '24  Hours'},
+                                 'effect_measure': field('R1-p1') | {'text': 'Mean difference'},
+                                 'groups': [{'group_id': 'G1', 'value': field('R1-p1'), 'denominator': field('R1-p1')}],
+                                 'estimate': field('R1-p1'), 'precision': None,
+                                 'larger_value_favours': {'group_id': 'G1', 'basis': 'Higher force is stronger.',
+                                                          'passage_ids': ['R1-p1']}}}
+    record.update(changes)
+    return record
+
+
+def result_kinds(results, versions=VERSIONS):
+    found = study_table.result_issues(results, [study()], versions=versions, passages=PASSAGES)
+    return sorted((issue['kind'], issue.get('field') or issue.get('group_id') or issue.get('outcome_id')
+                   or issue.get('protocol_version') or issue.get('study_id')) for issue in found)
+
+
+def test_a_result_follows_its_study_and_the_protocol_outcome_version():
+    assert result_kinds([result()]) == []
+
+
+def test_a_result_that_departs_from_the_protocol_definition_is_flagged():
+    recorded = dict(result()['outcome_result'], time_point=field('R1-p1') | {'text': '48 hours'})
+    found = study_table.result_issues([result(outcome_result=recorded)], [study()], versions=VERSIONS, passages=PASSAGES)
+    assert found == [{'kind': 'outcome_definition_mismatch', 'study_result_id': 'SR1', 'study_id': 'S1',
+                      'field': 'time_point', 'protocol_value': '24 hours', 'recorded_value': '48 hours'}]
+    assert result_kinds([result(fields={'units': {'text': 'mN', 'passage_ids': ['R1-p1']}})]) == [
+        ('outcome_definition_mismatch', 'unit')]
+    assert result_kinds([result(outcome={'id': 'O9', 'protocol_version': 'V1'})]) == [('unknown_protocol_outcome', 'O9')]
+    assert result_kinds([result(outcome={'id': 'O1', 'protocol_version': 'V0'})]) == [('unknown_protocol_version', 'V0')]
+    assert result_kinds([result(outcome_result=None)]) == [('missing_outcome_result', 'O1')]
+
+
+def test_a_result_stays_within_its_study_groups_and_reports():
+    recorded = dict(result()['outcome_result'], groups=[{'group_id': 'G4', 'value': field('R3-p1'), 'denominator': None}])
+    assert result_kinds([result(reference_ids=['R1', 'R3'], outcome_result=recorded)]) == [
+        ('result_outside_study', 'S1'), ('unknown_result_group', 'G4')]
+    assert result_kinds([result(study_id='S8')]) == [('unknown_result_study', 'S8')]
+    unplanned = result(outcome=None, outcome_result=None)
+    assert result_kinds([unplanned]) == []
+
+
+def test_the_dashboard_shows_an_outcome_result_with_its_protocol_version(tmp_path):
+    from test_coverage_evidence_ui import run_dashboard
+
+    exported = dict(result(), fields={}, **study_table.export_result(result()))
+    graph = {'passages': [{'id': 'R1-p1', 'source_id': 'R1'}], 'study_results': [exported],
+             'protocol_outcomes': [dict(VERSIONS[0]['outcomes'][0], protocol_version='V1', protocol_version_number=1)],
+             'binding_issues': [{'kind': 'outcome_definition_mismatch', 'section': 'studies', 'study_result_id': 'SR1',
+                                 'field': 'unit', 'protocol_value': 'N', 'recorded_value': 'kN'}]}
+    run_dashboard(tmp_path, graph, r'''
+const html=outcomeResultHtml(graph,graph.study_results[0]);
+assert.match(html,/Planned outcome<\/dt><dd><p>Breaking force<\/p><p class="hint">Protocol version V1 · unit: N · time point: 24 hours · effect measure: mean difference/);
+assert.match(html,/Result SR1 unit is kN; the protocol defines N\./);
+assert.match(html,/G1 denominator/);
+assert.match(html,/A larger value favours<\/dt><dd><p>G1<\/p>/);
+assert.match(html,/Precision<\/dt><dd><span class="muted">Not reported/);
+assert.equal(outcomeResultHtml(graph,{id:'X'}),'');
+''')
+
+
+def test_result_checks_read_the_saved_protocol(tmp_path):
+    from canary import review_protocol
+
+    research_bundle.initialize(tmp_path, research_spec.compile_mapping(
+        {'question': 'Synthetic fixture question?', 'retrieval': {'target_papers': 1}}))
+    researched(tmp_path)
+    engine.write(tmp_path / 'run.json', dict(engine.read(tmp_path / 'run.json'), minimum_papers=1, study_table_version=1))
+    plan = engine.read(tmp_path / 'question-plan.json')
+    review_protocol.save_plan(tmp_path, dict(plan, outcomes=[{'name': 'Breaking force', 'unit': 'N', 'time_point': None,
+                                                              'effect_measure': None}]))
+    version = review_protocol.versions(tmp_path / review_protocol.FILE)[-1]
+    passage = engine.read(tmp_path / 'reviewed-papers.json')[0]['passage_ids_read'][0]
+    raw = json.loads((tmp_path / 'investigation.json').read_text())
+    raw['studies'] = [study(id='F1', planned_variables=[], groups=[],
+                           reports=[{'reference_id': 'W1', 'status': 'confirmed', 'basis': 'Single report.',
+                                     'passage_ids': [passage]}],
+                           characteristics={name: None for name in study_table.CHARACTERISTICS})]
+    engine.write(tmp_path / 'reviewed-papers.json', [dict(engine.read(tmp_path / 'reviewed-papers.json')[0],
+                                                          related_study_ids=['F1'])])
+    raw['study_results'] = [{'id': 'SR1', 'reference_ids': ['W1'], 'result_type': 'measured', 'version_or_cohort_note': '',
+                             'fields': {'units': {'text': 'kN', 'passage_ids': [passage]}}, 'study_id': 'F1',
+                             'outcome': {'id': version['outcomes'][0]['id'], 'protocol_version': version['sha256']},
+                             'outcome_result': {'time_point': None, 'effect_measure': None, 'groups': [],
+                                                'estimate': None, 'precision': None, 'larger_value_favours': None}}]
+    engine.write(tmp_path / 'investigation.json', raw)
+    assert engine.bind_payload(tmp_path)['mechanical_audit']['issues'] == [
+        'Study table: outcome definition mismatch (study result id SR1, study id F1, field unit, protocol value N, '
+        'recorded value kN)']
+
+
+def test_result_passages_come_from_the_result_references():
+    recorded = dict(result()['outcome_result'], time_point=field('R2-p1') | {'text': '24 hours'})
+    assert result_kinds([result(outcome_result=recorded)]) == [('undeclared_result_reference', 'time_point')]
+
+
+def test_an_unreadable_protocol_leaves_outcome_versions_unchecked():
+    assert result_kinds([result(outcome={'id': 'O1', 'protocol_version': 'V0'})], versions=None) == []
+    assert result_kinds([result(outcome_result=None)], versions=None) == [('missing_outcome_result', 'O1')]
+
+
+def test_a_result_citing_an_earlier_protocol_version_is_listed():
+    amended = [*VERSIONS, {'sha256': 'V2', 'number': 2, 'outcomes': VERSIONS[0]['outcomes']}]
+    found = study_table.result_issues([result()], [study()], versions=amended, passages=PASSAGES)
+    assert found == [{'kind': 'superseded_protocol_version', 'study_result_id': 'SR1', 'study_id': 'S1',
+                      'protocol_version': 'V1', 'version_number': 1, 'latest_version_number': 2}]
+
+
+def test_results_and_issues_naming_an_unrecorded_study_appear_above_the_table(tmp_path):
+    from test_coverage_evidence_ui import run_dashboard
+
+    orphan = dict(result(study_id='S8'), fields={})
+    issues = [dict(i, section='studies') for i in study_table.result_issues([orphan], [study()], versions=VERSIONS,
+                                                                           passages=PASSAGES)]
+    graph = {'passages': [], 'studies': study_table.export([study()]), 'study_summary': study_table.summary([study()]),
+             'study_results': [orphan], 'binding_issues': issues}
+    run_dashboard(tmp_path, graph, r'''
+const html=studyTableHtml(graph);
+const [above]=html.split('<div class="table-wrap"');
+assert.match(above,/Result SR1 names study S8, which is not recorded\./);
+assert.match(above,/Results naming an unrecorded study<\/p><div class="source-actions"><button[^>]*data-qa-study="SR1"/);
+assert.doesNotMatch(html,/names group/);
+''')

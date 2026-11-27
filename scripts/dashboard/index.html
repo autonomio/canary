@@ -3336,17 +3336,27 @@
       claims:(g?.claims || []).filter(c=>Array.isArray(c.study_result_ids) && c.study_result_ids.includes(id))};
   }
   function studyIssueText(i) {
-    const list=ids=>(ids || []).length ? ids.join(', ') : 'no study';
-    return {duplicate_study_id:`Study ${i.study_id} is recorded more than once.`,
-      missing_study_report:`Report ${i.reference_id} is not a committed source.`,
-      lacks_study_passage:`${i.field} cites no source passage.`,
-      missing_study_passage:`${i.field} cites passage ${i.passage_id}, which is not saved.`,
-      undeclared_study_report:`${i.field} cites ${i.reference_id}, which is not one of this study's reports.`,
-      duplicate_study_group:`Group ${i.group_id} is recorded more than once.`,
-      missing_planned_variable:`Planned variable ${i.variable} is not recorded.`,
-      unknown_shared_study:`Shared study ${i.shared_study_id} is not recorded.`,
-      report_without_study:`Included report ${i.reference_id} belongs to no study; its review names ${list(i.review_study_ids)}.`,
-      study_membership_mismatch:`Report ${i.reference_id}: its review names ${list(i.review_study_ids)}, the study table lists ${list(i.study_ids)}.`}[i.kind]
+    const list=ids=>(ids || []).length ? ids.join(', ') : 'no study', owner=i.study_result_id ? `Result ${i.study_result_id} ` : '';
+    return ({duplicate_study_id:()=>`Study ${i.study_id} is recorded more than once.`,
+      missing_study_report:()=>`Report ${i.reference_id} is not a committed source.`,
+      lacks_study_passage:()=>`${owner}${i.field} cites no source passage.`,
+      missing_study_passage:()=>`${owner}${i.field} cites passage ${i.passage_id}, which is not saved.`,
+      undeclared_study_report:()=>`${i.field} cites ${i.reference_id}, which is not one of this study's reports.`,
+      duplicate_study_group:()=>`Group ${i.group_id} is recorded more than once.`,
+      missing_planned_variable:()=>`Planned variable ${i.variable} is not recorded.`,
+      unknown_shared_study:()=>`Shared study ${i.shared_study_id} is not recorded.`,
+      report_without_study:()=>`Included report ${i.reference_id} belongs to no study; its review names ${list(i.review_study_ids)}.`,
+      study_membership_mismatch:()=>`Report ${i.reference_id}: its review names ${list(i.review_study_ids)}, the study table lists ${list(i.study_ids)}.`,
+      unknown_result_study:()=>`Result ${i.study_result_id} names study ${i.study_id ?? 'none'}, which is not recorded.`,
+      result_outside_study:()=>`Result ${i.study_result_id} cites ${(i.reference_ids || []).join(', ')}, outside study ${i.study_id}'s reports.`,
+      unknown_protocol_version:()=>`Result ${i.study_result_id} cites protocol version ${String(i.protocol_version).slice(0,12)}, which is not recorded.`,
+      unknown_protocol_outcome:()=>`Result ${i.study_result_id} cites outcome ${i.outcome_id}, which that protocol version does not define.`,
+      missing_outcome_result:()=>`Result ${i.study_result_id} names a planned outcome but records no outcome result.`,
+      outcome_definition_mismatch:()=>`Result ${i.study_result_id} ${i.field.replace('_',' ')} is ${i.recorded_value ?? 'not recorded'}; the protocol defines ${i.protocol_value}.`,
+      unknown_result_group:()=>`Result ${i.study_result_id} names group ${i.group_id}, which its study does not record.`,
+      undeclared_result_reference:()=>`Result ${i.study_result_id} ${i.field} cites ${i.reference_id}, which is not among the result's references.`,
+      superseded_protocol_version:()=>`Result ${i.study_result_id} cites protocol version ${i.version_number}; the latest is version ${i.latest_version_number}.`,
+      protocol_unreadable:()=>`The review protocol could not be read: ${i.reason}.`}[i.kind]?.())
       || String(i.kind || 'Study record issue').replaceAll('_',' ');
   }
   function studyTableHtml(g) {
@@ -3362,10 +3372,12 @@
       const variables=(st.planned_variables || []).map(v=>`<p>${esc(v.name)}</p>${cell(v.value)}`).join('') || '<span class="muted">None planned</span>';
       const shared=(st.shared_with || []).map(x=>`<p>${esc(x.study_id)} · ${esc(x.shares)} · ${esc(x.status)}</p><p class="hint">${esc(x.basis || '')}</p><div class="source-actions">${sources(x.passage_ids)}</div>`).join('') || '<span class="muted">None recorded</span>';
       const alerts=issues.filter(i=>i.study_id===st.id).map(i=>`<p role="alert">${esc(studyIssueText(i))}</p>`).join('');
-      return `<tr><th scope="row"><p>${esc(st.citation || st.id)}</p><p class="hint">${esc(st.id)}</p>${alerts}</th><td>${reports || '<span class="muted">No reports recorded</span>'}</td><td>${Number.isInteger(st.subject_count) ? esc(fmt(st.subject_count)) : '<span class="muted">Not reported</span>'} ${esc(st.subject || '')}</td>${columns.map(([k])=>`<td>${cell(st.characteristics?.[k])}</td>`).join('')}<td>${groups}</td><td>${variables}</td><td>${shared}</td></tr>`;
+      const results=(g.study_results || []).filter(x=>x.study_id===st.id).map(x=>studyResultButton(x.id,'')).join(' ') || '<span class="muted">None recorded</span>';
+      return `<tr><th scope="row"><p>${esc(st.citation || st.id)}</p><p class="hint">${esc(st.id)}</p>${alerts}</th><td>${reports || '<span class="muted">No reports recorded</span>'}</td><td>${Number.isInteger(st.subject_count) ? esc(fmt(st.subject_count)) : '<span class="muted">Not reported</span>'} ${esc(st.subject || '')}</td>${columns.map(([k])=>`<td>${cell(st.characteristics?.[k])}</td>`).join('')}<td>${groups}</td><td>${variables}</td><td>${shared}</td><td><div class="source-actions">${results}</div></td></tr>`;
     }).join('');
-    const unassigned=issues.filter(i=>!i.study_id).map(i=>`<p role="alert">${esc(studyIssueText(i))}</p>`).join('');
-    return `<details class="coverage" data-detail="study-table"><summary>Studies · ${esc(summary.studies ?? studies.length)} from ${esc(summary.reports ?? 0)} reports</summary><p class="hint">Model-recorded study identity and characteristics. Each report shows whether its match to the study is confirmed, uncertain or disputed. A total counts each study once and stays unknown when a count is missing or studies share subjects.</p>${totals}${unassigned}<div class="table-wrap" tabindex="0" aria-label="Studies behind the reviewed reports"><table><thead><tr><th scope="col">Study</th><th scope="col">Reports</th><th scope="col">Subjects</th>${columns.map(([,label])=>`<th scope="col">${label}</th>`).join('')}<th scope="col">Groups</th><th scope="col">Planned variables</th><th scope="col">Shared with</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+    const rowIds=new Set(studies.map(st=>st.id)), unassigned=issues.filter(i=>!rowIds.has(i.study_id)).map(i=>`<p role="alert">${esc(studyIssueText(i))}</p>`).join('');
+    const orphans=(g.study_results || []).filter(x=>x.study_id!=null && !rowIds.has(x.study_id)).map(x=>studyResultButton(x.id,'')).join(' ');
+    return `<details class="coverage" data-detail="study-table"><summary>Studies · ${esc(summary.studies ?? studies.length)} from ${esc(summary.reports ?? 0)} reports</summary><p class="hint">Model-recorded study identity and characteristics. Each report shows whether its match to the study is confirmed, uncertain or disputed. A total counts each study once and stays unknown when a count is missing or studies share subjects.</p>${totals}${unassigned}${orphans ? `<p>Results naming an unrecorded study</p><div class="source-actions">${orphans}</div>` : ''}<div class="table-wrap" tabindex="0" aria-label="Studies behind the reviewed reports"><table><thead><tr><th scope="col">Study</th><th scope="col">Reports</th><th scope="col">Subjects</th>${columns.map(([,label])=>`<th scope="col">${label}</th>`).join('')}<th scope="col">Groups</th><th scope="col">Planned variables</th><th scope="col">Shared with</th><th scope="col">Results</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
   }
   function studyResultButton(id,claimId) {
     return `<button type="button" class="text-action" data-qa-study="${esc(id)}" data-study-claim="${esc(claimId)}">${esc(id)} · Study result</button>`;
@@ -3410,7 +3422,18 @@
       const f=r.fields?.[name],known=f?.value != null && f.value !== '';
       return `<dt>${esc(label)}</dt><dd>${known ? `<p>${display(f.value)}</p><div class="source-actions">${studyPassageLinks(g,r,f.paragraph_ids,label)}</div>` : '<span class="muted">Not extracted</span>'}${qaStudyFieldWarnings(g,r,name,f)}</dd>`;
     };
-    return `${heading}<p class="hint">Model-extracted interpretation; not independent scientific validation. Verify the measured quantity, comparator, spatial/temporal scope and study design against the source passages. Descriptive variability is not an estimated effect; a matching number alone does not establish cooling magnitude. “Not extracted” does not establish that the paper omitted it.</p><dl class="study-fields"><dt>Result type</dt><dd>${r.result_type ? `<p>${esc(String(r.result_type).replaceAll('_',' '))}</p><div class="source-actions">${studyPassageLinks(g,r,r.result_type_paragraph_ids,'Result type')}</div>` : '<span class="muted">Not extracted</span>'}</dd>${fields.map(([name,label])=>field(name,label)).join('')}</dl>${qaSourceIntegrityHtml(g,references.map(r=>r.id))}${missingCitations}${references.length ? references.map(qaCitation).join('') : qaCitation(null)}`;
+    return `${heading}<p class="hint">Model-extracted interpretation; not independent scientific validation. Verify the measured quantity, comparator, spatial/temporal scope and study design against the source passages. Descriptive variability is not an estimated effect; a matching number alone does not establish cooling magnitude. “Not extracted” does not establish that the paper omitted it.</p><dl class="study-fields"><dt>Result type</dt><dd>${r.result_type ? `<p>${esc(String(r.result_type).replaceAll('_',' '))}</p><div class="source-actions">${studyPassageLinks(g,r,r.result_type_paragraph_ids,'Result type')}</div>` : '<span class="muted">Not extracted</span>'}</dd>${fields.map(([name,label])=>field(name,label)).join('')}</dl>${outcomeResultHtml(g,r)}${qaSourceIntegrityHtml(g,references.map(r=>r.id))}${missingCitations}${references.length ? references.map(qaCitation).join('') : qaCitation(null)}`;
+  }
+  function outcomeResultHtml(g,r) {
+    const x=r.outcome_result, issues=(g.binding_issues || []).filter(i=>i.section==='studies' && i.study_result_id===r.id);
+    const alerts=issues.map(i=>`<p role="alert">${esc(studyIssueText(i))}</p>`).join('');
+    if(!r.outcome && !x) return alerts;
+    const definition=(g.protocol_outcomes || []).find(o=>o.id===r.outcome?.id && o.protocol_version===r.outcome?.protocol_version);
+    const value=(f,label)=>`<dt>${esc(label)}</dt><dd>${f?.value!=null && f.value!=='' ? `<p>${esc(f.value)}</p><div class="source-actions">${studyPassageLinks(g,r,f.paragraph_ids,label)}</div>` : '<span class="muted">Not reported</span>'}</dd>`;
+    const outcome=r.outcome ? `<dt>Planned outcome</dt><dd><p>${esc(definition?.name || r.outcome.id)}</p><p class="hint">Protocol version ${esc(String(r.outcome.protocol_version || '').slice(0,12))}${definition ? ` · ${['unit','time_point','effect_measure'].filter(k=>definition[k]!=null).map(k=>`${k.replace('_',' ')}: ${esc(definition[k])}`).join(' · ')}` : ''}</p></dd>` : '';
+    const groups=(x?.groups || []).map(gr=>`${value(gr.value,`${gr.group_id} value`)}${value(gr.denominator,`${gr.group_id} denominator`)}`).join('');
+    const favours=x?.larger_value_favours ? `<dt>A larger value favours</dt><dd><p>${esc(x.larger_value_favours.group_id ?? 'Neither group')}</p><p class="hint">${esc(x.larger_value_favours.basis || '')}</p><div class="source-actions">${studyPassageLinks(g,r,x.larger_value_favours.paragraph_ids,'A larger value favours')}</div></dd>` : '';
+    return `<h3>Outcome result</h3>${r.study_id ? `<p class="hint">Study ${esc(r.study_id)}</p>` : ''}${alerts}<dl class="study-fields">${outcome}${x ? `${value(x.time_point,'Time point')}${value(x.effect_measure,'Effect measure')}${groups}${value(x.estimate,'Effect estimate')}${value(x.precision,'Precision')}${favours}` : ''}</dl>`;
   }
   function paragraphInspector(g,id,field='') {
     const p=g?.passages?.find(p=>p.id===id),ref=g?.references?.find(r=>r.id===p?.source_id);

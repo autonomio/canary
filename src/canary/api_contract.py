@@ -111,6 +111,8 @@ def schemas():
         'gaps':arr(O),'residue':arr(O),'contradictions':arr(O),'study_results':arr(O),
         'studies':dict(arr(O),description='Studies behind the reviewed reports, present when the research recorded them. '
             'Fields follow Study with text as value and passage_ids as paragraph_ids.'),
+        'protocol_outcomes':dict(arr(O),description='Outcome definitions of every recorded protocol version, each with '
+            'protocol_version (the version sha256) and protocol_version_number.'),
         'study_summary':dict(O,description='Study and report counts. A subject total is null when a count is missing or studies share subjects.'),
         'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O),
         'history_manifest':arr(ref('RevisionDigest')),'claim_links':arr(ref('ClaimLink')),

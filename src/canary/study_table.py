@@ -21,15 +21,17 @@ def _fields(study):
         yield 'variable ' + str(variable.get('name')), variable.get('value')
 
 
-def _cited(identifier, name, ids, passages, allowed):
+def _cited(owner, name, ids, passages, allowed, outside='undeclared_study_report'):
+    if not isinstance(owner, dict):
+        owner = {'study_id': owner}
     if not ids:
-        yield {'kind': 'lacks_study_passage', 'study_id': identifier, 'field': name}
+        yield {'kind': 'lacks_study_passage', **owner, 'field': name}
     for pid in ids:
         passage = passages.get(pid)
         if passage is None:
-            yield {'kind': 'missing_study_passage', 'study_id': identifier, 'field': name, 'passage_id': pid}
+            yield {'kind': 'missing_study_passage', **owner, 'field': name, 'passage_id': pid}
         elif allowed is not None and passage.get('reference_id') not in allowed:
-            yield {'kind': 'undeclared_study_report', 'study_id': identifier, 'field': name,
+            yield {'kind': outside, **owner, 'field': name,
                    'passage_id': pid, 'reference_id': passage.get('reference_id')}
 
 
@@ -74,6 +76,112 @@ def issues(studies, *, references, passages, reviews, plan):
             found.append({'kind': 'study_membership_mismatch', 'reference_id': reference,
                           'review_study_ids': sorted(declared), 'study_ids': sorted(recorded)})
     return found
+
+
+def _same(left, right, *, exact=False):
+    left, right = ' '.join(str(left).split()), ' '.join(str(right).split())
+    return left == right if exact else left.casefold() == right.casefold()
+
+
+def _result_fields(result):
+    recorded = result.get('outcome_result') if isinstance(result.get('outcome_result'), dict) else {}
+    for name in ('time_point', 'effect_measure', 'estimate', 'precision'):
+        yield name, recorded.get(name)
+    for group in _rows(recorded.get('groups')):
+        yield 'group ' + str(group.get('group_id')) + ' value', group.get('value')
+        yield 'group ' + str(group.get('group_id')) + ' denominator', group.get('denominator')
+
+
+def result_issues(results, studies, *, versions, passages):
+    """Link each study result to its study and to the protocol outcome version it reports.
+
+    versions is None when the protocol cannot be read; outcome versions are then left unchecked.
+    """
+    found = []
+    studies = {study.get('id'): study for study in _rows(studies)}
+    recorded_versions = _rows(versions)
+    numbers = {version.get('sha256'): version.get('number') for version in recorded_versions}
+    outcomes = {version.get('sha256'): {o.get('id'): o for o in _rows(version.get('outcomes'))}
+                for version in recorded_versions}
+    latest = recorded_versions[-1] if recorded_versions else None
+    for result in _rows(results):
+        owner = {'study_result_id': result.get('id'), 'study_id': result.get('study_id')}
+        declared = result.get('reference_ids', [])
+        study = studies.get(result.get('study_id'))
+        if study is None:
+            found.append({'kind': 'unknown_result_study', **owner})
+        else:
+            reports = {r.get('reference_id') for r in _rows(study.get('reports'))}
+            outside = [r for r in declared if r not in reports]
+            if outside:
+                found.append({'kind': 'result_outside_study', **owner, 'reference_ids': outside})
+        recorded = result.get('outcome_result')
+        outcome = result.get('outcome')
+        if isinstance(outcome, dict):
+            if not isinstance(recorded, dict):
+                found.append({'kind': 'missing_outcome_result', **owner, 'outcome_id': outcome.get('id')})
+            if versions is not None:
+                cited = outcome.get('protocol_version')
+                definition = outcomes.get(cited, {}).get(outcome.get('id'))
+                if cited not in outcomes:
+                    found.append({'kind': 'unknown_protocol_version', **owner, 'protocol_version': cited})
+                elif definition is None:
+                    found.append({'kind': 'unknown_protocol_outcome', **owner, 'outcome_id': outcome.get('id')})
+                if cited in outcomes and cited != latest.get('sha256'):
+                    found.append({'kind': 'superseded_protocol_version', **owner, 'protocol_version': cited,
+                                  'version_number': numbers[cited], 'latest_version_number': latest.get('number')})
+                if isinstance(recorded, dict) and definition is not None:
+                    units = (result.get('fields') or {}).get('units')
+                    for name, field in (('unit', units), ('time_point', recorded.get('time_point')),
+                                        ('effect_measure', recorded.get('effect_measure'))):
+                        value = field.get('text') if isinstance(field, dict) else None
+                        if definition.get(name) is not None and (
+                                value is None or not _same(value, definition[name], exact=name == 'unit')):
+                            found.append({'kind': 'outcome_definition_mismatch', **owner, 'field': name,
+                                          'protocol_value': definition[name], 'recorded_value': value})
+        if isinstance(recorded, dict):
+            favours = recorded.get('larger_value_favours')
+            if isinstance(favours, dict):
+                found.extend(_cited(owner, 'larger value favours', favours.get('passage_ids', []), passages,
+                                    declared, 'undeclared_result_reference'))
+            if study is not None:
+                groups = {g.get('id') for g in _rows(study.get('groups'))}
+                named = [g.get('group_id') for g in _rows(recorded.get('groups'))]
+                if isinstance(favours, dict) and favours.get('group_id') is not None:
+                    named.append(favours.get('group_id'))
+                found.extend({'kind': 'unknown_result_group', **owner, 'group_id': g}
+                             for g in dict.fromkeys(named) if g not in groups)
+        for name, field in _result_fields(result):
+            if isinstance(field, dict):
+                found.extend(_cited(owner, name, field.get('passage_ids', []), passages, declared,
+                                    'undeclared_result_reference'))
+    return found
+
+
+def export_result(result):
+    """Name outcome passage links the way exported result fields do."""
+    recorded = result.get('outcome_result')
+    if not isinstance(recorded, dict):
+        return {}
+    def bound(field):
+        return {'value': field.get('text'), 'paragraph_ids': list(field.get('passage_ids', []))} if isinstance(field, dict) else None
+    favours = recorded.get('larger_value_favours')
+    return {'outcome_result': dict(recorded, **{name: bound(recorded.get(name)) for name in
+                                                ('time_point', 'effect_measure', 'estimate', 'precision')},
+                                   groups=[dict(g, value=bound(g.get('value')), denominator=bound(g.get('denominator')))
+                                           for g in _rows(recorded.get('groups'))],
+                                   larger_value_favours=dict(favours, paragraph_ids=list(favours.get('passage_ids', [])))
+                                   if isinstance(favours, dict) else None)}
+
+
+def result_passage_ids(results):
+    for result in _rows(results):
+        for _, field in _result_fields(result):
+            if isinstance(field, dict):
+                yield from field.get('passage_ids', [])
+        favours = (result.get('outcome_result') or {}).get('larger_value_favours') if isinstance(result.get('outcome_result'), dict) else None
+        if isinstance(favours, dict):
+            yield from favours.get('passage_ids', [])
 
 
 def passage_ids(studies):

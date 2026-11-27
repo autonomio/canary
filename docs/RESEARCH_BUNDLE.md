@@ -387,3 +387,12 @@ Open **Studies** in the dashboard, run `canary studies RUN_KEY` or call
 study does not report its count or when studies share subjects. Defects in the study records,
 such as an included report with no study, are listed with the table and in the mechanical
 audit. They do not withhold claims.
+
+Each study result names its study. A result for a planned outcome also names the outcome ID and
+the SHA-256 of the protocol version that defines it. It records the time point, effect measure,
+each group's value and denominator, the effect estimate and its precision as reported, and which
+group a larger value favours. Where that protocol version defines the unit, time point or effect
+measure, Canary compares the result with it and lists any difference with the study table. A
+result that cites an earlier protocol version is listed as citing a superseded version; the
+definitions it used stay readable. The export includes
+`protocol_outcomes`, the outcome definitions of every recorded protocol version.

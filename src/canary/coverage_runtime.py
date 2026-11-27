@@ -937,10 +937,16 @@ def bind_payload(workspace, *, investigation=None):
             for identifier in record["claim_ids"]:
                 claim_issues.setdefault(identifier, []).append(issue)
     if read(workspace / "run.json", {}).get("study_table_version"):
-        from .study_table import issues as study_issues, message
+        from .review_protocol import readable_versions
+        from .study_table import issues as study_issues, message, result_issues
         issues.extend(message(issue) for issue in study_issues(
             raw.get("studies"), references=references, passages=passages,
             reviews=admitted + additional_admitted, plan=plan))
+        recorded, unreadable = readable_versions(workspace)
+        if unreadable:
+            issues.append("Study table: review protocol unreadable (" + unreadable + ")")
+        issues.extend(message(issue) for issue in result_issues(
+            raw.get("study_results"), raw.get("studies"), versions=None if unreadable else recorded, passages=passages))
     mechanical = {"at": now(), "pass": not issues, "issues": issues,
                   "claim_blocking_issues": claim_blocking_issues,
                   "claim_issues": {identifier: found for identifier, found in claim_issues.items() if found},

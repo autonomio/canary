@@ -213,6 +213,22 @@ def _studies_schema(field):
     }))
 
 
+def _outcome_result_schema(field):
+    optional = {"anyOf": [field, {"type": "null"}]}
+    nullable = {"anyOf": [S, {"type": "null"}]}
+    return {
+        "study_id": nullable,
+        "outcome": {"anyOf": [obj({"id": S, "protocol_version": S}), {"type": "null"}]},
+        "outcome_result": {"anyOf": [obj({
+            "time_point": optional, "effect_measure": optional,
+            "groups": arr(obj({"group_id": S, "value": optional, "denominator": optional})),
+            "estimate": optional, "precision": optional,
+            "larger_value_favours": {"anyOf": [obj({"group_id": nullable, "basis": S, "passage_ids": SS}),
+                                               {"type": "null"}]},
+        }), {"type": "null"}]},
+    }
+
+
 def investigation_schema():
     field = obj({"text": S, "passage_ids": SS})
     uncertainty = obj({"class": enum("low", "moderate", "high"),
@@ -229,7 +245,8 @@ def investigation_schema():
             "result_type": enum("measured", "fitted", "simulated", "association", "qualitative", "secondary_report"),
             "fields": obj({name: {"anyOf": [field, {"type": "null"}]} for name in (
                 "system", "intervention", "comparator", "conditions", "endpoint", "value", "units",
-                "sample_size", "reported_uncertainty")}), "version_or_cohort_note": S})),
+                "sample_size", "reported_uncertainty")}), "version_or_cohort_note": S,
+            **_outcome_result_schema(field)})),
         "claim_links": arr(obj({"id": S, "from_claim_id": S, "to_claim_id": S,
             "kind": enum("dependency", "coupling"),
             "spec": enum(*(f"{domain}:{strength}:{direction}" for domain in
@@ -439,6 +456,7 @@ A timeout or inaccessible copy alone does not prove topic scarcity. The target i
 5. Save investigation.json conforming to investigation-schema.json, and return that same JSON as the final response.
 Claims -> evidence -> canonical passages -> references; executive prose links claims. Study-result fields each cite actual supporting passages or are null.
 Record one studies entry per underlying study and list each of its reports: registrations, interim reports and follow-ups that describe the same participants, specimens, experiments or datasets. Use these study IDs as related_study_ids in reviewed-papers.json; every included report belongs to a study. Mark each report match confirmed, uncertain or disputed and give its basis and passages. Record subjects that separate studies share in shared_with, with the same status, basis and passages. Each characteristic, group and planned variable cites passages from the study's own reports or is null when unreported. List every other_variables entry from question-plan.json in planned_variables. subject_count is the number of distinct subjects the study reports, or null.
+Give each study result its study_id. For a planned outcome, set outcome to the outcome id and the sha256 of the latest version in review-protocol.json, and record outcome_result: time point, effect measure, each group's value and denominator, the effect estimate and its precision as reported, and which group a larger value favours (group_id null when neither). Use the protocol's unit, time point and effect measure for that outcome; if the study reports a different one, record what the study reports. Leave outcome and outcome_result null for a result outside the planned outcomes.
 Include typed contradictions, gaps, residue, justified next questions, caveats and honest reviewed scope.
 Residue preserves relevant material that is neither a claim nor a gap: what must not be lost. Bind its basis, claim/evidence links and scope; do not require a resolution, alternative explanation or follow-up test. Gaps describe what remains unanswered and what would resolve it.
 {previous}

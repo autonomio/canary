@@ -677,11 +677,15 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
         exported = dict(record, source_id=sources[0] if len(sources) == 1 else None,
                         source_ids=sources, fields=fields,
                         result_type=type_map.get(record.get("result_type"), record.get("result_type")))
+        if isinstance(record.get("outcome_result"), dict):
+            from .study_table import export_result
+            exported.update(export_result(record))
         if study_counts[record.get("id")] > 1:
             exported["study_result_occurrence"] = study_occurrences[record.get("id")]
         graph["study_results"].append(exported)
     if "studies" in investigation or run.get("study_table_version"):
-        from .study_table import export as export_studies, issues as study_issues, passage_ids, summary
+        from .study_table import (export as export_studies, issues as study_issues, passage_ids, result_issues,
+                                  result_passage_ids, summary)
         studies = investigation.get("studies")
         graph["studies"] = export_studies(studies)
         graph["study_summary"] = summary(studies)
@@ -689,7 +693,16 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
             located = {pid: {"reference_id": span.get("reference_id", span.get("source_id"))} for pid, span in spans.items()}
             graph["binding_issues"].extend(dict(issue, section="studies") for issue in study_issues(
                 studies, references=refs, passages=located, reviews=list(admitted.values()), plan=plan))
+            from .review_protocol import readable_versions
+            recorded, unreadable = readable_versions(bundle)
+            if unreadable:
+                graph["binding_issues"].append({"kind": "protocol_unreadable", "section": "studies", "reason": unreadable})
+            graph["protocol_outcomes"] = [dict(outcome, protocol_version=version["sha256"], protocol_version_number=version["number"])
+                                          for version in recorded for outcome in version.get("outcomes", [])]
+            graph["binding_issues"].extend(dict(issue, section="studies") for issue in result_issues(
+                raw_study_results, studies, versions=None if unreadable else recorded, passages=located))
         used_passages.update(pid for pid in passage_ids(studies) if pid in spans)
+        used_passages.update(pid for pid in result_passage_ids(raw_study_results) if pid in spans)
     audit = _load(bundle / "audit" / "audit.json", _load(bundle / "audit.json", {}))
     audit = audit if isinstance(audit, dict) else {}
     audit_case = _audit_record(audit)
