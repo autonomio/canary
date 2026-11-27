@@ -33,11 +33,6 @@ def _record(plan: dict, history: list, *, author: str, reason: str | None,
 
 def versions(path: Path) -> list[dict]:
     history = read(path, [])
-    if len(history) == 1 and set(history[0]) in ({'plan', 'recorded_at', 'original'},
-                                                  {'plan', 'recorded_at', 'original', 'outcomes'}):
-        old = history[0]
-        return [_record(old['plan'], [], original=old['original'], author='Not recorded',
-                        stage='Not recorded', reason=None, recorded_at=old['recorded_at'])]
     parent = None
     for number, version in enumerate(history, 1):
         content = {key: value for key, value in version.items() if key != 'sha256'}
@@ -46,6 +41,13 @@ def versions(path: Path) -> list[dict]:
             raise ValueError('The saved review protocol has changed')
         parent = version['sha256']
     return history
+
+
+def _comparable(plan: dict) -> dict:
+    queries = plan.get('queries')
+    if isinstance(queries, list) and all(isinstance(q, dict) and isinstance(q.get('id'), str) for q in queries):
+        return dict(plan, queries=sorted(queries, key=lambda q: q['id']))
+    return plan
 
 
 def save_plan(workspace: Path, plan: dict) -> None:
@@ -57,10 +59,8 @@ def save_plan(workspace: Path, plan: dict) -> None:
     if previous:
         history.append(_record(previous, history, author='Not recorded', reason=None,
                                original=False, stage='Earlier plan; original timing unknown'))
-    content = {k: v for k, v in plan.items() if k not in ('amendment_reason', 'draft_author')}
-    prior_plan = dict(history[-1]['plan']) if history else {}
-    prior_plan.pop('draft_author', None)
-    changed = not history or prior_plan != content
+    content = {k: v for k, v in plan.items() if k != 'amendment_reason'}
+    changed = not history or _comparable(history[-1]['plan']) != _comparable(content)
     if changed:
         reason = plan.get('amendment_reason') if history else None
         if history and run.get('protocol_version') and (not isinstance(reason, str) or not reason.strip()):
@@ -77,7 +77,7 @@ def save_plan(workspace: Path, plan: dict) -> None:
         history.append(_record(content, history, author=author, reason=reason, original=not history, stage=stage))
     if previous or changed:
         write(path, history)
-    write(current, {k: v for k, v in plan.items() if k != 'draft_author'})
+    write(current, plan)
 
 
 def approval_records(history: list[dict], entries: list[dict]) -> list[dict]:

@@ -101,7 +101,7 @@ def test_amendment_lists_only_changes_to_the_previous_version(tmp_path):
 def test_protocol_byline_comes_from_the_declaration(tmp_path):
     from canary import coverage_runtime as runtime, methods, research_spec, review_protocol
 
-    draft = dict(question='When?', outcomes=[], draft_author={'kind': 'person', 'name': 'From the draft'})
+    draft = dict(question='When?', outcomes=[])
     for index, author in enumerate([None, 'A. Rivera']):
         workspace = tmp_path / str(index)
         declaration = {'question': 'When?'}
@@ -112,6 +112,16 @@ def test_protocol_byline_comes_from_the_declaration(tmp_path):
         report = methods.report({}, workspace)
         version, = report['protocol_versions']
         assert version['author'] == (author or 'Not recorded')
-        assert 'draft_author' not in version['plan']
         bylines = [e['text'] for e in report['sections'][0]['entries'] if e['label'] == 'Protocol author']
         assert bylines == ([author] if author else [])
+
+
+def test_resubmitting_queries_in_another_order_is_not_an_amendment(tmp_path):
+    from canary import review_protocol
+    from canary.coverage_runtime import write
+
+    write(tmp_path / 'run.json', {'protocol_version': 1})
+    plan = dict(question='When?', outcomes=[], queries=[dict(id='Q1', search='strength'), dict(id='Q2', search='yield')])
+    review_protocol.save_plan(tmp_path, plan)
+    review_protocol.save_plan(tmp_path, dict(plan, queries=plan['queries'][::-1]))
+    assert len(review_protocol.versions(tmp_path / review_protocol.FILE)) == 1

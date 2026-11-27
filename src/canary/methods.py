@@ -229,8 +229,6 @@ def _amendment(previous: dict, version: dict) -> Section:
     entries = []
     old, new = previous['plan'], version['plan']
     for key in dict.fromkeys([*old, *new]):
-        if key == 'draft_author':
-            continue
         if key == 'queries' and _identified_queries(old.get(key)) and _identified_queries(new.get(key)):
             before = {q['id']: q for q in old[key]}
             after = {q['id']: q for q in new[key]}
@@ -286,7 +284,7 @@ def report(view: dict, workspace: Path | None) -> Appendix:
         protocol_entries.extend([entry('Question', saved_plan['question']),
                                  entry('Recorded by Canary', version['recorded_at']),
                                  entry('Timing', version['stage'])])
-        if version['author'] != 'Not recorded' and 'draft_author' not in saved_plan:
+        if version['author'] != 'Not recorded':
             protocol_entries.append(entry('Protocol author', version['author']))
         for field, label in [('rationale', 'Rationale'), ('other_variables', 'Other variable'),
                              ('study_groups', 'Study group'), ('result_selection', 'Choosing results'),
@@ -329,28 +327,14 @@ def report(view: dict, workspace: Path | None) -> Appendix:
                           dict(title='Claims and supporting passages', entries=claim_entries(graph))])
 
 
-def for_bundle(workspace: Path, manifest: dict, store: Path | None = None, *, display: bool = False) -> Appendix:
+def for_bundle(workspace: Path, manifest: dict, store: Path | None = None) -> Appendix:
     """Read a finished bundle while the caller holds its read lock."""
     from . import compact_bundle, dashboard, review_history
     if compact_bundle.exists(workspace):
         checksum = (workspace / compact_bundle.CHECKSUM).read_text().strip()
         saved = review_history.retained_methods(workspace, manifest['id'], checksum, store)
         if saved is not None:
-            if not display:
-                return saved
-            versions = saved.get('protocol_versions', [])
-            sections = (_amendment(previous, version) for previous, version in zip(versions, versions[1:])
-                        if isinstance(previous, dict) and isinstance(previous.get('plan'), dict)
-                        and isinstance(version, dict) and isinstance(version.get('plan'), dict)
-                        and isinstance(version.get('number'), int)
-                        and {'stage', 'reason', 'recorded_at'} <= version.keys())
-            amendments = {section['title']: section for section in sections}
-            sections = []
-            for section in saved['sections']:
-                if section['title'] in ('Original protocol', 'Earliest retained protocol'):
-                    section = dict(section, entries=[e for e in section['entries'] if e['label'] != 'Drafted by'])
-                sections.append(amendments.get(section['title'], section))
-            return dict(saved, sections=sections)
+            return saved
         result = report(compact_bundle.projection(workspace), None)
         result['sections'].insert(0, dict(title='Limits of the saved record', entries=[
             entry('Older bundle', 'Detailed search receipts, access decisions and session prompts were not retained.')]))

@@ -305,6 +305,9 @@ def _query_schema():
     shape['properties']['queries']['items']['required'].remove('source')
     for field in ('screening_instructions', *protocol.PROTOCOL_FIELDS):
         shape['required'].remove(field)
+    shape['description'] = ('Runs that record a review protocol require ' + ', '.join(protocol.PROTOCOL_FIELDS) +
+                            ' and an object with name, unit, time_point and effect_measure for each outcome. '
+                            'Earlier runs also accept outcome names as strings.')
     return shape
 
 

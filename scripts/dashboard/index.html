@@ -2028,7 +2028,6 @@
       function methodsSectionHtml(section) {
         const groups = new Map();
         for (const row of section.entries || []) {
-          if (row.label === "Drafted by" && /^(Original protocol|Earliest retained protocol|Protocol amendment \d+)$/.test(section.title)) continue;
           if (!groups.has(row.label)) groups.set(row.label, []);
           const evaluation = row.url && /^https:\/\//i.test(row.url)
             ? `<a href="${esc(row.url)}" target="_blank" rel="noopener">Read the evaluation</a>` : "";

@@ -143,7 +143,7 @@ def validate_plan(plan, *, require_protocol=False):
         if any(key in branch for key in ("filter", "title.search", "abstract.search")):
             raise ValueError("Only OpenAlex full-text-inclusive search= is allowed")
         ids.add(identifier); terms.add((source, search))
-    return {key: value for key, value in plan.items() if key != 'draft_author'}
+    return plan
 
 
 def _operator_setting(root, name):
@@ -425,13 +425,13 @@ def _commit_discovery(workspace, index, progress, plan):
     write(workspace / "search-progress.json", progress)
 
 
-def discover(workspace, plan_path, *, root=None, pages=5, client=None):
+def discover(workspace, plan_source, *, root=None, pages=5, client=None):
     """Fresh indexed search, saving each page and exposing declared truncation."""
     workspace = Path(workspace).resolve()
     root = Path(root) if root is not None else data_root()
     run = read(workspace / "run.json", {})
-    submitted = isinstance(plan_path, dict)
-    draft = plan_path if submitted else read(Path(plan_path))
+    submitted = isinstance(plan_source, dict)
+    draft = plan_source if submitted else read(Path(plan_source))
     plan = validate_plan(draft, require_protocol=bool(run.get("protocol_version")))
     if submitted:
         plan = dict(plan, queries=list(plan['queries']))
