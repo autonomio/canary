@@ -147,7 +147,8 @@ time.sleep(60)
             assert not (workspace/'research-receipt.json').exists()
             assert server.RequestHandlerClass.supervisor.execution.status()['active_shared_sessions']==0
             assert client.get('/api/runs/'+key+'/bundle/archive').status_code==200
-            assert {p.name for p in workspace.iterdir()}=={'resolvent.json','.resolvent.sha256'}
+            assert {p.name for p in workspace.iterdir()} == {
+                'resolvent.json', '.resolvent.sha256', 'review-decisions.sqlite3'}
     finally:
         if key: processes.stop_tree(runs.get(key,server.RequestHandlerClass.supervisor.registry)['worker'])
         server.shutdown();server.server_close();thread.join(5)

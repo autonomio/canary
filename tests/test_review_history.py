@@ -55,6 +55,7 @@ def test_failed_first_correction_and_old_bundles(tmp_path):
         record(tmp_path, decision(), replaces='missing')
     assert not (tmp_path / review_history.NAME).exists()
     compact_bundle.retain(tmp_path)
+    (tmp_path / review_history.NAME).unlink()
     assert review_history.edition(tmp_path)['entries'] == []
     assert not (tmp_path / review_history.NAME).exists()
     first = record(tmp_path, decision('Included'))
@@ -416,3 +417,19 @@ def test_compact_copy_requires_its_recorded_checksum(tmp_path, invalid_checksum)
         db.execute('UPDATE history SET base_sha256 = ?', (invalid_checksum,))
     with pytest.raises(review_history.ReviewStorageError):
         review_history.edition(tmp_path)
+
+
+def test_service_decisions_written_before_release_keep_the_retained_methods(tmp_path):
+    workspace = tmp_path / 'review'
+    workspace.mkdir()
+    prepared(workspace)
+    store = tmp_path / 'service'
+    review_history.append(workspace, decision(), request_id='first', expected_last_entry='initial', store=store)
+    manifest = compact_bundle.retain(workspace)
+    checksum = research_bundle.file_hash(workspace / compact_bundle.NAME)
+    output = io.BytesIO()
+    research_bundle.archive(workspace, output, review_store=store)
+    with zipfile.ZipFile(output) as archive:
+        assert json.loads(archive.read('methods-appendix.json')) == review_history.retained_methods(
+            workspace, manifest['id'], checksum, None)
+        assert json.loads(archive.read('review-decisions.json'))['entries']

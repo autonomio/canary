@@ -116,6 +116,18 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
   color: var(--muted); font-size: 14px;
 }
 
+body:has(#checklist-view:not([hidden])) .workspace-toolbar {
+  height: auto;
+  min-height: var(--workspace-toolbar-height);
+}
+body:has(#checklist-view:not([hidden])) .workspace-title {
+  padding-block: .45rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-height: 20vh;
+  overflow-y: auto;
+}
+
 main { min-width: 0; min-height: calc(100dvh - var(--chrome-height)); }
 .workspace { padding: clamp(24px, 5vw, 48px) clamp(16px, 4vw, 40px); }
 #composer, #detail, .workspace > .error-banner {
@@ -246,7 +258,9 @@ select {
 .detail-meta { gap: 14px; font-size: 14px; }
 .detail-actions { gap: 12px; margin: 10px 0; }
 .research-tabs { gap: 24px; margin: 10px 0 18px; flex-wrap: wrap; overflow: visible; }
-.research-tabs button { min-height: 34px; padding: 6px 0; font-size: 15px; }
+.research-tabs a { color: var(--muted); text-decoration: none; }
+.research-tabs a[aria-current="page"] { color: var(--blue); border-bottom: 1px solid currentColor; }
+.research-tabs button, .research-tabs a { min-height: 34px; padding: 6px 0; font-size: 15px; }
 .research-tabs button.on { color: var(--blue); border-color: var(--blue); }
 .reading-layout { gap: 28px; grid-template-columns: minmax(0, 1fr) 220px; }
 .report { padding-right: 0; min-width: 0; }
@@ -604,3 +618,47 @@ th, td { padding: 8px; }
 .checklist-answer .checklist-passage { margin: 6px 0; white-space: pre-wrap; }
 .checklist-answer .hint { margin: 6px 0 0; }
 #checklist-content footer { margin-block: 24px; }
+
+.methods-section {
+  container-type: inline-size;
+  border-top: 1px solid var(--line);
+}
+.methods-section > summary {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  padding: .9rem 0;
+  color: var(--strong);
+  font: 600 1.1rem/1.4 var(--font-ui);
+  cursor: pointer;
+  list-style: none;
+}
+.methods-section > summary::-webkit-details-marker { display: none; }
+.methods-section > summary::before {
+  content: "";
+  width: .45rem;
+  height: .45rem;
+  flex: none;
+  border: solid var(--muted);
+  border-width: 1.5px 1.5px 0 0;
+  transform: rotate(45deg);
+}
+.methods-section[open] > summary::before { transform: rotate(135deg); }
+.methods-group {
+  display: grid;
+  grid-template-columns: minmax(9rem, 24%) minmax(0, 1fr);
+  gap: 1.5rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.methods-group h3 { margin: 0; font: 600 .95rem/1.5 var(--font-ui); }
+.methods-group .review-prose { margin: 0; line-height: 1.6; }
+.methods-group ul { margin: 0; padding-left: 1.2rem; }
+.methods-group li + li { margin-top: .5rem; }
+.methods-group li::marker { color: var(--muted); }
+.methods-group blockquote { margin: .65rem 0 0; padding-left: 1rem; border-left: 2px solid var(--border); }
+#checklist-content .methods-group footer { margin: .25rem 0 0; color: var(--muted); font-size: .85rem; }
+@container (max-width: 36rem) {
+  .methods-group { grid-template-columns: minmax(0, 1fr); gap: .35rem; }
+}

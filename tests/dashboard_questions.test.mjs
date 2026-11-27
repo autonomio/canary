@@ -389,7 +389,7 @@ test("review decisions show their evidence and download the selected edition", a
 test("checklist route uses the dashboard shell and filters the recorded evidence", async () => {
   const { elements, respond, location, route } = openQuestions();
   await respond(200, { runs });
-  location.hash = "#research/lake/checklist";
+  location.hash = "#research/lake/prisma";
   route();
   const item = {id:"24a", title:"Registration", heading:"Registration and protocol", status:"complete",
     elements:[{requirement:"Describe registration", status:"complete", basis:"reported",
@@ -399,6 +399,7 @@ test("checklist route uses the dashboard shell and filters the recorded evidence
   const content = elements.get("checklist-content");
   assert.equal(elements.get("checklist-view").hidden, false);
   assert.equal(elements.get("detail").hidden, true);
+  assert.doesNotMatch(content.innerHTML, /Lake water/);
   assert.match(content.innerHTML, /Complete · 1/);
   assert.match(content.innerHTML, /Unregistered &lt;review&gt;/);
   assert.match(content.innerHTML, /Other detail <small class="hint">\(inapplicable\)/);
@@ -474,4 +475,43 @@ test("item 2 links to an abstract entry and its recorded passage in the dashboar
     assert.equal(section.open, true);
     assert.ok(section.focused || target.focused);
   }
+});
+
+test("methods appendix shows the saved claim beside its quotation", async () => {
+  const { elements, respond, location, route } = openQuestions();
+  await respond(200, { runs });
+  location.hash = "#research/lake/methods";
+  route();
+  await respond(200, {question:"Lake water", sections:[{title:"Claims and supporting passages",
+    entries:[{label:"C1", text:"Recorded claim", passages:[{source:"p1", text:"First quotation", warning:"Unverified <quotation>"},
+      {source:"p2", text:"A <measurement>"}]}]}]},
+    "/api/runs/lake/prisma/methods");
+  assert.doesNotMatch(elements.get("checklist-content").innerHTML, /Lake water/);
+  assert.match(elements.get("checklist-content").innerHTML, /First quotation<footer>p1 · Unverified &lt;quotation&gt;<\/footer>/);
+  assert.match(elements.get("checklist-content").innerHTML, /A &lt;measurement&gt;<footer>p2<\/footer>/);
+  assert.equal(elements.get("prisma-methods").attrs["aria-current"], "page");
+  location.hash = elements.get("prisma-checklist").href;
+  route();
+  await respond(200, {question:"Lake water", counts:[], items:[]}, "/api/runs/lake/prisma/checklist");
+  assert.equal(elements.get("prisma-checklist").attrs["aria-current"], "page");
+  assert.equal(elements.get("prisma-methods").attrs["aria-current"], "false");
+});
+
+test("methods groups repeated headings within each section and keeps each entry's evidence", async () => {
+  const { elements, respond, location, route } = openQuestions();
+  await respond(200, { runs });
+  location.hash = "#research/lake/methods";
+  route();
+  await respond(200, {question:"Lake water", sections:[
+    {title:"Eligibility", entries:[{label:"Full-paper check", text:"Measure depth"},
+      {label:"Screening instruction", text:"Read the abstract"}, {label:"Full-paper check", text:"Check the dates"}]},
+    {title:"Searches", entries:[{label:"Recorded limitation", text:"One source"}, {label:"Recorded limitation", text:"One language"}]},
+    {title:"Checks", entries:[{label:"Round one", text:"First", url:"https://example.org/evaluation"},
+      {label:"Other", text:"Separate"}, {label:"Round one", text:"Second", passages:[{text:"Quote", source:"Paper"}]}]}
+  ]}, "/api/runs/lake/prisma/methods");
+  const html = elements.get("checklist-content").innerHTML;
+  assert.match(html, /Screening instructions<\/h3>.*Full-paper checks<\/h3>/s);
+  assert.match(html, /Search and screening limits<\/h3><div><ul><li>.*One source.*<\/li><li>.*One language/s);
+  assert.equal(html.split("<h3>Round one</h3>").length, 2);
+  assert.match(html, /First<\/p><a href="https:\/\/example.org\/evaluation".*?<\/li><li>.*Second<\/p><blockquote>Quote<footer>Paper/s);
 });

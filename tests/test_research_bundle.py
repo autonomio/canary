@@ -492,3 +492,31 @@ def test_api_explicit_empty_optional_sources_remain_readable_after_release(api):
     assert bundle['retention']['mode'] == 'bundle_only'
     assert client.get('/api/runs/'+created['key']+'/bundle/archive').status_code == 200
     assert client.get('/api/runs/'+created['key']+'/exports/resolvent').status_code == 200
+
+
+def test_older_request_logs_and_audit_records_download_as_sealed(api, tmp_path):
+    _, client, _ = api
+    workspace = tmp_path / 'older-review'
+    workspace.mkdir()
+    completed(workspace)
+    address = 'https://publisher.example/paper?signature=synthetic'
+    payload = {'references': [{'url': address}]}
+    files = {'download-receipts/W1.json': {'url': address, 'reference': payload['references'][0]},
+             'openalex-requests.json': [{'url': address}], 'rounds/000/subject.json': payload,
+             'payload.json': dict(payload, claim_revisions=[{'payload': payload}])}
+    for name, record in files.items():
+        path = workspace / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        research_bundle.write_json(path, record)
+    manifest = research_bundle.seal(workspace)
+    response = client.post('/api/runs/import', json={'server_path': str(workspace)})
+    assert response.status_code == 201, response.text
+    base = '/api/runs/older-review/bundle'
+    with zipfile.ZipFile(io.BytesIO(client.get(base + '/archive').content)) as archive:
+        assert archive.read('bundle.json') == (workspace / 'bundle.json').read_bytes()
+        for entry in manifest['artifacts']:
+            if entry['path'] in files:
+                direct = client.get(base + '/artifacts/' + entry['path'])
+                assert direct.status_code == 200
+                assert direct.content == archive.read(entry['path']) == (workspace / entry['path']).read_bytes()
+                assert hashlib.sha256(direct.content).hexdigest() == entry['sha256']

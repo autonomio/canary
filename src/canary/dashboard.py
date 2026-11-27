@@ -31,7 +31,7 @@ from xml.etree import ElementTree
 
 from . import runs
 from .codex_auth import AuthError, CodexAuth
-from . import bundle_connectors, prisma, review_history
+from . import bundle_connectors, methods, prisma, review_history
 from . import research_bundle as bundle_store
 from .research_spec import CompileError, compile_research, compile_mapping, verify_compiled, verify_recorded
 from .runtime_paths import resource_root
@@ -1541,21 +1541,31 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             self._send(200, content, kind,
                                        {"Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff"})
-            elif re.fullmatch(r"/api/runs/[^/]+/prisma/(checklist|report)", parsed.path):
+            elif re.fullmatch(r"/api/runs/[^/]+/prisma/(checklist|report|methods)", parsed.path):
                 _, _, _, key, _, representation = parsed.path.split('/')
                 row = runs.get(unquote(key), self.supervisor.registry)
                 if row is None:
                     self._send(404, {'error': 'Unknown research run', 'code': 'unknown_run'})
                     return
+                label = 'methods appendix' if representation == 'methods' else 'checklist'
+                unavailable = {'error': f'The {label} requires a finished review bundle',
+                               'code': 'methods_unavailable' if representation == 'methods' else 'checklist_unavailable'}
                 if not row.get('bundle') or not Path(row['bundle']).is_dir():
-                    self._send(409, {'error': 'The checklist requires a finished review bundle', 'code': 'checklist_unavailable'})
+                    self._send(409, unavailable)
                     return
                 workspace, store = self._decision_paths(row)
                 with review_history.reading(workspace):
-                    finished = bundle_store.read(workspace)['state'] == 'finished'
-                    view = research_bundle(workspace) if finished else None
+                    manifest = bundle_store.read(workspace)
+                    finished = manifest['state'] == 'finished'
+                    if finished and representation == 'methods':
+                        view = methods.for_bundle(workspace, manifest, store)
+                    else:
+                        view = research_bundle(workspace) if finished else None
                 if view is None:
-                    self._send(409, {'error': 'The checklist requires a finished review bundle', 'code': 'checklist_unavailable'})
+                    self._send(409, unavailable)
+                    return
+                if representation == 'methods':
+                    self._send(200, view)
                     return
                 edition = review_history.edition(workspace, store=store)
                 result = prisma.report(view, edition)

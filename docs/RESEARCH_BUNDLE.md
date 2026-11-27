@@ -50,8 +50,8 @@ New API-owned research uses a temporary working directory. On completion the
 worker commits and verifies `resolvent.json`, then releases papers, complete
 extracted texts, intermediate records and scientific console/event files. The
 service also releases that request's staging input, launcher log and tool files.
-Canary keeps the Resolvent contribution and its SHA-256 checksum. If the run
-has review decisions, Canary also keeps their history in a separate file.
+Canary keeps the Resolvent contribution and its SHA-256 checksum. A separate
+review file holds the methods appendix and any review decisions.
 Registry rows retain small operational summaries for polling
 and the log; native Codex account/session storage remains vendor-managed.
 
@@ -315,3 +315,31 @@ Historical bundles remain readable, with metadata explicitly shown as not record
 
 
 Operational verification failure keeps the full working workspace, including original papers and failed-round receipts/checkpoints. Claims the last completed audit passed, unchanged since, stay active; every other claim is explicitly withheld, rather than silently compacted into an apparently completed scientific result. `verification.stopped` names the phase and round that did not finish and the audit round the active claims rest on. Completed reviews still compact normally. The round history and report show failed/cancelled attempts and their source scope; they do not fabricate a supported verdict.
+
+### Methods appendix
+
+The full ZIP includes `methods-appendix.json`. The dashboard and
+`canary methods RUN_KEY` read the same appendix. Before releasing the
+working files, Canary saves it in `review-decisions.sqlite3` and binds that
+file to the compact bundle. The Resolvent contribution keeps its existing format.
+
+New runs record only the endpoint for search requests. Saved paper links keep query
+parameters that identify the paper. Canary removes login details, fragments and
+recognised credential or signing parameters from those links. ZIPs and individual artifact downloads preserve the sealed
+files byte for byte. Older receipts can therefore contain full addresses. Original papers
+and raw provider responses can also contain links as supplied by their authors or providers.
+
+Each search round lists the exact terms, the source’s match count, the
+number of records retrieved and the last recorded request. A paper found by
+two queries counts in each query. Older reviews can show a match count
+without a retrieval count or date.
+
+A session receipt identifies the software that ran. The appendix includes
+the saved prompt and its SHA-256. Prompts in a compact review and its ZIP
+can reveal the operator’s username through the path to the Python interpreter.
+A review can supply
+`methods-evaluations.json`, an array with one HTTPS `url` and one
+`configuration` per evaluation. The role, tool, version, model, effort
+and prompt SHA-256 must all match the session for its citation to appear.
+If the receipt records a retry or a capacity pause, the appendix withholds
+the citation because the evaluation covers only the initial prompt.

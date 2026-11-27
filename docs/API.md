@@ -251,8 +251,8 @@ Question submissions also accept optional `research_state` (a JSON object, at mo
 
 ### PRISMA checklist
 
-For a finished review, open **Research bundle → PRISMA checklist** in the
-dashboard. It opens in a new dashboard tab with the same colour theme. Select
+For a finished review, open **PRISMA** on the research overview. The checklist opens first in a new
+browser tab with the same colour theme. Select
 a status to filter the list. Expand an item to see the question in plain English.
 The recorded passages, their sources and any missing answers appear together.
 Item 2 shows all twelve abstract entries with their answers and groups unreported details under each entry. A path such as `/answer/question` refers to the saved
@@ -284,3 +284,10 @@ report, a reviewed publication, an included study and a participant each
 have a separate total. An absent total appears as unknown. Later author
 statements about studies or participants appear beside the recorded counts
 and link to the corresponding decision.
+
+### Methods appendix
+
+Open **PRISMA → Methods appendix** on the research overview, or run
+`canary methods RUN_KEY`. The API serves the same sections at
+`GET /api/runs/{key}/prisma/methods`. Each claim appears beside the passages
+cited in the saved review. Reading the appendix makes no provider requests.

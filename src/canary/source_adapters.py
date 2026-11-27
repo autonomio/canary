@@ -16,6 +16,8 @@ import xml.etree.ElementTree as ET
 
 import httpx
 
+from .methods_search import request_address
+
 SourceName = Literal['clinicaltrials', 'epo', 'osf']
 NAMES = ('clinicaltrials', 'epo', 'osf')
 KINDS = {'clinicaltrials': 'clinical_trial_registry', 'epo': 'patent_disclosure', 'osf': 'study_registration'}
@@ -395,12 +397,12 @@ def _rate_headers(response):
             or k.lower() in ('retry-after', 'x-rejection-reason')}
 
 
-def discover_query(workspace, root, http, index, query, state, pages):
+def discover_query(workspace, root, http, index, query, state, pages, search_round):
     from .coverage_runtime import append, event, now
     provider = query['source']
     source = Client(http, root)
     seen = set()
-    for _ in range(pages):
+    for page_index in range(pages):
         cursor = state['cursor']
         if cursor is None: break  # A provider result cap remains explicitly incomplete.
         if cursor in seen:
@@ -408,22 +410,26 @@ def discover_query(workspace, root, http, index, query, state, pages):
             break
         seen.add(cursor)
         started = time.monotonic()
-        receipt = {'source': provider, 'query_id': query['id'], 'search': query['search'],
+        receipt = {'round': search_round, 'page_limit': pages, 'source': provider, 'query_id': query['id'], 'search': query['search'],
                    'page': state['pages'] + 1, 'requested_at': now(), 'status': None}
         try:
             response, rows, next_cursor, matched, limitation = source.search(provider, query['search'], cursor)
-            receipt.update(status=response.status_code, url=str(response.request.url),
+            receipt.update(status=response.status_code, url=request_address(response.request.url),
                 rate_headers=_rate_headers(response))
             if next_cursor == cursor: raise ValueError('Provider repeated a pagination cursor')
             extension = 'xml' if provider == 'epo' else 'json'
             path = workspace / 'search-responses' / f'{query["id"]}-{state["pages"] + 1:04}.{extension}'
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(response.content)
-            index.add_page(rows, query['id'])
+            returned = index.add_page(rows, query['id'])
+            receipt.update(retrieved=returned, matched=matched)
             state.update(pages=state['pages'] + 1, cursor=next_cursor, matched=matched if matched is not None else state.get('matched'),
                          complete=next_cursor is None and not limitation, truncated=bool(next_cursor or limitation))
             state.pop('failure', None)
             if limitation: state['failure'] = limitation
+            if limitation or state['complete'] or page_index + 1 == pages:
+                receipt['ended'] = limitation or ('The source returned its final page.' if state['complete']
+                                                  else 'Reached the page limit for this round.')
             event(workspace, 'search_page', source=provider, query_id=query['id'], page=state['pages'],
                   candidates=index.count(), complete=state['complete'])
         except (httpx.HTTPError, ValueError, KeyError, TypeError, ET.ParseError) as error:

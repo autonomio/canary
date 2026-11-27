@@ -103,7 +103,7 @@ def _artifact_paths(workspace):
             path = base / name
             if (name.startswith('.') or name in excluded_files or name.endswith(('.tmp', '.pyc'))
                     or path == workspace / 'bundle.json' or path.is_symlink()
-                    or (base == workspace and (name in review_history.DATABASE_FILES or name == 'review-decisions.json'))):
+                    or (base == workspace and (name in review_history.DATABASE_FILES or name in ('review-decisions.json', 'methods-appendix.json')))):
                 continue
             if path.is_file():
                 yield path
@@ -206,6 +206,10 @@ def _archive(workspace: Path, target: str | Path | BinaryIO, review_store: Path 
             output.write(workspace / 'bundle.json', 'bundle.json')
         for entry in manifest['artifacts']:
             output.write(verified_artifact(workspace, entry), entry['path'])
+        if 'methods-appendix.json' not in output.namelist():
+            from . import methods
+            appendix = methods.for_bundle(workspace, manifest, review_store)
+            output.writestr('methods-appendix.json', json.dumps(appendix, ensure_ascii=False))
         review_history.archive(workspace, output, manifest, store=review_store)
 
 

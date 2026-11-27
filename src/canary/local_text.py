@@ -210,6 +210,9 @@ def discover(workspace, plan, config, pages):
                 counts[query['id']] = db.execute('SELECT count(*) FROM search WHERE search MATCH ?', (query['search'],)).fetchone()[0]
             except sqlite3.OperationalError as error:
                 raise ValueError('Invalid local text query ' + query['id'] + ': ' + str(error)) from None
+        from .methods_search import start_round
+        from .coverage_runtime import append, now
+        search_round = start_round(workspace, pages)
         write(workspace / 'question-plan.json', plan)
         for query in plan['queries']:
             state = progress['queries'].setdefault(query['id'], {'search': query['search'], 'pages': 0, 'complete': False})
@@ -223,6 +226,9 @@ def discover(workspace, plan, config, pages):
             returned = candidates.add_page((json.loads(value) for (value,) in rows), query['id'])
             state.update(pages=state['pages'] + max(1, (returned + 199) // 200), matched=matched, returned=min(offset + returned, matched),
                          complete=offset + returned >= matched, truncated=offset + returned < matched)
+            append(workspace / 'local-search-requests.jsonl', dict(query_id=query['id'], round=search_round,
+                   page_limit=pages, requested_at=now(), status=200, matched=matched, retrieved=returned,
+                   ended='End of the local results.' if state['complete'] else 'Reached the page limit for this round.'))
             state.pop('failure', None)
             _commit_discovery(workspace, candidates, progress, plan)
             event(workspace, 'local_search_page', query_id=query['id'], matched=matched, returned=returned, complete=state['complete'])

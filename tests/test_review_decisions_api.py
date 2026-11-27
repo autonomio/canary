@@ -326,7 +326,8 @@ def test_imported_full_and_compact_copies_share_decisions(tmp_path, review_clien
             assert json.loads(archive.read('review-decisions.json')) == expected
             archive.extractall(restored)
         assert review_history.edition(restored) == expected
-        assert not (source / review_history.NAME).exists()
+        assert review_history.edition(source)['entries'] == []
+        assert (source / review_history.NAME).exists() == (source == compact)
 
     stored = compact / compact_bundle.NAME
     stored.write_bytes(stored.read_bytes() + b'\n')
@@ -460,7 +461,7 @@ def test_import_without_decisions_refuses_a_copy_bound_to_another_compact_file(t
     stored = altered / compact_bundle.NAME
     stored.write_bytes(stored.read_bytes() + b'\n')
     (altered / compact_bundle.CHECKSUM).write_text(file_hash(stored))
-    assert not (altered / review_history.NAME).exists()
+    (altered / review_history.NAME).unlink()
     rejected = client.post('/api/runs/import', json={'server_path': str(altered)})
     assert rejected.status_code == 409 and rejected.json()['code'] == 'review_conflict'
     assert runs.get('altered', registry) is None
@@ -566,3 +567,20 @@ def test_checklist_reads_the_view_under_the_bundle_lock_before_reading_decisions
     for representation in ('checklist', 'report'):
         assert client.get('/api/runs/locked-review/prisma/' + representation).status_code == 200
     assert calls == ['view', 'edition', 'view', 'edition']
+
+
+def test_methods_route_serves_the_same_appendix_to_cli_and_agent(tmp_path, monkeypatch, capsys, review_client):
+    client, registry, _, dispatch = review_client
+    workspace = tmp_path / 'review'
+    workspace.mkdir()
+    prepared(workspace)
+    runs.adopt_bundle(workspace, path=registry)
+    response = client.get('/api/runs/review/prisma/methods')
+    assert response.status_code == 200
+    report = response.json()
+    schema = mcp_server.tool_catalog(api_contract.document())['canary_methods_appendix']['tool'].outputSchema
+    jsonschema.validate(report, schema)
+    original = httpx.Client
+    monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(dispatch)))
+    assert cli.main(['methods', 'review']) == 0
+    assert json.loads(capsys.readouterr().out) == report
