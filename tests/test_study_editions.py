@@ -146,6 +146,12 @@ const shares={study_id:'S1',fields:['shared with S2','reports'],
 const sharedHtml=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[shares]}]});
 assert.match(sharedHtml,/<span>shares <del class="edition-del">specimen<\/del>s · uncertain — Same lab\.<\/span><span>shares <ins class="edition-ins">dataset<\/ins>s · uncertain — Same lab\.<\/span>/);
 assert.match(sharedHtml,/<span>reference id R<del class="edition-del">1<\/del> · confirmed — One report\.<\/span>/);
+const group={study_id:'S1',fields:['group G1 description'],
+  before:{'group G1 description':{text:'Grid infill.',origin:null,calculation:null,documents:['a'.repeat(64)],passages:['R1-p1']}},
+  after:{'group G1 description':{text:'Grid infill, 20%.',origin:null,calculation:null,documents:['b'.repeat(64)],passages:['R1-p1']}}};
+const groupHtml=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[group]}]});
+assert.match(groupHtml,/<span>Grid infill<del class="edition-del">\. · read from a{64}<\/del> · passages R1-p1<\/span>/);
+assert.match(groupHtml,/<span>Grid infill<ins class="edition-ins">, 20%\. · read from b{64}<\/ins> · passages R1-p1<\/span>/);
 const hidden=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[typo]}]});
 assert.match(hidden,new RegExp(`<span>outcome</span><span>id ${'a'.repeat(20)}<del class="edition-del">${'c'.repeat(44)}</del></span><span>id ${'a'.repeat(20)}<ins class="edition-ins">${'a'.repeat(44)}</ins></span>`));
 assert.match(studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[{...typo,before:{outcome:{id:'ab12'.repeat(16)}},after:{outcome:{id:'ab12'.repeat(8)+'ab'+'ab12'.repeat(8)}}}]}]}),/<span>outcome<\/span><span>id [0-9a-f]{64}<\/span><span>id [0-9a-f]+<ins class="edition-ins">[0-9a-f]{2}<\/ins>[0-9a-f]+<\/span>/);
@@ -214,9 +220,30 @@ def test_a_change_to_any_study_detail_is_a_recoverable_edition(tmp_path):
     assert change['fields'] == ['funding', 'reports', 'shared with S2']
     assert first['studies']['S1']['funding']['text'] == 'Public grant.'
     assert first['studies']['S1']['funding']['documents'] == ['t1']
-    assert first['studies']['S1']['reports'] == [{'reference_id': 'R1', 'status': 'confirmed', 'basis': 'Same specimens.'}]
-    assert first['studies']['S1']['group G1']['description']['text'] == 'Grid infill.'
-    assert second['studies']['S1']['shared with S2'] == {'shares': 'specimens', 'status': 'uncertain', 'basis': 'Same lab.'}
+    assert first['studies']['S1']['reports'] == [{'reference_id': 'R1', 'status': 'confirmed', 'basis': 'Same specimens.',
+                                                  'passages': []}]
+    assert first['studies']['S1']['group G1 description']['text'] == 'Grid infill.'
+    assert second['studies']['S1']['shared with S2'] == {'shares': 'specimens', 'status': 'uncertain', 'basis': 'Same lab.',
+                                                         'passages': []}
+
+
+def test_a_new_citation_or_a_second_link_is_kept_without_flagging_claims(tmp_path):
+    study = {'id': 'S1', 'reports': [{'reference_id': 'R1', 'status': 'confirmed', 'basis': 'Same.', 'passage_ids': ['R1-p1']}],
+             'shared_with': [{'study_id': 'S2', 'shares': 'specimens', 'status': 'uncertain', 'basis': 'Lab.', 'passage_ids': []},
+                             {'study_id': 'S2', 'shares': 'datasets', 'status': 'confirmed', 'basis': 'Data.', 'passage_ids': []}]}
+    study_editions.record(tmp_path, dict(investigation(), studies=[study]), REFERENCES)
+    recorded = study_editions.history(tmp_path)[0]['studies']['S1']
+    assert recorded['shared with S2']['shares'] == 'specimens' and recorded['shared with S2 (2)']['shares'] == 'datasets'
+    moved = dict(study, reports=[dict(study['reports'][0], passage_ids=['R1-p2'])])
+    study_editions.record(tmp_path, dict(investigation(), studies=[moved]), REFERENCES)
+    assert study_editions.history(tmp_path)[1]['changes'][0]['fields'] == ['reports']
+    recited = investigation()
+    recited['study_results'][0]['outcome_result']['estimate']['passage_ids'] = ['R1-p9']
+    study_editions.record(tmp_path, dict(recited, studies=[moved]), REFERENCES)
+    editions = study_editions.history(tmp_path)
+    change, = editions[2]['changes']
+    assert change['fields'] == ['estimate'] and change['passages_only'] and change['unrevised_claim_ids'] == []
+    assert study_editions.stale_claims(editions, dict(recited, studies=[moved])) == []
 
 
 def test_an_unrevised_claim_is_in_the_mechanical_audit(tmp_path):

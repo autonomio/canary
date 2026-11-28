@@ -9,8 +9,8 @@ from .study_table import CHARACTERISTICS, _rows, _values, document_versions, val
 FILE = 'study-table-editions.json'
 
 
-def _text(field):
-    return field.get('text') if isinstance(field, dict) else None
+def _cited(record, keys):
+    return {**{k: record.get(k) for k in keys}, 'passages': list(record.get('passage_ids', []))} if isinstance(record, dict) else None
 
 
 def _value(field, owners, references):
@@ -19,21 +19,36 @@ def _value(field, owners, references):
     calculation = field.get('calculation') if isinstance(field.get('calculation'), dict) else None
     return {'text': field.get('text'), 'origin': field.get('origin'),
             'calculation': {'formula': calculation.get('formula'), 'assumptions': calculation.get('assumptions', []),
-                            'inputs': [{k: i.get(k) for k in ('name', 'value', 'unit')} for i in _rows(calculation.get('inputs'))]}
+                            'inputs': [_cited(i, ('name', 'value', 'unit')) for i in _rows(calculation.get('inputs'))]}
             if calculation else None,
-            'documents': [v['text_sha256'] for v in value_documents(field, owners, references)]}
+            'documents': [v['text_sha256'] for v in value_documents(field, owners, references)],
+            'passages': list(field.get('passage_ids', []))}
+
+
+def _put(record, key, value):
+    name, copy = key, 1
+    while name in record:
+        copy += 1
+        name = f'{key} ({copy})'
+    record[name] = value
+
+
+def _without_passages(value):
+    if isinstance(value, dict):
+        return {k: _without_passages(v) for k, v in value.items() if k != 'passages'}
+    if isinstance(value, list):
+        return [_without_passages(v) for v in value]
+    return value
 
 
 def _details(result, owners, references):
     recorded = result.get('outcome_result') if isinstance(result.get('outcome_result'), dict) else {}
-    details = {name: _text(recorded.get(name)) for name in ('qualitative', 'time_point', 'effect_measure')}
-    availability = recorded.get('availability')
-    details['availability'] = {k: availability.get(k) for k in ('status', 'basis')} if isinstance(availability, dict) else None
-    favours = recorded.get('larger_value_favours')
-    details['larger value favours'] = {k: favours.get(k) for k in ('group_id', 'basis')} if isinstance(favours, dict) else None
+    details = {name: _value(recorded.get(name), owners, references) for name in ('qualitative', 'time_point', 'effect_measure')}
+    details['availability'] = _cited(recorded.get('availability'), ('status', 'basis'))
+    details['larger value favours'] = _cited(recorded.get('larger_value_favours'), ('group_id', 'basis'))
     details.update({name: _value(value, owners, references) for name, value in _values(result)})
     fields = result.get('fields') if isinstance(result.get('fields'), dict) else {}
-    details.update({name: _text(field) for name, field in fields.items() if name != 'units'})
+    details.update({name: _value(field, owners, references) for name, field in fields.items() if name != 'units'})
     return details
 
 
@@ -41,16 +56,16 @@ def _study(study, owners, references):
     characteristics = study.get('characteristics') if isinstance(study.get('characteristics'), dict) else {}
     reports = _rows(study.get('reports'))
     record = {'citation': study.get('citation'), 'subject': study.get('subject'), 'subject_count': study.get('subject_count'),
-              'reports': [{k: r.get(k) for k in ('reference_id', 'status', 'basis')} for r in reports],
+              'reports': [_cited(r, ('reference_id', 'status', 'basis')) for r in reports],
               'documents': [v['text_sha256'] for v in document_versions([r.get('reference_id') for r in reports], references)]}
     record.update({name: _value(characteristics.get(name), owners, references) for name in CHARACTERISTICS})
     for group in _rows(study.get('groups')):
-        record['group ' + str(group.get('id'))] = {'description': _value(group.get('description'), owners, references),
-                                                   'sample size': _value(group.get('sample_size'), owners, references)}
+        _put(record, 'group ' + str(group.get('id')) + ' description', _value(group.get('description'), owners, references))
+        _put(record, 'group ' + str(group.get('id')) + ' sample size', _value(group.get('sample_size'), owners, references))
     for variable in _rows(study.get('planned_variables')):
-        record['variable ' + str(variable.get('name'))] = _value(variable.get('value'), owners, references)
+        _put(record, 'variable ' + str(variable.get('name')), _value(variable.get('value'), owners, references))
     for link in _rows(study.get('shared_with')):
-        record['shared with ' + str(link.get('study_id'))] = {k: link.get(k) for k in ('shares', 'status', 'basis')}
+        _put(record, 'shared with ' + str(link.get('study_id')), _cited(link, ('shares', 'status', 'basis')))
     return record
 
 
@@ -61,7 +76,7 @@ def contents(investigation, references, owners=None):
     for result in _rows(investigation.get('study_results')):
         results[result.get('id')] = {
             'study_id': result.get('study_id'), 'outcome': result.get('outcome'),
-            'unit': _text((result.get('fields') or {}).get('units')),
+            'unit': _value((result.get('fields') or {}).get('units'), owners, references),
             'documents': document_versions(result.get('reference_ids', []), references),
             **_details(result, owners, references)}
     studies = {study.get('id'): _study(study, owners, references) for study in _rows(investigation.get('studies'))}
@@ -93,9 +108,10 @@ def _changes(before, after, claims, earlier_claims, summary):
         fields = sorted(key for key in (old or {}).keys() | (new or {}).keys() if (old or {}).get(key) != (new or {}).get(key))
         using = _users(identifier, claims)
         affected = sorted(set(_users(identifier, earlier_claims)) | set(using), key=str)
+        cited_only = _without_passages(old) == _without_passages(new)
         changes.append({'study_result_id': identifier, 'added': old is None, 'removed': new is None, 'fields': fields,
-                        'before': old, 'after': new, 'claim_ids': affected,
-                        'unrevised_claim_ids': [c for c in using if c in earlier_claims
+                        'before': old, 'after': new, 'claim_ids': affected, 'passages_only': cited_only,
+                        'unrevised_claim_ids': [] if cited_only else [c for c in using if c in earlier_claims
                                                 and claims[c]['text_sha256'] == earlier_claims[c]['text_sha256']],
                         'summary_indexes': _summary_indexes(summary, affected)})
     for identifier in dict.fromkeys([*before['studies'], *after['studies']]):
@@ -141,6 +157,8 @@ def stale_claims(editions, investigation):
     found = []
     for earlier, edition in zip(editions, editions[1:]):
         for change in edition.get('changes', []):
+            if change.get('passages_only'):
+                continue
             for claim in change.get('claim_ids', []):
                 if claim in current and claim in earlier['claims'] and \
                         change['study_result_id'] in current[claim]['study_result_ids'] and \

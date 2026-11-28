@@ -3372,6 +3372,7 @@
     if(!editions.length) return '';
     const when=v=>{const d=new Date(v);return v && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0,16).replace('T',' ')+' UTC' : '';};
     const current=editions[editions.length-1], label=f=>String(f).replaceAll('_',' ');
+    const cited=(v,full)=>full && (v.passages || []).length ? ` · passages ${v.passages.join(', ')}` : '';
     const shown=(v,full=false)=>{
       if(v==null || v==='') return 'none';
       if(Array.isArray(v)) return v.length ? v.map(x=>shown(x,full)).join(', ') : 'none';
@@ -3379,15 +3380,16 @@
       if('text' in v) {
         const c=v.calculation, base=`${v.text ?? 'none'}${v.origin==='calculated' ? ' (calculated)' : ''}`;
         if(!full) return base;
-        const inputs=(c?.inputs || []).map(i=>`${i.name} = ${i.value ?? 'none'}${i.unit ? ' '+i.unit : ''}`).join(', ');
+        const inputs=(c?.inputs || []).map(i=>`${i.name} = ${i.value ?? 'none'}${i.unit ? ' '+i.unit : ''}${(i.passages || []).length ? ` [${i.passages.join(', ')}]` : ''}`).join(', ');
         return [base, c ? `formula ${c.formula ?? 'none'}` : '', inputs ? `inputs ${inputs}` : '', (c?.assumptions || []).length ? `assumptions ${c.assumptions.join('; ')}` : '',
-          (v.documents || []).length ? `read from ${v.documents.join(', ')}` : ''].filter(Boolean).join(' · ');
+          (v.documents || []).length ? `read from ${v.documents.join(', ')}` : ''].filter(Boolean).join(' · ')+cited(v,full);
       }
-      if('status' in v) return [...Object.entries(v).filter(([k,x])=>!['status','basis'].includes(k) && x!=null && x!=='').map(([k,x])=>`${label(k)} ${shown(x,full)}`),
-        [label(v.status),v.basis].filter(Boolean).join(' — ')].join(' · ');
-      return Object.entries(v).filter(([,x])=>x!=null && x!=='' && !(Array.isArray(x) && !x.length)).map(([k,x])=>`${label(k)} ${shown(x,full)}`).join(' · ') || 'none';
+      const rest=Object.entries(v).filter(([k,x])=>k!=='passages' && x!=null && x!=='' && !(Array.isArray(x) && !x.length));
+      if('status' in v) return [...rest.filter(([k])=>!['status','basis'].includes(k)).map(([k,x])=>`${label(k)} ${shown(x,full)}`),
+        [label(v.status),v.basis].filter(Boolean).join(' — ')].join(' · ')+cited(v,full);
+      return (rest.map(([k,x])=>`${label(k)} ${shown(x,full)}`).join(' · ') || 'none')+cited(v,full);
     };
-    const detailed=v=>v!=null && typeof v==='object' && !Array.isArray(v) && 'text' in v;
+    const detailed=v=>Array.isArray(v) ? v.some(detailed) : v!=null && typeof v==='object' && ('text' in v || 'passages' in v);
     const pair=(a,b)=>{
       if(JSON.stringify(a)===JSON.stringify(b)) return [shown(a),shown(b)];
       const brief=[shown(a),shown(b)], full=[shown(a,true),shown(b,true)];
