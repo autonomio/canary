@@ -1552,6 +1552,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(409, {'error': 'No study table has been recorded for this run', 'code': 'studies_unavailable'})
                     return
                 self._send(200, {'key': key, 'studies': answer['studies'], 'summary': answer.get('study_summary'),
+                                 'results': answer.get('study_results', []), 'protocol_outcomes': answer.get('protocol_outcomes', []),
+                                 'editions': answer.get('study_table_editions', []),
                                  'issues': [i for i in answer.get('binding_issues', []) if i.get('section') == 'studies']})
             elif re.fullmatch(r"/api/runs/[^/]+/prisma/protocol", parsed.path):
                 from . import compact_bundle, review_protocol

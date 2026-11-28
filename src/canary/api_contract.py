@@ -292,7 +292,8 @@ def schemas():
             ['attempted','sources_available','receipts']),
         'StudyTable':obj({'key':S,'studies':arr(O),'summary':obj({'studies':I,'reports':I,'subjects':arr(obj({
             'subject':S,'studies':I,'total':nullable(I),'reasons':arr(S)},['subject','studies','total','reasons']))},
-            ['studies','reports','subjects']),'issues':arr(O)},['key','studies','summary','issues']),
+            ['studies','reports','subjects']),'results':arr(O),'protocol_outcomes':arr(O),'editions':arr(O),'issues':arr(O)},
+            ['key','studies','summary','results','protocol_outcomes','editions','issues']),
         'ReviewProtocol':obj({'bundle_id':S,'registration':O,'versions':arr(O),'decisions':arr(O)},
                              ['bundle_id','registration','versions','decisions']),
         'MethodsAppendix':typed(methods.Appendix),

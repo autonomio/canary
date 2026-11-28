@@ -383,7 +383,9 @@ groups and the other variables named in the protocol. Each value cites passages 
 study's own reports, or is null when the reports do not give it.
 
 Open **Studies** in the dashboard, run `canary studies RUN_KEY` or call
-`GET /api/runs/{key}/studies`. A subject total counts each study once. It stays unknown when a
+`GET /api/runs/{key}/studies`. The response holds the studies, their results with the copy,
+calculation and check behind each value, the protocol outcome definitions and every edition of
+the table. A subject total counts each study once. It stays unknown when a
 study does not report its count or when studies share subjects. Defects in the study records,
 such as an included report with no study, are listed with the table and in the mechanical
 audit. They do not withhold claims.

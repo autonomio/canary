@@ -159,6 +159,7 @@ def test_the_study_table_is_served_with_its_summary_and_issues(tmp_path, monkeyp
     from canary import dashboard, runs
 
     answer = {'studies': [{'id': 'S1'}], 'study_summary': {'studies': 1, 'reports': 0, 'subjects': []},
+              'study_results': [{'id': 'SR1'}], 'protocol_outcomes': [{'id': 'O1'}], 'study_table_editions': [{'number': 1}],
               'binding_issues': [{'kind': 'report_without_study', 'section': 'studies'}, {'kind': 'lacks_evidence'}]}
     handler = object.__new__(dashboard.Handler)
     handler.supervisor = SimpleNamespace(root=tmp_path, registry=None)
@@ -175,6 +176,7 @@ def test_the_study_table_is_served_with_its_summary_and_issues(tmp_path, monkeyp
     handler.do_GET()
     assert [status for status, _ in responses] == [200, 404, 409]
     assert responses[0][1] == {'key': 'review', 'studies': [{'id': 'S1'}], 'summary': answer['study_summary'],
+                               'results': [{'id': 'SR1'}], 'protocol_outcomes': [{'id': 'O1'}], 'editions': [{'number': 1}],
                                'issues': [{'kind': 'report_without_study', 'section': 'studies'}]}
 
 
@@ -277,6 +279,10 @@ assert.match(html,/Result SR1 unit is kN; the protocol defines N\./);
 assert.match(outcomeResultHtml({...graph,binding_issues:[{kind:'outcome_departs_from_protocol',section:'studies',study_result_id:'SR1',field:'effect_measure',protocol_value:'mean difference',recorded_value:'Group means.',explanation:'Means only.'}]},graph.study_results[0]),/differs from the protocol \(mean difference\): Group means\. Means only\./);
 assert.match(outcomeResultHtml(graph,{...graph.study_results[0],outcome_result:{...graph.study_results[0].outcome_result,larger_value_favours:{group_id:null,basis:'Higher is stronger.',paragraph_ids:[]}}}),/A larger value favours<\/dt><dd><p>No specific group<\/p><p class="hint">Higher is stronger\./);
 assert.match(html,/G1 denominator/);
+const differs={...graph.study_results[0],outcome_result:{...graph.study_results[0].outcome_result,protocol_agreement:{time_point:'same',effect_measure:'differs',explanation:'Means only.'}}};
+assert.match(outcomeResultHtml(graph,differs),/Protocol time point<\/dt><dd><p>24 hours<\/p><p class="hint">The model judged the study's time point to match<\/p>/);
+assert.match(outcomeResultHtml(graph,differs),/Protocol effect measure<\/dt><dd><p>mean difference<\/p><p class="hint">The model judged the study's effect measure to differ: Means only\.<\/p>/);
+assert.match(html,/Protocol time point<\/dt><dd><p>24 hours<\/p><p class="hint">No comparison recorded/);
 assert.match(html,/A larger value favours<\/dt><dd><p>G1<\/p>/);
 assert.match(html,/Precision<\/dt><dd><span class="muted">Not reported/);
 assert.equal(outcomeResultHtml(graph,{id:'X'}),'');
