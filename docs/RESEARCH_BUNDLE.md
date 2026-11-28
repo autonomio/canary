@@ -441,10 +441,16 @@ Each synthesis records how study results became one finding. It names the planne
 comparison, the study results it draws on, whether they were combined or kept separate and why,
 and the syntheses a group was kept apart from, such as a six-week result kept apart from a
 six-month one. It also records the time points, effect measure, how missing values were treated,
-the method and how results are displayed, and the claims that state the finding. The research
-model makes the grouping decision; the export names each contributing study once. Canary checks
-that the results exist and report the synthesis outcome, that a combined synthesis uses each study
-once, and that named syntheses and claims exist. Syntheses are kept in each study table edition.
+the method and how results are displayed, and the claims that state the finding. A synthesis in
+words explains the direction of the findings, their size where results report it, important
+differences between studies and how design or bias affects interpretation. SWiM, used to summarise
+quantitative intervention effects without meta-analysis, also names its technique, how results
+were prioritised and its limitations. The research model makes the grouping decision; the export
+names each contributing study once. Canary checks that the results exist and report the synthesis
+outcome, that a combined synthesis uses each study once, that named syntheses and claims exist,
+that every grouping gives a reason and that a synthesis in words carries each part of its
+explanation. A SWiM summary of effect estimates needs at least one result that reports one; vote
+counting and combined p-values do not. Syntheses are kept in each study table edition.
 A synthesis left unchanged after a result it uses changed is flagged with the result and fields
 that changed. Open **Syntheses** in the dashboard, run `canary syntheses RUN_KEY` or call
 `GET /api/runs/{key}/syntheses`.

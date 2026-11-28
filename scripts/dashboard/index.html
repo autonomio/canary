@@ -3444,6 +3444,12 @@
       repeated_synthesis_study:()=>`Synthesis ${i.synthesis_id} combines more than one result from study ${i.study_id}.`,
       unknown_kept_apart_synthesis:()=>`Synthesis ${i.synthesis_id} is kept apart from ${i.kept_apart_from}, which is not another recorded synthesis.`,
       unknown_synthesis_claim:()=>`Synthesis ${i.synthesis_id} cites claim ${i.claim_id}, which is not recorded.`,
+      grouping_without_reason:()=>`Synthesis ${i.synthesis_id} gives no reason for its grouping.`,
+      synthesis_without_explanation:()=>`Synthesis ${i.synthesis_id} is written in words but has no explanation.`,
+      explanation_missing:()=>`Synthesis ${i.synthesis_id} does not explain ${({direction:'the direction of the findings',size:'the size of the findings, which its results report',differences:'the differences between studies',design_and_bias:'how design or bias affects interpretation'})[i.field] || String(i.field).replaceAll('_',' ')}.`,
+      swim_without_details:()=>`Synthesis ${i.synthesis_id} uses SWiM but records no technique, prioritisation or limitations.`,
+      swim_missing:()=>`Synthesis ${i.synthesis_id} uses SWiM but does not state ${i.field==='limitations' ? 'the limitations of its technique' : 'how results were prioritised'}.`,
+      swim_without_effect_estimates:()=>`Synthesis ${i.synthesis_id} summarises effect estimates, but none of its results reports one.`,
       synthesis_uses_changed_value:()=>`Synthesis ${i.synthesis_id} was not revised after version ${i.edition} of the study table changed result ${i.study_result_id} (${(i.fields || []).map(f=>String(f).replaceAll('_',' ')).join(', ')}).`}[i.kind]?.())
       || `${String(i.kind || 'issue').replaceAll('_',' ')}${i.synthesis_id ? ` · ${i.synthesis_id}` : ''}`;
   }
@@ -3458,13 +3464,16 @@
       const decision=grouping.decision==='combined' ? 'Combined' : grouping.decision==='kept_separate' ? 'Kept separate' : 'Not recorded';
       const results=(s.study_result_ids || []).map(id=>studyResultButton(id,'')).join(' ') || '<span class="muted">None recorded</span>';
       const claims=(s.claim_ids || []).map(id=>qaButton('data-qa-claim',id,id)).join(' ') || '<span class="muted">None recorded</span>';
-      const studies=s.study_ids || [], method=s.method || {};
+      const studies=s.study_ids || [], method=s.method || {}, words=s.explanation, swim=s.swim;
+      const techniques={summary_of_effects:'Summary of effect estimates',combined_p_values:'Combined p-values',vote_counting_direction:'Vote counting on direction of effect'};
+      const explained=words ? `<dt>Direction</dt><dd>${text(words.direction)}</dd><dt>Size</dt><dd>${text(words.size)}</dd><dt>Differences between studies</dt><dd>${text(words.differences)}</dd><dt>Design and bias</dt><dd>${text(words.design_and_bias)}</dd>` : '';
+      const swimmed=swim ? `<p class="hint">${esc(techniques[swim.technique] || 'Technique not recorded')}</p><p class="hint">Prioritised by</p>${text(swim.prioritisation)}<p class="hint">Limitations</p>${text(swim.limitations)}` : '';
       const facts=[decision.toLowerCase(),`${studies.length} ${studies.length===1 ? 'study' : 'studies'}`,(methods[method.kind] || 'method not recorded').toLowerCase(),...(flagged.length ? [`${flagged.length} flag${flagged.length===1 ? '' : 's'}`] : [])];
-      return `<details class="study-record" data-detail="synthesis-${esc(s.id)}"><summary>${esc(s.id)} · ${esc(s.outcome || 'Outside the planned outcomes')}${s.comparison ? ` — ${esc(s.comparison)}` : ''} <span class="hint">${facts.map(esc).join(' · ')}</span></summary>${alerts}<dl class="study-fields"><dt>Grouping</dt><dd><p>${decision}</p>${text(grouping.reason)}${apart ? `<p class="hint">Kept apart from ${apart}</p>` : ''}</dd><dt>Studies</dt><dd>${studies.length ? `<p>${studies.map(esc).join(', ')}</p>` : ''}<div class="source-actions">${results}</div></dd><dt>Time points</dt><dd>${text(s.time_points)}</dd><dt>Effect measure</dt><dd>${text(s.effect_measure)}</dd><dt>Missing values</dt><dd>${text(s.missing_values)}</dd><dt>Method</dt><dd><p>${esc(methods[method.kind] || 'Not recorded')}</p>${text(method.description)}</dd><dt>Display</dt><dd>${text(s.display)}</dd><dt>Claims</dt><dd><div class="finding-links">${claims}</div></dd></dl></details>`;
+      return `<details class="study-record" data-detail="synthesis-${esc(s.id)}"><summary>${esc(s.id)} · ${esc(s.outcome || 'Outside the planned outcomes')}${s.comparison ? ` — ${esc(s.comparison)}` : ''} <span class="hint">${facts.map(esc).join(' · ')}</span></summary>${alerts}<dl class="study-fields"><dt>Grouping</dt><dd><p>${decision}</p>${text(grouping.reason)}${apart ? `<p class="hint">Kept apart from ${apart}</p>` : ''}</dd><dt>Studies</dt><dd>${studies.length ? `<p>${studies.map(esc).join(', ')}</p>` : ''}<div class="source-actions">${results}</div></dd><dt>Time points</dt><dd>${text(s.time_points)}</dd><dt>Effect measure</dt><dd>${text(s.effect_measure)}</dd><dt>Missing values</dt><dd>${text(s.missing_values)}</dd><dt>Method</dt><dd><p>${esc(methods[method.kind] || 'Not recorded')}</p>${text(method.description)}${swimmed}</dd>${explained}<dt>Display</dt><dd>${text(s.display)}</dd><dt>Claims</dt><dd><div class="finding-links">${claims}</div></dd></dl></details>`;
     }).join('');
     const loose=issues.filter(i=>!ids.has(i.synthesis_id)||i.kind==='duplicate_synthesis_id');
     const callout=loose.length ? `<div class="study-callout" role="alert"><p>Synthesis issues (${loose.length})</p><ul>${loose.map(i=>`<li>${esc(synthesisIssueText(i))}</li>`).join('')}</ul></div>` : '';
-    return `<details class="coverage" data-detail="syntheses"><summary>Syntheses · ${esc(g.syntheses.length)}</summary><p class="hint">Model-recorded grouping and method for each finding.</p>${callout}<div class="study-records">${cards || '<p class="muted">No syntheses recorded.</p>'}</div></details>`;
+    return `<details class="coverage" data-detail="syntheses"><summary>Syntheses · ${esc(g.syntheses.length)}</summary><p class="hint">Model-recorded grouping, method and explanation for each finding.</p>${callout}<div class="study-records">${cards || '<p class="muted">No syntheses recorded.</p>'}</div></details>`;
   }
   function studyResultButton(id,claimId) {
     return `<button type="button" class="text-action" data-qa-study="${esc(id)}" data-study-claim="${esc(claimId)}">${esc(id)} · Study result</button>`;

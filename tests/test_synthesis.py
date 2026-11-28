@@ -14,7 +14,10 @@ def synthesis_record(**changes):
               'grouping': {'decision': 'combined', 'reason': 'Same test and follow-up.', 'kept_apart_from': []},
               'time_points': '24 hours', 'effect_measure': 'Mean difference', 'missing_values': 'None missing.',
               'method': {'kind': 'narrative', 'description': 'Direction of effect by study.'},
-              'display': 'Table of study results.', 'claim_ids': ['C1']}
+              'explanation': {'direction': 'Higher infill raised breaking force in both studies.',
+                              'size': 'Around 1 kN in each.', 'differences': 'Both tested the same polymer.',
+                              'design_and_bias': 'Both were unblinded bench tests.'},
+              'swim': None, 'display': 'Table of study results.', 'claim_ids': ['C1']}
     record.update(changes)
     return record
 
@@ -48,6 +51,32 @@ def test_each_synthesis_is_checked_against_results_outcomes_studies_and_claims()
     apart = synthesis_record(id='Y2', grouping={'decision': 'kept_separate', 'reason': 'Six months answers another question.',
                                                 'kept_apart_from': ['Y1']}, study_result_ids=['SR1', 'SR1'])
     assert kinds([synthesis_record(), apart]) == []
+
+
+def test_a_synthesis_in_words_explains_its_findings_and_how_it_was_summarised():
+    shape = coverage_protocol.investigation_schema()['properties']['syntheses']['items']
+    swim = {'technique': 'vote_counting_direction', 'prioritisation': 'Tensile test results before flexural ones.',
+            'limitations': 'Counts ignore the size of each effect.'}
+    jsonschema.Draft202012Validator(shape).validate(synthesis_record(method={'kind': 'swim', 'description': 'Vote count.'}, swim=swim))
+    assert kinds([synthesis_record(method={'kind': 'swim', 'description': 'Vote count.'}, swim=swim)]) == []
+    assert kinds([synthesis_record(explanation=None)]) == [('synthesis_without_explanation', None)]
+    assert kinds([synthesis_record(method={'kind': 'statistical', 'description': 'Fixed effect.'}, explanation=None)]) == []
+    blank = {'direction': ' ', 'size': None, 'differences': '', 'design_and_bias': 'Bench tests.'}
+    assert [(i['kind'], i['field']) for i in synthesis.issues([synthesis_record(explanation=blank)], RESULTS, CLAIMS, VERSIONS)] == [
+        ('explanation_missing', 'direction'), ('explanation_missing', 'differences'), ('explanation_missing', 'size')]
+    unestimated = [dict(r, outcome_result=dict(r['outcome_result'], estimate=None)) for r in RESULTS]
+    assert kinds([synthesis_record(explanation=dict(blank, direction='Up', differences='None'))], unestimated) == []
+    assert kinds([synthesis_record(method={'kind': 'swim', 'description': 'Vote count.'}, swim=swim)], unestimated) == []
+    summary = dict(swim, technique='summary_of_effects')
+    assert kinds([synthesis_record(method={'kind': 'swim', 'description': 'Median effect.'}, swim=summary)], unestimated) == [
+        ('swim_without_effect_estimates', None)]
+    assert kinds([synthesis_record(method={'kind': 'swim', 'description': 'Median effect.'}, swim=summary)]) == []
+    assert kinds([synthesis_record(method={'kind': 'swim', 'description': 'Vote count.'})]) == [('swim_without_details', None)]
+    unfinished = synthesis_record(method={'kind': 'swim', 'description': 'Vote count.'}, swim=dict(swim, prioritisation='', limitations=' '))
+    assert [(i['kind'], i['field']) for i in synthesis.issues([unfinished], RESULTS, CLAIMS, VERSIONS)] == [
+        ('swim_missing', 'prioritisation'), ('swim_missing', 'limitations')]
+    apart = synthesis_record(grouping={'decision': 'kept_separate', 'reason': '', 'kept_apart_from': []})
+    assert kinds([apart]) == [('grouping_without_reason', None)]
 
 
 def test_the_export_names_each_contributing_study_once():
@@ -147,7 +176,8 @@ def test_the_dashboard_shows_each_synthesis_with_its_grouping_and_flags(tmp_path
     from test_coverage_evidence_ui import run_dashboard
 
     apart = synthesis_record(id='Y2', grouping={'decision': 'kept_separate', 'reason': 'Six months answers another question.',
-                                                'kept_apart_from': ['Y1']}, method={'kind': 'swim', 'description': 'Vote count.'})
+                                                'kept_apart_from': ['Y1']}, method={'kind': 'swim', 'description': 'Vote count.'},
+                             swim={'technique': 'vote_counting_direction', 'prioritisation': 'Tensile first.', 'limitations': 'Ignores size.'})
     graph = {'syntheses': synthesis.export([synthesis_record(), apart], RESULTS), 'claims': [{'id': 'C1'}],
              'binding_issues': [{'kind': 'repeated_synthesis_study', 'section': 'syntheses', 'synthesis_id': 'Y1', 'study_id': 'S1'},
                                 {'kind': 'duplicate_synthesis_id', 'section': 'syntheses', 'synthesis_id': 'Y2'}]}
@@ -158,6 +188,11 @@ assert.match(html,/<summary>Y1 · Breaking force — Higher against lower infill
 assert.match(html,/<p role="alert">Synthesis Y1 combines more than one result from study S1\.<\/p>/);
 assert.match(html,/<dt>Grouping<\/dt><dd><p>Kept separate<\/p><p>Six months answers another question\.<\/p><p class="hint">Kept apart from Y1<\/p>/);
 assert.match(html,/Synthesis without meta-analysis \(SWiM\)<\/p><p>Vote count\.<\/p>/);
+assert.match(html,/<p class="hint">Vote counting on direction of effect<\/p><p class="hint">Prioritised by<\/p><p>Tensile first\.<\/p><p class="hint">Limitations<\/p><p>Ignores size\.<\/p>/);
+assert.match(html,/<dt>Direction<\/dt><dd><p>Higher infill raised breaking force in both studies\.<\/p><\/dd><dt>Size<\/dt><dd><p>Around 1 kN in each\.<\/p>/);
+assert.match(html,/<dt>Design and bias<\/dt><dd><p>Both were unblinded bench tests\.<\/p><\/dd>/);
+assert.equal(synthesisIssueText({kind:'swim_missing',synthesis_id:'Y1',field:'limitations'}),'Synthesis Y1 uses SWiM but does not state the limitations of its technique.');
+assert.equal(synthesisIssueText({kind:'explanation_missing',synthesis_id:'Y1',field:'size'}),'Synthesis Y1 does not explain the size of the findings, which its results report.');
 assert.match(html,/data-qa-study="SR2"/);
 assert.match(html,/data-qa-claim="C1">C1</);
 assert.match(html,/Synthesis issues \(1\)<\/p><ul><li>Synthesis Y2 is recorded more than once\./);

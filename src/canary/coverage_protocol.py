@@ -245,12 +245,16 @@ def _outcome_result_schema(field):
 
 
 def _syntheses_schema():
-    from .synthesis import DECISIONS, METHODS
+    from .synthesis import DECISIONS, METHODS, SWIM_TECHNIQUES
     return arr(obj({
         "id": S, "outcome": {"anyOf": [S, {"type": "null"}]}, "comparison": S, "study_result_ids": SS,
         "grouping": obj({"decision": enum(*DECISIONS), "reason": S, "kept_apart_from": SS}),
         "time_points": S, "effect_measure": S, "missing_values": S,
-        "method": obj({"kind": enum(*METHODS), "description": S}), "display": S, "claim_ids": SS,
+        "method": obj({"kind": enum(*METHODS), "description": S}),
+        "explanation": {"anyOf": [obj({"direction": S, "size": {"anyOf": [S, {"type": "null"}]}, "differences": S,
+                                        "design_and_bias": S}), {"type": "null"}]},
+        "swim": {"anyOf": [obj({"technique": enum(*SWIM_TECHNIQUES), "prioritisation": S, "limitations": S}), {"type": "null"}]},
+        "display": S, "claim_ids": SS,
     }))
 
 
@@ -485,7 +489,7 @@ Record one studies entry per underlying study and list each of its reports: regi
 Give each study result its study_id. For a planned outcome, set outcome to that outcome's name exactly as the latest version in review-protocol.json gives it; Canary links the name to the outcome and protocol version. Record outcome_result: time point, effect measure, each group's value and denominator, the effect estimate and its precision as reported, and which group a larger value favours (group_id null when neither). Use the protocol's unit, time point and effect measure for that outcome; if the study reports a different one, record what the study reports. In protocol_agreement, state whether the study's time point and effect measure are the same as the protocol's, differ, or are not reported, and explain any difference. Record the unit as a unit only, such as MPa. Leave outcome and outcome_result null for a result outside the planned outcomes.
 Mark each outcome value reported when the study states it, or calculated when you derived it. For a calculated value, record each published input with its unit and passages, the formula over the input names using + - * / ** and sqrt, log, log10, exp or abs, and every assumption. Give the value to the precision you report; Canary re-runs the formula and lists values it cannot reproduce.
 Record an outcome_result for every planned outcome in every study. Set availability.status to reported when the study gives the result, not_measured when the study did not measure the outcome, measured_not_reported when it measured the outcome but gives no result, or unclear when the reports do not settle which applies; give the basis and the passages that establish it. Keep a result stated in words in qualitative, in the study's terms; leave values null rather than inventing numbers.
-Record one syntheses entry for each comparison a conclusion rests on. Give the planned outcome's name (or null), the comparison, the study results it draws on, and whether they were combined or kept separate with the reason; name the syntheses a group was kept apart from, for example a six-week result kept apart from a six-month one. State the time points, effect measure, how missing values were treated, the method (narrative, swim, statistical, imported or other) with a description, how results are displayed, and the claims that state the finding. A combined synthesis uses each study once.
+Record one syntheses entry for each comparison a conclusion rests on. Give the planned outcome's name (or null), the comparison, the study results it draws on, and whether they were combined or kept separate with the reason; name the syntheses a group was kept apart from, for example a six-week result kept apart from a six-month one. State the time points, effect measure, how missing values were treated, the method (narrative, swim, statistical, imported or other) with a description, how results are displayed, and the claims that state the finding. A combined synthesis uses each study once. For a synthesis in words (narrative or swim), give an explanation: the direction of the findings, their size where results report it (else null), important differences between studies, and how design or risk of bias affects interpretation; otherwise explanation may be null. Use swim when summarising quantitative intervention effects without meta-analysis, naming the technique (summary of effect estimates, combined p-values or vote counting on direction of effect), the criteria used to prioritise results and the limitations of that technique; otherwise swim is null. For other questions choose a method that suits them and describe it.
 Include typed contradictions, gaps, residue, justified next questions, caveats and honest reviewed scope.
 Residue preserves relevant material that is neither a claim nor a gap: what must not be lost. Bind its basis, claim/evidence links and scope; do not require a resolution, alternative explanation or follow-up test. Gaps describe what remains unanswered and what would resolve it.
 {previous}

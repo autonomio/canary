@@ -5,6 +5,40 @@ from .study_table import _outcome_name, _rows
 
 DECISIONS = ('combined', 'kept_separate')
 METHODS = ('narrative', 'swim', 'statistical', 'imported', 'other')
+IN_WORDS = ('narrative', 'swim')
+SWIM_TECHNIQUES = ('summary_of_effects', 'combined_p_values', 'vote_counting_direction')
+EXPLANATION = ('direction', 'differences', 'design_and_bias')
+
+
+def _blank(value):
+    return not isinstance(value, str) or not value.strip()
+
+
+def _estimated(result):
+    estimate = (result.get('outcome_result') or {}).get('estimate')
+    return isinstance(estimate, dict) and not _blank(estimate.get('text'))
+
+
+def _in_words(synthesis, contributing, owner):
+    kind = (synthesis.get('method') or {}).get('kind')
+    explanation = synthesis.get('explanation')
+    found = []
+    if kind in IN_WORDS and not isinstance(explanation, dict):
+        found.append({'kind': 'synthesis_without_explanation', **owner})
+    if isinstance(explanation, dict):
+        found.extend({'kind': 'explanation_missing', **owner, 'field': name} for name in EXPLANATION if _blank(explanation.get(name)))
+        if _blank(explanation.get('size')) and any(_estimated(r) for r in contributing):
+            found.append({'kind': 'explanation_missing', **owner, 'field': 'size'})
+    if kind == 'swim':
+        swim = synthesis.get('swim')
+        if not isinstance(swim, dict):
+            found.append({'kind': 'swim_without_details', **owner})
+        else:
+            found.extend({'kind': 'swim_missing', **owner, 'field': name} for name in ('prioritisation', 'limitations')
+                         if _blank(swim.get(name)))
+            if swim.get('technique') == 'summary_of_effects' and contributing and not any(_estimated(r) for r in contributing):
+                found.append({'kind': 'swim_without_effect_estimates', **owner})
+    return found
 
 
 def _contributing(synthesis, results):
@@ -43,6 +77,9 @@ def issues(syntheses, results, claims, versions):
                 found.append({'kind': 'synthesis_outcome_mismatch', **owner, 'study_result_id': result.get('id'),
                               'synthesis_outcome': outcome, 'result_outcome': named})
         grouping = synthesis.get('grouping') if isinstance(synthesis.get('grouping'), dict) else {}
+        if _blank(grouping.get('reason')):
+            found.append({'kind': 'grouping_without_reason', **owner})
+        found.extend(_in_words(synthesis, _contributing(synthesis, results), owner))
         if grouping.get('decision') == 'combined':
             studies = Counter(r.get('study_id') for r in _contributing(synthesis, results) if r.get('study_id') is not None)
             found.extend({'kind': 'repeated_synthesis_study', **owner, 'study_id': key} for key, count in studies.items() if count > 1)
