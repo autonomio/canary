@@ -404,6 +404,13 @@ def test_calculated_values_are_re_run_and_mismatches_listed():
         assert result_kinds([record]) == kinds_found
 
 
+def test_a_calculation_with_a_repeated_input_name_stays_pending():
+    value = calculated()
+    value['calculation']['inputs'].append(dict(value['calculation']['inputs'][0], value='99'))
+    assert study_table.calculation_check(value) == {'status': 'pending', 'computed': None,
+                                                    'reason': 'Input mean is recorded more than once.'}
+
+
 def test_a_calculation_canary_cannot_run_stays_pending():
     assert study_table.calculation_check(calculated())['status'] == 'reproduced'
     pending = study_table.calculation_check(calculated(formula='median_to_mean(mean)'))

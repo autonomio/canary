@@ -124,6 +124,9 @@ def calculation_check(value):
         return {'status': 'pending', 'computed': None, 'reason': 'No formula or inputs were recorded.'}
     inputs = {}
     for item in _rows(calculation.get('inputs')):
+        if item.get('name') in inputs:
+            return {'status': 'pending', 'computed': None,
+                    'reason': f"Input {item.get('name')} is recorded more than once."}
         try:
             inputs[item.get('name')] = float(item.get('value'))
         except (TypeError, ValueError):
