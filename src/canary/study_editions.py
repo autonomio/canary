@@ -108,6 +108,7 @@ def record(workspace: Path, investigation: dict, references: dict, owners: dict 
 
 
 def history(workspace: Path) -> list[dict]:
+    """Every recorded edition of the study table, oldest first."""
     return read(Path(workspace) / FILE, [])
 
 

@@ -313,6 +313,7 @@ def export_result(result, owners=None, references=None):
 
 
 def result_passage_ids(results):
+    """Every passage a study result's outcome fields, availability and favoured group cite."""
     for result in _rows(results):
         for _, field in _result_fields(result):
             if isinstance(field, dict):
@@ -324,6 +325,7 @@ def result_passage_ids(results):
 
 
 def passage_ids(studies):
+    """Every passage the recorded studies cite for their reports, shared subjects and characteristics."""
     for study in _rows(studies):
         for report in _rows(study.get('reports')):
             yield from report.get('passage_ids', [])
@@ -373,6 +375,7 @@ def document_versions(reference_ids, references):
 
 
 def message(issue):
+    """A study table issue as one line of the mechanical audit."""
     detail = ', '.join(f"{key.replace('_', ' ')} {value}" for key, value in issue.items() if key != 'kind')
     return 'Study table: ' + issue['kind'].replace('_', ' ') + (' (' + detail + ')' if detail else '')
 
