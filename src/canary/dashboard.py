@@ -1458,9 +1458,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if set(body) != {'file_name', 'content'} or not all(isinstance(body[k], str) and body[k] for k in body):
             raise ValueError('Expected file_name and content, the analysis file as text')
-        from . import compact_bundle
         workspace, store = self._decision_paths(row) if row.get('bundle') else (None, None)
-        if workspace is None or store is not None or not workspace.is_dir() or compact_bundle.exists(workspace):
+        if workspace is None or store is not None or not workspace.is_dir():
             self._send(409, {'error': 'Analyses can be imported only into a run this service produced',
                              'code': 'analysis_import_unavailable'})
             return

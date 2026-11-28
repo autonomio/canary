@@ -42,7 +42,12 @@ def checked(data, results=RESULTS):
 
 def test_an_imported_reference_analysis_matches_the_table_and_is_reproduced():
     found = checked(analysis())
-    assert found['inputs_match'] == {'status': 'matched', 'mismatches': [], 'edition': 1}
+    assert found['inputs_match']['status'] == 'unverified' and found['inputs_match']['mismatches'] == []
+    assert [(u['study_result_id'], u['imported'], u['table']) for u in found['inputs_match']['unverified']] == [
+        ('SR1', 1, None), ('SR2', 1, None)]
+    inflated = checked(analysis(inputs=[dict(e, standard_error=100) for e in analysis()['inputs']]))
+    assert inflated['inputs_match']['status'] == 'unverified'
+    assert [u['imported'] for u in inflated['inputs_match']['unverified']] == [100, 100]
     assert [(c['model'], c['status']) for c in found['reproduction']] == [
         ('inverse_variance_fixed', 'reproduced'), ('dersimonian_laird_random', 'reproduced')]
     assert found['stale'] == []
@@ -175,6 +180,10 @@ const html=synthesesHtml(graph);
 assert.match(html,/<dt>Imported analyses<\/dt><dd><p>pooled\.json · <code>abababababab<\/code> · metafor 4\.6-0 · study table version 2<\/p>/);
 assert.match(html,/Inputs do not match the study table \(2\) · Reproduced by Canary · stale: SR1 changed/);
 assert.match(html,/DerSimonian–Laird random effects: 3 \[1\.04, 4\.96\] · Q 2 · I² 50% · τ² 1/);
+const plain={...graph, analysis_imports:[{...graph.analysis_imports[0], inputs_match:{status:'unverified',mismatches:[],unverified:[{field:'standard_error',study_result_id:'SR1',imported:100,table:'SD 0.4'}]}, stale:[]}]};
+const verified=synthesesHtml(plain);
+assert.match(verified,/Inputs match the study table except standard errors, which Canary cannot verify · Reproduced by Canary<\/p>/);
+assert.match(verified,/<p class="hint">SR1 · SE 100 · table: SD 0\.4<\/p>/);
 assert.equal(synthesisIssueText({kind:'import_input_mismatch',import_id:'A1',field:'time_point',imported:'6 months',study_result_id:'SR1',table:'24 hours'}),'Import A1 gives time point “6 months” for SR1; the study table has “24 hours”.');
 assert.equal(synthesisIssueText({kind:'duplicate_import_study',import_id:'A1',study_id:'S1',first:'SR1',study_result_id:'SR3'}),'Import A1 uses study S1 twice (SR1 and SR3).');
 ''')
@@ -222,3 +231,37 @@ def test_reports_of_one_study_with_different_values_stop_the_rerun():
     found = checked(analysis(inputs=[*analysis()['inputs'], second]), RESULTS + [measured('SR3', 'S1', '9')])
     assert [m['kind'] for m in found['inputs_match']['mismatches']] == ['duplicate_import_study']
     assert [c['status'] for c in found['reproduction']] == ['not_recomputed', 'not_recomputed']
+
+
+def test_a_compacted_run_keeps_its_imports_and_accepts_new_ones(tmp_path, monkeypatch):
+    from canary import compact_bundle, coverage_export, coverage_runtime as engine, dashboard, research_bundle, runs
+    from test_research_bundle import completed
+
+    bundle = tmp_path / 'container-out' / 'review'
+    bundle.mkdir(parents=True)
+    completed(bundle)
+    engine.write(bundle / 'run.json', dict(engine.read(bundle / 'run.json'), study_table_version=1, synthesis_version=1))
+    raw = json.loads((bundle / 'investigation.json').read_text())
+    raw['syntheses'] = [{'id': 'Y1', 'study_result_ids': []}]
+    engine.write(bundle / 'investigation.json', raw)
+    analysis_import.add(bundle, {'Y1'}, 'before.json', json.dumps(analysis()))
+    (bundle / '.run-reservation').touch()
+    coverage_export.export_bundle(bundle)
+    research_bundle.seal(bundle)
+    compact_bundle.retain(bundle)
+    assert compact_bundle.exists(bundle) and (bundle / analysis_import.FILE).is_file()
+    row = {'key': 'review', 'bundle': str(bundle), 'run_spec_path': 'spec.yaml'}
+    handler = object.__new__(dashboard.Handler)
+    handler.supervisor = SimpleNamespace(root=tmp_path, registry=None)
+    handler.dashboard_enabled = True
+    responses = []
+    handler._send = lambda *args: responses.append(args)
+    handler._local_origin = lambda: True
+    handler._read_json = lambda: {'file_name': 'after.json', 'content': json.dumps(analysis(software_version='4.7-0'))}
+    monkeypatch.setattr(runs, 'get', lambda key, registry: row if key == 'review' else None)
+    handler.path = '/api/runs/review/analyses'
+    handler.do_POST()
+    handler.do_GET()
+    assert responses[0][0] == 201 and responses[0][1]['id'] == 'A2' and 'reproduction' in responses[0][1]
+    assert [(i['id'], i['file_name'], i['inputs_match']['status']) for i in responses[1][1]['imports']] == [
+        ('A1', 'before.json', 'mismatched'), ('A2', 'after.json', 'mismatched')]

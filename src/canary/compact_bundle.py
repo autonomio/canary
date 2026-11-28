@@ -11,6 +11,7 @@ from . import bundle_encoding
 
 NAME = 'resolvent.json'
 CHECKSUM = '.resolvent.sha256'
+KEPT = ('analysis-imports.json', 'analysis-imports')
 LIMITATION = ('Only the research bundle, exact cited excerpts and source locators/hashes are retained. '
               'Full papers and complete extracted texts are temporary working data; '
               'their bytes cannot be reconstructed from this bundle alone.')
@@ -68,6 +69,9 @@ def projection(workspace):
     saved = contribution['method_metadata']['canary_view']
     raw = payload(contribution)
     graph, run = saved['answer'], saved['run']
+    if isinstance(graph.get('syntheses'), list):
+        from .analysis_import import attach
+        attach(workspace, graph)
     report = render_markdown(graph)
     return dict(saved, kind='question', query_net=published_question_plan(raw.get('question_plan', {})),
         coverage=graph.get('coverage', {}),
@@ -171,7 +175,7 @@ def _retain(workspace):
 def _release(workspace):
     from . import review_history
     for path in workspace.iterdir():
-        if path.name in (NAME, CHECKSUM, '.run-reservation') or path.name in review_history.DATABASE_FILES:
+        if path.name in (NAME, CHECKSUM, '.run-reservation', *KEPT) or path.name in review_history.DATABASE_FILES:
             continue
         if path.is_dir() and not path.is_symlink():
             shutil.rmtree(path)

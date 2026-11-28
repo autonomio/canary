@@ -137,10 +137,13 @@ def check(record, editions, outcomes):
     table = latest.get('results') if isinstance(latest.get('results'), dict) else {}
     outcome_names = {o.get('id'): o.get('name') for o in _rows(outcomes)}
     mismatches = _mismatches(record, table, outcome_names)
+    unverified = [{'field': 'standard_error', 'study_result_id': e.get('study_result_id'), 'imported': e.get('standard_error'),
+                   'table': _text((table.get(e.get('study_result_id')) or {}).get('precision'))}
+                  for e in record.get('inputs', []) if isinstance(table.get(e.get('study_result_id')), dict)]
     own = {e.get('study_result_id'): {'study_id': e.get('study_id')} for e in record.get('inputs', [])}
     reproduction = reproduce({'statistics': {'inputs': record.get('inputs', []), 'analyses': record.get('analyses', [])}}, own)
-    return {'inputs_match': {'status': 'mismatched' if mismatches else 'matched', 'mismatches': mismatches,
-                             'edition': latest.get('number')},
+    return {'inputs_match': {'status': 'mismatched' if mismatches else 'unverified' if unverified else 'matched',
+                             'mismatches': mismatches, 'unverified': unverified, 'edition': latest.get('number')},
             'reproduction': reproduction, 'stale': _changed(record, editions)}
 
 

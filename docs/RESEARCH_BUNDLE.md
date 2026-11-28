@@ -467,7 +467,10 @@ and each analysis with its estimate, 95% interval, Q, I² and τ². Canary keeps
 under its SHA-256 with the study table edition current at import, and reports three checks each
 time the run is read, so an import into a finished run is checked without rewriting its saved
 answer. Inputs match when each study is used once and each result's study, outcome, unit, time
-point, effect measure and estimate agree with the latest study table edition. Reproduced means Canary's own rerun of the inputs
+point, effect measure and estimate agree with the latest study table edition. The study table keeps
+precision as reported, which may be a standard deviation or interval, so standard errors are
+listed as unverified beside it and the input check reads unverified rather than matched. Imports
+are kept when a finished run is compacted, and compacted runs accept new imports. Reproduced means Canary's own rerun of the inputs
 gives the reported figures. Stale names each input result that a later study table edition changed.
 Imports are listed in `analysis_imports`, under the synthesis in the dashboard, and by
 `GET /api/runs/{key}/analyses`. Syntheses are kept in each study table edition.
