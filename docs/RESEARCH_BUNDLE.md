@@ -424,7 +424,9 @@ calculation inputs come from.
 Canary records an edition of the study table after the research round and after each correction
 round that changes it. An edition holds every recorded detail of each result: values with their
 origin and calculation, unit, time point, effect measure, availability, wording and the report
-copies behind each value. It also holds each study's subject count, the edition number, SHA-256
+copies behind each value. It also holds each study's citation, subject and count, its reports with
+their match status and report copies, characteristics, groups, planned variables and shared
+subjects, the edition number, SHA-256
 and time, and the latest wording and results of each claim written while it was current. The
 export names the edition behind the current synthesis. Each later edition lists
 the results that were added, removed or changed, study counts that changed, the claims and

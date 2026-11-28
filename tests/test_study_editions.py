@@ -178,8 +178,30 @@ def test_added_results_and_study_counts_are_listed(tmp_path):
     study_editions.record(tmp_path, dict(investigation(), studies=[{'id': 'S1', 'subject_count': 38}]), REFERENCES)
     added, counted = study_editions.history(tmp_path)[1]['changes']
     assert added['study_result_id'] == 'SR1' and added['added'] and added['claim_ids'] == ['C1']
-    assert counted == {'study_id': 'S1', 'added': False, 'removed': False, 'fields': ['subject_count'],
-                       'before': {'subject_count': 40}, 'after': {'subject_count': 38}}
+    assert counted['fields'] == ['subject_count'] and not counted['added'] and not counted['removed']
+    assert (counted['before']['subject_count'], counted['after']['subject_count']) == (40, 38)
+
+
+def test_a_change_to_any_study_detail_is_a_recoverable_edition(tmp_path):
+    funded = {'text': 'Public grant.', 'passage_ids': ['R1-p1']}
+    study = {'id': 'S1', 'citation': 'Rivera 2020', 'subject': 'specimens', 'subject_count': 40,
+             'reports': [{'reference_id': 'R1', 'status': 'confirmed', 'basis': 'Same specimens.', 'passage_ids': []}],
+             'characteristics': {'funding': funded, 'design': None},
+             'groups': [{'id': 'G1', 'description': {'text': 'Grid infill.', 'passage_ids': []}, 'sample_size': None}],
+             'planned_variables': [], 'shared_with': []}
+    study_editions.record(tmp_path, dict(investigation(), studies=[study]), REFERENCES, {'R1-p1': 'R1'})
+    changed = dict(study, characteristics={'funding': {'text': 'Industry grant.', 'passage_ids': ['R1-p1']}, 'design': None},
+                   reports=[dict(study['reports'][0], status='uncertain')],
+                   shared_with=[{'study_id': 'S2', 'shares': 'specimens', 'status': 'uncertain', 'basis': 'Same lab.', 'passage_ids': []}])
+    study_editions.record(tmp_path, dict(investigation(), studies=[changed]), REFERENCES, {'R1-p1': 'R1'})
+    first, second = study_editions.history(tmp_path)
+    change, = second['changes']
+    assert change['fields'] == ['funding', 'reports', 'shared with S2']
+    assert first['studies']['S1']['funding']['text'] == 'Public grant.'
+    assert first['studies']['S1']['funding']['documents'] == ['t1']
+    assert first['studies']['S1']['reports'] == [{'reference_id': 'R1', 'status': 'confirmed', 'basis': 'Same specimens.'}]
+    assert first['studies']['S1']['group G1']['description']['text'] == 'Grid infill.'
+    assert second['studies']['S1']['shared with S2'] == {'shares': 'specimens', 'status': 'uncertain', 'basis': 'Same lab.'}
 
 
 def test_an_unrevised_claim_is_in_the_mechanical_audit(tmp_path):

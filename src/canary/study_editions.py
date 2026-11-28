@@ -4,7 +4,7 @@ from pathlib import Path
 
 from .coverage_runtime import now, read, write
 from .research_spec import digest
-from .study_table import _rows, _values, document_versions, value_documents
+from .study_table import CHARACTERISTICS, _rows, _values, document_versions, value_documents
 
 FILE = 'study-table-editions.json'
 
@@ -37,8 +37,25 @@ def _details(result, owners, references):
     return details
 
 
+def _study(study, owners, references):
+    characteristics = study.get('characteristics') if isinstance(study.get('characteristics'), dict) else {}
+    reports = _rows(study.get('reports'))
+    record = {'citation': study.get('citation'), 'subject': study.get('subject'), 'subject_count': study.get('subject_count'),
+              'reports': [{k: r.get(k) for k in ('reference_id', 'status', 'basis')} for r in reports],
+              'documents': [v['text_sha256'] for v in document_versions([r.get('reference_id') for r in reports], references)]}
+    record.update({name: _value(characteristics.get(name), owners, references) for name in CHARACTERISTICS})
+    for group in _rows(study.get('groups')):
+        record['group ' + str(group.get('id'))] = {'description': _value(group.get('description'), owners, references),
+                                                   'sample size': _value(group.get('sample_size'), owners, references)}
+    for variable in _rows(study.get('planned_variables')):
+        record['variable ' + str(variable.get('name'))] = _value(variable.get('value'), owners, references)
+    for link in _rows(study.get('shared_with')):
+        record['shared with ' + str(link.get('study_id'))] = {k: link.get(k) for k in ('shares', 'status', 'basis')}
+    return record
+
+
 def contents(investigation, references, owners=None):
-    """What an edition fixes: every recorded detail of each result and each study's count."""
+    """What an edition fixes: every recorded detail of each result and each study."""
     owners = owners or {}
     results = {}
     for result in _rows(investigation.get('study_results')):
@@ -47,8 +64,7 @@ def contents(investigation, references, owners=None):
             'unit': _text((result.get('fields') or {}).get('units')),
             'documents': document_versions(result.get('reference_ids', []), references),
             **_details(result, owners, references)}
-    studies = {study.get('id'): {'subject_count': study.get('subject_count')}
-               for study in _rows(investigation.get('studies'))}
+    studies = {study.get('id'): _study(study, owners, references) for study in _rows(investigation.get('studies'))}
     return {'results': results, 'studies': studies}
 
 
@@ -84,8 +100,9 @@ def _changes(before, after, claims, earlier_claims, summary):
     for identifier in dict.fromkeys([*before['studies'], *after['studies']]):
         old, new = before['studies'].get(identifier), after['studies'].get(identifier)
         if old != new:
+            fields = sorted(key for key in (old or {}).keys() | (new or {}).keys() if (old or {}).get(key) != (new or {}).get(key))
             changes.append({'study_id': identifier, 'added': old is None, 'removed': new is None,
-                            'fields': ['subject_count'], 'before': old, 'after': new})
+                            'fields': fields, 'before': old, 'after': new})
     return changes
 
 
