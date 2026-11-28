@@ -311,6 +311,7 @@ assert.equal(outcomeResultHtml(graph,{id:'X'}),'');
 assert.equal(studyIssueText({kind:'unknown_protocol_version',study_result_id:'SR1',protocol_version:null}),'Result SR1 cites no protocol version.');
 assert.match(outcomeResultHtml(graph,{...graph.study_results[0],outcome:{id:null,protocol_version:null,name:'Breaking forse'}}),/Planned outcome<\/dt><dd><p>Breaking forse<\/p><p class="hint">Protocol version not recorded · not linked to a protocol outcome<\/p>/);
 assert.match(outcomeResultHtml(graph,{...graph.study_results[0],outcome:{id:null,protocol_version:'V1',name:'Breaking forse'}}),/<p>Breaking forse<\/p><p class="hint">Protocol version V1 · not linked to a protocol outcome<\/p>/);
+assert.equal(studyIssueText({kind:'unknown_protocol_outcome',study_result_id:'SR1',outcome_id:null,outcome_name:'Breaking force',protocol_version:null}),'Result SR1 names outcome “Breaking force”, but no review protocol is recorded.');
 assert.equal(studyIssueText({kind:'unknown_protocol_outcome',study_result_id:'SR1',outcome_id:null,outcome_name:'Breaking forse'}),'Result SR1 names outcome “Breaking forse”, which does not match exactly one outcome in the latest protocol version.');
 ''')
 
