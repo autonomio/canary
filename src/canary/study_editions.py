@@ -1,6 +1,7 @@
 """Dated editions of the study table and the claims that used each one."""
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 
 from .coverage_runtime import now, read, write
@@ -62,8 +63,13 @@ def _study(study, owners, references):
               'documents': [v['text_sha256'] for v in document_versions([r.get('reference_id') for r in reports], references)]}
     record.update({name: _value(characteristics.get(name), owners, references) for name in CHARACTERISTICS})
     groups = _rows(study.get('groups'))
-    record.update(_entries([*((f"group {g.get('id')} description", _value(g.get('description'), owners, references)) for g in groups),
-                            *((f"group {g.get('id')} sample size", _value(g.get('sample_size'), owners, references)) for g in groups),
+    repeated = {key for key, count in Counter(g.get('id') for g in groups).items() if count > 1}
+    single = [g for g in groups if g.get('id') not in repeated]
+    record.update(_entries([*((f"group {g.get('id')} description", _value(g.get('description'), owners, references)) for g in single),
+                            *((f"group {g.get('id')} sample size", _value(g.get('sample_size'), owners, references)) for g in single),
+                            *((f"group {g.get('id')}", {'description': _value(g.get('description'), owners, references),
+                                                        'sample size': _value(g.get('sample_size'), owners, references)})
+                              for g in groups if g.get('id') in repeated),
                             *((f"variable {v.get('name')}", _value(v.get('value'), owners, references))
                               for v in _rows(study.get('planned_variables'))),
                             *((f"shared with {link.get('study_id')} ({link.get('shares')})", _cited(link, ('shares', 'status', 'basis')))

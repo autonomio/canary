@@ -75,6 +75,21 @@ def test_entries_that_share_a_key_stay_together_when_one_is_dropped(tmp_path):
     assert len(study_editions.history(tmp_path)) == 3
 
 
+def test_groups_that_repeat_an_id_keep_each_description_with_its_sample_size(tmp_path):
+    def group(description, size):
+        return {'id': 'G1', 'description': {'text': description, 'passage_ids': []}, 'sample_size': {'text': size, 'passage_ids': []}}
+    study = {'id': 'S1', 'groups': [group('A grid.', 'n = 9'), group('B lines.', 'n = 1'), {'id': 'G2', 'description': None,
+                                                                                            'sample_size': {'text': 'n = 5', 'passage_ids': []}}]}
+    study_editions.record(tmp_path, dict(investigation(), studies=[study]), REFERENCES)
+    recorded = study_editions.history(tmp_path)[0]['studies']['S1']
+    assert [(g['description']['text'], g['sample size']['text']) for g in recorded['group G1']] == [('A grid.', 'n = 9'), ('B lines.', 'n = 1')]
+    assert recorded['group G2 sample size']['text'] == 'n = 5' and 'group G1 description' not in recorded
+    study_editions.record(tmp_path, dict(investigation(), studies=[dict(study, groups=study['groups'][1:])]), REFERENCES)
+    change, = study_editions.history(tmp_path)[1]['changes']
+    after = change['after']
+    assert (after['group G1 description']['text'], after['group G1 sample size']['text']) == ('B lines.', 'n = 1')
+
+
 def test_a_claim_removed_before_the_change_is_not_listed_as_using_it(tmp_path):
     study_editions.record(tmp_path, investigation(), REFERENCES)
     study_editions.record(tmp_path, dict(investigation(), claims=[]), REFERENCES)

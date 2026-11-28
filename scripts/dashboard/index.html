@@ -3391,7 +3391,7 @@
         [label(v.status),v.basis].filter(Boolean).join(' — ')].join(' · ')+cited(v,full);
       return (rest.map(([k,x])=>`${label(k)} ${shown(x,full)}`).join(' · ') || 'none')+cited(v,full);
     };
-    const detailed=v=>Array.isArray(v) ? v.some(detailed) : v!=null && typeof v==='object' && ('text' in v || 'passages' in v);
+    const detailed=v=>Array.isArray(v) ? v.some(detailed) : v!=null && typeof v==='object' && ('text' in v || 'passages' in v || Object.values(v).some(detailed));
     const pair=(a,b)=>{
       if(JSON.stringify(a)===JSON.stringify(b)) return [shown(a),shown(b)];
       const brief=[shown(a),shown(b)], full=[shown(a,true),shown(b,true)];
