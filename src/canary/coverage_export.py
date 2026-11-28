@@ -561,6 +561,10 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                 evidence_map[identifier].append(eid)
             used_passages.add(pid)
     raw_study_results = _rows(investigation.get("study_results"))
+    if run.get("study_table_version"):
+        from .review_protocol import readable_versions
+        from .study_table import resolve_outcomes
+        raw_study_results = resolve_outcomes(raw_study_results, readable_versions(bundle)[0])
     study_counts = Counter(r.get("id") for r in raw_study_results)
     for identifier, count in study_counts.items():
         if count > 1:

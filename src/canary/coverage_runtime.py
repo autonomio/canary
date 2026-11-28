@@ -938,20 +938,21 @@ def bind_payload(workspace, *, investigation=None, record_edition=False):
                 claim_issues.setdefault(identifier, []).append(issue)
     if read(workspace / "run.json", {}).get("study_table_version"):
         from .review_protocol import readable_versions
-        from .study_table import issues as study_issues, message, result_issues
+        from .study_table import issues as study_issues, message, resolve_outcomes, result_issues
         issues.extend(message(issue) for issue in study_issues(
             raw.get("studies"), references=references, passages=passages,
             reviews=admitted + additional_admitted, plan=plan))
         recorded, unreadable = readable_versions(workspace)
         if unreadable:
             issues.append("Study table: review protocol unreadable (" + unreadable + ")")
+        linked = dict(raw, study_results=resolve_outcomes(raw.get("study_results"), recorded))
         issues.extend(message(issue) for issue in result_issues(
-            raw.get("study_results"), raw.get("studies"), versions=None if unreadable else recorded, passages=passages))
+            linked["study_results"], raw.get("studies"), versions=None if unreadable else recorded, passages=passages))
         if record_edition:
             from .study_editions import history, record, stale_claims
             owners = {pid: row["reference_id"] for pid, row in passages.items()}
-            payload["study_table_edition"] = record(workspace, raw, references, owners)
-            issues.extend(message(issue) for issue in stale_claims(history(workspace), raw))
+            payload["study_table_edition"] = record(workspace, linked, references, owners)
+            issues.extend(message(issue) for issue in stale_claims(history(workspace), linked))
     mechanical = {"at": now(), "pass": not issues, "issues": issues,
                   "claim_blocking_issues": claim_blocking_issues,
                   "claim_issues": {identifier: found for identifier, found in claim_issues.items() if found},

@@ -3350,7 +3350,7 @@
       unknown_result_study:()=>`Result ${i.study_result_id} names study ${i.study_id ?? 'none'}, which is not recorded.`,
       result_outside_study:()=>`Result ${i.study_result_id} cites ${(i.reference_ids || []).join(', ')}, outside study ${i.study_id}'s reports.`,
       unknown_protocol_version:()=>`Result ${i.study_result_id} cites protocol version ${String(i.protocol_version).slice(0,12)}, which is not recorded.`,
-      unknown_protocol_outcome:()=>`Result ${i.study_result_id} cites outcome ${i.outcome_id}, which that protocol version does not define.`,
+      unknown_protocol_outcome:()=>i.outcome_name!=null ? `Result ${i.study_result_id} names outcome “${i.outcome_name}”, which does not match exactly one outcome in the latest protocol version.` : `Result ${i.study_result_id} cites outcome ${i.outcome_id}, which that protocol version does not define.`,
       missing_outcome_result:()=>`Result ${i.study_result_id} names a planned outcome but records no outcome result.`,
       outcome_departs_from_protocol:()=>`Result ${i.study_result_id} ${i.field.replace('_',' ')} differs from the protocol (${i.protocol_value}): ${sentence(i.recorded_value) || 'not recorded'}.${i.explanation ? ` ${i.explanation}` : ''}`,
       outcome_definition_mismatch:()=>`Result ${i.study_result_id} ${i.field.replace('_',' ')} is ${sentence(i.recorded_value) || 'not recorded'}; the protocol defines ${i.protocol_value}.`,

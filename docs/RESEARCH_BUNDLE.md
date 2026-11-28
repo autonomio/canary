@@ -390,8 +390,10 @@ study does not report its count or when studies share subjects. Defects in the s
 such as an included report with no study, are listed with the table and in the mechanical
 audit. They do not withhold claims.
 
-Each study result names its study. A result for a planned outcome also names the outcome ID and
-the SHA-256 of the protocol version that defines it. It records the time point, effect measure,
+Each study result names its study. A result for a planned outcome also names the outcome as the
+latest protocol version words it. Canary links that name to the outcome ID and the SHA-256 of that
+protocol version when it checks, records and exports the table; the saved investigation keeps the
+name. A name that matches no outcome, or more than one, is listed with the table. The result records the time point, effect measure,
 each group's value and denominator, the effect estimate and its precision as reported, and which
 group a larger value favours. Where that protocol version defines a unit, Canary compares the
 result's unit with it, treating equivalent units such as N/mm² and MPa as the same, and lists a

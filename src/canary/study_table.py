@@ -141,6 +141,26 @@ def calculation_check(value):
     return {'status': 'not_reproduced', 'computed': computed, 'reason': None}
 
 
+def _outcome_name(text):
+    return ' '.join(str(text).split()).casefold()
+
+
+def resolve_outcomes(results, versions):
+    """Link an outcome named in words to its id in the latest protocol version."""
+    latest = versions[-1] if versions else {}
+    named = {}
+    for outcome in _rows(latest.get('outcomes')):
+        named.setdefault(_outcome_name(outcome.get('name', '')), []).append(outcome)
+    resolved = []
+    for result in _rows(results):
+        if isinstance(result.get('outcome'), str):
+            matches = named.get(_outcome_name(result['outcome']), [])
+            result = dict(result, outcome={'id': matches[0].get('id') if len(matches) == 1 else None,
+                                           'protocol_version': latest.get('sha256'), 'name': result['outcome']})
+        resolved.append(result)
+    return resolved
+
+
 def result_issues(results, studies, *, versions, passages):
     """Link each study result to its study and to the protocol outcome version it reports.
 
@@ -175,7 +195,8 @@ def result_issues(results, studies, *, versions, passages):
                 if cited not in outcomes:
                     found.append({'kind': 'unknown_protocol_version', **owner, 'protocol_version': cited})
                 elif definition is None:
-                    found.append({'kind': 'unknown_protocol_outcome', **owner, 'outcome_id': outcome.get('id')})
+                    found.append({'kind': 'unknown_protocol_outcome', **owner, 'outcome_id': outcome.get('id'),
+                                  **({'outcome_name': outcome['name']} if 'name' in outcome else {})})
                 if cited in outcomes and cited != latest.get('sha256'):
                     found.append({'kind': 'superseded_protocol_version', **owner, 'protocol_version': cited,
                                   'version_number': numbers[cited], 'latest_version_number': latest.get('number')})

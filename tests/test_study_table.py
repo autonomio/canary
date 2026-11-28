@@ -264,6 +264,24 @@ def test_a_result_stays_within_its_study_groups_and_reports():
     assert result_kinds([unplanned]) == [('missing_planned_outcome', 'O1')]
 
 
+def test_an_outcome_named_in_words_links_to_the_latest_protocol_version():
+    versions = VERSIONS + [{'sha256': 'V2', 'number': 2, 'outcomes': [
+        {'id': 'O1', 'name': 'Breaking force'}, {'id': 'O2', 'name': 'Elongation'}, {'id': 'O3', 'name': 'elongation '}]}]
+    linked = study_table.resolve_outcomes([result(outcome='  breaking   FORCE'), result(outcome='Breaking forse'),
+                                           result(outcome='Elongation'), result(outcome={'id': 'O1', 'protocol_version': 'V1'}),
+                                           result(outcome=None)], versions)
+    assert [r['outcome'] for r in linked] == [
+        {'id': 'O1', 'protocol_version': 'V2', 'name': '  breaking   FORCE'},
+        {'id': None, 'protocol_version': 'V2', 'name': 'Breaking forse'},
+        {'id': None, 'protocol_version': 'V2', 'name': 'Elongation'},
+        {'id': 'O1', 'protocol_version': 'V1'}, None]
+    assert study_table.resolve_outcomes([result(outcome='Breaking force')], [])[0]['outcome'] == {
+        'id': None, 'protocol_version': None, 'name': 'Breaking force'}
+    found = study_table.result_issues(linked[1:2], [study()], versions=versions, passages=PASSAGES)
+    assert {'kind': 'unknown_protocol_outcome', 'study_result_id': 'SR1', 'study_id': 'S1', 'outcome_id': None,
+            'outcome_name': 'Breaking forse'} in found
+
+
 def test_the_dashboard_shows_an_outcome_result_with_its_protocol_version(tmp_path):
     from test_coverage_evidence_ui import run_dashboard
 
@@ -286,6 +304,7 @@ assert.match(html,/Protocol time point<\/dt><dd><p>24 hours<\/p><p class="hint">
 assert.match(html,/A larger value favours<\/dt><dd><p>G1<\/p>/);
 assert.match(html,/Precision<\/dt><dd><span class="muted">Not reported/);
 assert.equal(outcomeResultHtml(graph,{id:'X'}),'');
+assert.equal(studyIssueText({kind:'unknown_protocol_outcome',study_result_id:'SR1',outcome_id:null,outcome_name:'Breaking forse'}),'Result SR1 names outcome “Breaking forse”, which does not match exactly one outcome in the latest protocol version.');
 ''')
 
 
@@ -368,7 +387,7 @@ def test_calculated_values_are_re_run_and_mismatches_listed():
                                (calculated(passage='R3-p1'), [('undeclared_result_reference', 'estimate input mean')]),
                                (dict(calculated(), calculation=None), [('calculation_missing', 'estimate')])):
         record = result(outcome_result=dict(result()['outcome_result'], estimate=value))
-        jsonschema.Draft202012Validator(shape).validate(dict(record, result_type='measured', version_or_cohort_note='',
+        jsonschema.Draft202012Validator(shape).validate(dict(record, outcome='Breaking force', result_type='measured', version_or_cohort_note='',
             fields={k: None for k in shape['properties']['fields']['properties']},
             outcome_result=dict(record['outcome_result'], groups=[], time_point=None, effect_measure=None, qualitative=None,
                                 availability={'status': 'reported', 'basis': 'Table 2.', 'passage_ids': ['R1-p1']},
@@ -516,3 +535,32 @@ def test_a_run_shows_no_study_table_before_the_research_is_written(tmp_path):
     (tmp_path / 'investigation.json').unlink()
     (tmp_path / 'payload.json').unlink(missing_ok=True)
     assert 'studies' not in coverage_export.export_bundle(tmp_path)['answer']
+
+
+def test_a_named_outcome_is_linked_when_the_run_is_saved_and_exported(tmp_path):
+    from canary import coverage_export, review_protocol, study_editions
+
+    research_bundle.initialize(tmp_path, research_spec.compile_mapping(
+        {'question': 'Synthetic fixture question?', 'retrieval': {'target_papers': 1}}))
+    researched(tmp_path)
+    engine.write(tmp_path / 'run.json', dict(engine.read(tmp_path / 'run.json'), study_table_version=1))
+    review_protocol.save_plan(tmp_path, dict(engine.read(tmp_path / 'question-plan.json'),
+                                             outcomes=[{'name': 'Breaking force', 'unit': None, 'time_point': None,
+                                                        'effect_measure': None}]))
+    version = review_protocol.readable_versions(tmp_path)[0][-1]
+    passage = engine.read(tmp_path / 'reviewed-papers.json')[0]['passage_ids_read'][0]
+    raw = json.loads((tmp_path / 'investigation.json').read_text())
+    raw['studies'] = [study(id='F1', planned_variables=[], groups=[], characteristics={},
+                           reports=[{'reference_id': 'W1', 'status': 'confirmed', 'basis': 'Single report.',
+                                     'passage_ids': [passage]}])]
+    raw['study_results'] = [{'id': 'SR1', 'study_id': 'F1', 'reference_ids': ['W1'], 'result_type': 'measured',
+                             'version_or_cohort_note': '', 'fields': {}, 'outcome': 'breaking force',
+                             'outcome_result': {'availability': {'status': 'not_measured', 'basis': 'Not tested.',
+                                                                 'passage_ids': [passage]}}}]
+    engine.write(tmp_path / 'investigation.json', raw)
+    linked = {'id': version['outcomes'][0]['id'], 'protocol_version': version['sha256'], 'name': 'breaking force'}
+    issues = engine.bind_payload(tmp_path, record_edition=True)['mechanical_audit']['issues']
+    assert not [i for i in issues if 'outcome' in i]
+    assert study_editions.history(tmp_path)[-1]['results']['SR1']['outcome'] == linked
+    assert coverage_export.export_bundle(tmp_path)['answer']['study_results'][0]['outcome'] == linked
+    assert json.loads((tmp_path / 'investigation.json').read_text())['study_results'][0]['outcome'] == 'breaking force'
