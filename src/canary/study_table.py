@@ -323,8 +323,9 @@ def summary(studies):
     subjects = []
     for subject in dict.fromkeys(study.get('subject') for study in studies):
         members = [study for study in studies if study.get('subject') == subject]
-        reasons = [f"Study {study.get('id')} does not report its number of {subject}."
-                   for study in members if type(study.get('subject_count')) is not int]
+        reasons = [f"Study {study.get('id')} has no single total of {subject}" + (f": {size}" if size else ".")
+                   for study in members if type(study.get('subject_count')) is not int
+                   for size in [_text((study.get('characteristics') or {}).get('sample_size'))]]
         reasons.extend(f"Study {key} is recorded more than once." for key in sorted(repeated, key=str)
                        if kinds.get(key) == subject)
         reasons.extend(f"Studies {a} and {b} share {' and '.join(sorted(shared))}, so their counts of {subject} may overlap."

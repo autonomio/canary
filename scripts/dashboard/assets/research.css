@@ -587,6 +587,23 @@ th, td { padding: 8px; }
 .study-fields dd p { margin: 0; }
 .study-fields .source-actions { margin: 3px 0 0; gap: 4px 12px; }
 .study-fields .text-action, .study-fields .hint { font-size: 13px; }
+.study-records { display: grid; gap: 10px; margin-top: 12px; }
+.study-record { border: 1px solid var(--line); border-radius: var(--radius-panel); background: var(--paper); overflow: hidden; }
+.study-record > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 12px 16px; cursor: pointer; color: var(--strong); }
+.study-record > summary .hint { font-size: 13px; }
+.study-record > summary { list-style: none; }
+.study-record > summary::-webkit-details-marker { display: none; }
+.study-record > summary::before { content: "▸"; color: var(--muted); }
+.study-record[open] > summary::before { content: "▾"; }
+.study-record[open] > summary { border-bottom: 1px solid var(--line); }
+.study-record > :not(summary) { margin-left: 16px; margin-right: 16px; }
+.study-record > [role="alert"] { margin-top: 12px; padding: 8px 12px; border-left: 2px solid var(--red); background: var(--bg); color: var(--ink); }
+.study-record .study-fields { grid-template-columns: 140px minmax(0,1fr); gap: 12px 16px; margin-top: 14px; margin-bottom: 16px; }
+.study-record .study-fields dd > p:first-child:not(.hint) { color: var(--ink); }
+@media (max-width: 620px) {
+  .study-record .study-fields { grid-template-columns: minmax(0,1fr); gap: 2px; }
+  .study-record .study-fields dd { margin-bottom: 10px; }
+}
 
 .freshness { font-size: 11px; color: var(--muted); }
 .freshness.review-due { font-weight: 600; color: var(--ink); }

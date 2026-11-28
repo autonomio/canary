@@ -141,8 +141,10 @@ def test_a_subject_total_counts_each_study_once():
                                                            'passage_ids': ['R1-p1']}])
     subjects, = study_table.summary([unknown, shared])['subjects']
     assert subjects['total'] is None
-    assert subjects['reasons'] == ['Study S1 does not report its number of participants.',
+    assert subjects['reasons'] == ['Study S1 has no single total of participants: Recorded detail.',
                                    'Studies S1 and S2 share participants, so their counts of participants may overlap.']
+    unsized = dict(unknown, shared_with=[], characteristics=dict(unknown['characteristics'], sample_size=None))
+    assert study_table.summary([unsized])['subjects'][0]['reasons'] == ['Study S1 has no single total of participants.']
     linked = dict(shared, shared_with=[dict(shared['shared_with'][0], shares='datasets')])
     assert study_table.summary([first, linked])['subjects'][0]['reasons'] == [
         'Studies S1 and S2 share datasets, so their counts of participants may overlap.']
@@ -188,8 +190,10 @@ def test_the_dashboard_shows_each_study_with_its_reports_and_unknown_total(tmp_p
 const html=studyTableHtml(graph);
 assert.match(html,/Studies · 1 from 2 reports/);
 assert.match(html,/Total unknown participants across 1 study/);
-assert.match(html,/Study S1 does not report its number of participants/);
+assert.match(html,/Study S1 has no single total of participants: Recorded detail\./);
 assert.match(html,/R1 · confirmed/);
+assert.match(html,/<details class="study-record" data-detail="study-S1"><summary>S1 · [^<]* <span class="hint">participants not counted · 1 report · 0 results<\/span>/);
+assert.match(html,/<dt>Subjects<\/dt><dd><span class="muted">Not counted/);
 assert.match(html,/data-qa-passage="R1-p1"/);
 assert.match(html,/Included report R3 belongs to no study; its review names no study/);
 assert.doesNotMatch(html,/R2-p1/);
@@ -269,6 +273,8 @@ def test_the_dashboard_shows_an_outcome_result_with_its_protocol_version(tmp_pat
 const html=outcomeResultHtml(graph,graph.study_results[0]);
 assert.match(html,/Planned outcome<\/dt><dd><p>Breaking force<\/p><p class="hint">Protocol version V1 · unit: N · time point: 24 hours · effect measure: mean difference/);
 assert.match(html,/Result SR1 unit is kN; the protocol defines N\./);
+assert.match(outcomeResultHtml({...graph,binding_issues:[{kind:'outcome_departs_from_protocol',section:'studies',study_result_id:'SR1',field:'effect_measure',protocol_value:'mean difference',recorded_value:'Group means.',explanation:'Means only.'}]},graph.study_results[0]),/differs from the protocol \(mean difference\): Group means\. Means only\./);
+assert.match(outcomeResultHtml(graph,{...graph.study_results[0],outcome_result:{...graph.study_results[0].outcome_result,larger_value_favours:{group_id:null,basis:'Higher is stronger.',paragraph_ids:[]}}}),/A larger value favours<\/dt><dd><p>No specific group<\/p><p class="hint">Higher is stronger\./);
 assert.match(html,/G1 denominator/);
 assert.match(html,/A larger value favours<\/dt><dd><p>G1<\/p>/);
 assert.match(html,/Precision<\/dt><dd><span class="muted">Not reported/);
@@ -323,7 +329,7 @@ def test_a_result_citing_an_earlier_protocol_version_is_listed():
                       'protocol_version': 'V1', 'version_number': 1, 'latest_version_number': 2}]
 
 
-def test_results_and_issues_naming_an_unrecorded_study_appear_above_the_table(tmp_path):
+def test_results_and_issues_naming_an_unrecorded_study_appear_above_the_studies(tmp_path):
     from test_coverage_evidence_ui import run_dashboard
 
     orphan = dict(result(study_id='S8'), fields={})
@@ -333,7 +339,7 @@ def test_results_and_issues_naming_an_unrecorded_study_appear_above_the_table(tm
              'study_results': [orphan], 'binding_issues': issues}
     run_dashboard(tmp_path, graph, r'''
 const html=studyTableHtml(graph);
-const [above]=html.split('<div class="table-wrap"');
+const [above]=html.split('<div class="study-records"');
 assert.match(above,/Result SR1 names study S8, which is not recorded\./);
 assert.match(above,/Results naming an unrecorded study<\/p><div class="source-actions"><button[^>]*data-qa-study="SR1"/);
 assert.doesNotMatch(html,/names group/);
