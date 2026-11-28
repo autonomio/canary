@@ -436,3 +436,47 @@ use them and were not revised afterwards. Those claims
 are also listed in the mechanical audit. A change to cited passages alone opens an edition but
 does not flag claims. Earlier editions stay readable in
 `study_table_editions`.
+
+Each synthesis records how study results became one finding. It names the planned outcome, the
+comparison, the study results it draws on, whether they were combined or kept separate and why,
+and the syntheses a group was kept apart from, such as a six-week result kept apart from a
+six-month one. It also records the time points, effect measure, how missing values were treated,
+the method and how results are displayed, and the claims that state the finding. A synthesis in
+words explains the direction of the findings, their size where results report it, important
+differences between studies and how design or bias affects interpretation. SWiM, used to summarise
+quantitative intervention effects without meta-analysis, also names its technique, how results
+were prioritised and its limitations. The research model makes the grouping decision; the export
+names each contributing study once. Canary checks that the results exist and report the synthesis
+outcome, that a combined synthesis uses each study once, that named syntheses and claims exist,
+that every grouping gives a reason and that a synthesis in words carries each part of its
+explanation. A SWiM summary of effect estimates needs at least one result that reports one; vote
+counting and combined p-values do not. A statistical synthesis records the rationale for its model,
+the software and version, the code run, one estimate and standard error per contributing result,
+each analysis with its estimate, 95% interval, Q, I² and τ², the direction of the combined effect,
+and any subgroup, meta-regression or sensitivity analyses with their results. Canary reruns
+inverse-variance fixed-effect and DerSimonian–Laird random-effects analyses from those inputs,
+using each study once, and flags a reported figure it cannot reproduce. Further reports of a study
+with the same values are left out and named; reports of one study with different values stop the
+rerun. Fixed-effect analyses must report Q and I², random-effects analyses also τ². The export
+carries Canary's result as `reproduction`.
+
+An analysis run outside Canary is imported for a synthesis with `POST /api/runs/{key}/analyses`
+or `canary analyses RUN_KEY --import FILE`. The file is JSON naming the synthesis, outcome, unit,
+time point, effect measure, software and version, one estimate and standard error per study result,
+and each analysis with its estimate, 95% interval, Q, I² and τ². Canary keeps the file unchanged
+under its SHA-256 with the study table edition current at import, and reports three checks each
+time the run is read, so an import into a finished run is checked without rewriting its saved
+answer. Inputs match when each study is used once and each result's study, outcome, unit, time
+point, effect measure and estimate agree with the latest study table edition. The study table keeps
+precision as reported, which may be a standard deviation or interval, so standard errors are
+listed as unverified beside it and the input check reads unverified rather than matched. Imports
+are kept when a finished run is compacted, and compacted runs accept new imports. Each read checks
+that the stored file still has its SHA-256 and runs the checks on that file; a missing or changed
+file, or an import whose study table edition the run does not have, is flagged. Reported figures
+are compared at the precision they were given, so 1.6 matches 1.614. Reproduced means Canary's own rerun of the inputs
+gives the reported figures. Stale names each input result that a later study table edition changed.
+Imports are listed in `analysis_imports`, under the synthesis in the dashboard, and by
+`GET /api/runs/{key}/analyses`. Syntheses are kept in each study table edition.
+A synthesis left unchanged after a result it uses changed is flagged with the result and fields
+that changed. Open **Syntheses** in the dashboard, run `canary syntheses RUN_KEY` or call
+`GET /api/runs/{key}/syntheses`.

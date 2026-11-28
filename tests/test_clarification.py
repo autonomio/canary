@@ -24,7 +24,7 @@ CLARIFICATION = {'question': 'Which product and which outcome measure should be 
 
 def investigation(clarification, summary=()):
     return {'executive_summary': [{'text': text, 'claim_ids': []} for text in summary], 'claims': [], 'evidence': [],
-            'studies': [], 'study_results': [], 'claim_links': [], 'contradictions': [], 'gaps': [], 'residue': [], 'next_questions': [], 'caveats': [],
+            'studies': [], 'study_results': [], 'syntheses': [], 'claim_links': [], 'contradictions': [], 'gaps': [], 'residue': [], 'next_questions': [], 'caveats': [],
             'scope_note': 'Synthetic stop before research.', 'clarification': clarification}
 
 

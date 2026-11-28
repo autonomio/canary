@@ -1035,6 +1035,9 @@ def question_research_bundle(bundle: Path, run: dict) -> dict:
         value = _load_json_file(bundle / name, default)
         return value if isinstance(value, type(default)) else default
     graph, access = load("answer.json", {}), load("access.json", {})
+    if isinstance(graph.get("syntheses"), list):
+        from .analysis_import import attach
+        attach(bundle, graph)
     coverage = load("coverage.json", {})
     if run.get('additional_sources'):
         coverage['additional_sources'] = load('additional-sources.json', [])
@@ -1438,6 +1441,38 @@ class Handler(BaseHTTPRequestHandler):
                  and workspace.parent == (root / 'container-out').resolve() and workspace.name == row['key'])
         return workspace, None if owned else root / 'review-decisions'
 
+    def _analyses(self, path: str, body: dict | None = None) -> None:
+        from . import analysis_import
+        key = unquote(path.split('/')[3])
+        row = runs.get(key, self.supervisor.registry)
+        if not row:
+            self._send(404, {'error': 'Unknown research run', 'code': 'unknown_run'})
+            return
+        answer = research_for_row(row, self.supervisor)[0].get('answer') or {}
+        if 'syntheses' not in answer:
+            self._send(409, {'error': 'No syntheses have been recorded for this run', 'code': 'syntheses_unavailable'})
+            return
+        if body is None:
+            self._send(200, {'key': key, 'imports': answer.get('analysis_imports', []),
+                             'issues': [i for i in answer.get('binding_issues', []) if i.get('import_id')]})
+            return
+        if set(body) != {'file_name', 'content'} or not all(isinstance(body[k], str) and body[k] for k in body):
+            raise ValueError('Expected file_name and content, the analysis file as text')
+        workspace, store = self._decision_paths(row) if row.get('bundle') else (None, None)
+        if workspace is None or store is not None or not workspace.is_dir():
+            self._send(409, {'error': 'Analyses can be imported only into a run this service produced',
+                             'code': 'analysis_import_unavailable'})
+            return
+        try:
+            record, created = analysis_import.add(workspace, {s.get('id') for s in answer['syntheses']},
+                                                  Path(body['file_name']).name, body['content'], answer.get('study_table_edition'))
+        except LookupError as error:
+            self._send(409, {'error': str(error), 'code': 'unknown_synthesis'})
+            return
+        imported = next((i for i in research_for_row(row, self.supervisor)[0].get('answer', {}).get('analysis_imports', [])
+                         if i.get('id') == record['id']), record)
+        self._send(201 if created else 200, imported)
+
     def _submit_review_decision(self, path: str) -> None:
         if 'Content-Length' not in self.headers or self.headers.get('Transfer-Encoding'):
             self._send(411, {'error': 'Send the JSON byte count in Content-Length', 'code': 'length_required'})
@@ -1555,6 +1590,20 @@ class Handler(BaseHTTPRequestHandler):
                                  'results': answer.get('study_results', []), 'protocol_outcomes': answer.get('protocol_outcomes', []),
                                  'editions': answer.get('study_table_editions', []),
                                  'issues': [i for i in answer.get('binding_issues', []) if i.get('section') == 'studies']})
+            elif re.fullmatch(r"/api/runs/[^/]+/analyses", parsed.path):
+                self._analyses(parsed.path)
+            elif re.fullmatch(r"/api/runs/[^/]+/syntheses", parsed.path):
+                key = unquote(parsed.path.split('/')[3])
+                row = runs.get(key, self.supervisor.registry)
+                if not row:
+                    self._send(404, {'error': 'Unknown research run', 'code': 'unknown_run'})
+                    return
+                answer = research_for_row(row, self.supervisor)[0].get('answer') or {}
+                if 'syntheses' not in answer:
+                    self._send(409, {'error': 'No syntheses have been recorded for this run', 'code': 'syntheses_unavailable'})
+                    return
+                self._send(200, {'key': key, 'syntheses': answer['syntheses'],
+                                 'issues': [i for i in answer.get('binding_issues', []) if i.get('section') == 'syntheses']})
             elif re.fullmatch(r"/api/runs/[^/]+/prisma/protocol", parsed.path):
                 from . import compact_bundle, review_protocol
                 row = runs.get(unquote(parsed.path.split('/')[3]), self.supervisor.registry)
@@ -1823,6 +1872,8 @@ class Handler(BaseHTTPRequestHandler):
                     key, str(body.get("name", "")), str(body.get("brief", ""))))
             elif re.fullmatch(r'/api/runs/[^/]+/cancel', parsed.path):
                 self._send(202, self.supervisor.cancel(unquote(parsed.path.split('/')[3])))
+            elif re.fullmatch(r'/api/runs/[^/]+/analyses', parsed.path):
+                self._analyses(parsed.path, body)
             else:
                 self._send(404, {"error": "not found"})
         except review_history.ReviewConflict as error:

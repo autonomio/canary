@@ -948,11 +948,18 @@ def bind_payload(workspace, *, investigation=None, record_edition=False):
         linked = dict(raw, study_results=resolve_outcomes(raw.get("study_results"), recorded))
         issues.extend(message(issue) for issue in result_issues(
             linked["study_results"], raw.get("studies"), versions=None if unreadable else recorded, passages=passages))
+        synthesized = read(workspace / "run.json", {}).get("synthesis_version")
+        if synthesized:
+            from . import synthesis
+            issues.extend(synthesis.message(issue) for issue in synthesis.issues(
+                raw.get("syntheses"), linked["study_results"], raw.get("claims"), None if unreadable else recorded))
         if record_edition:
             from .study_editions import history, record, stale_claims
             owners = {pid: row["reference_id"] for pid, row in passages.items()}
             payload["study_table_edition"] = record(workspace, linked, references, owners)
             issues.extend(message(issue) for issue in stale_claims(history(workspace), linked))
+            if synthesized:
+                issues.extend(synthesis.message(issue) for issue in synthesis.stale(history(workspace), linked))
     mechanical = {"at": now(), "pass": not issues, "issues": issues,
                   "claim_blocking_issues": claim_blocking_issues,
                   "claim_issues": {identifier: found for identifier, found in claim_issues.items() if found},
@@ -1402,7 +1409,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
         "selection_method": "coverage-guided", "minimum_papers": minimum_papers, "research_model": protocol.RESEARCH_MODEL,
         "research_effort": protocol.RESEARCH_EFFORT, "audit_model": protocol.AUDIT_MODEL, "audit_effort": protocol.AUDIT_EFFORT,
         "max_correction_rounds": max_correction_rounds, "verification_version": 1, "protocol_version": 1,
-        "study_table_version": 1,
+        "study_table_version": 1, "synthesis_version": 1,
         "agent_paper_metadata_fields": list(protocol.AGENT_PAPER_METADATA_FIELDS),
         "no_subagents": True, "fresh_assets_only": not bool(local_text),
         **({"local_text": local_text, "corpus": "local_text"} if local_text else {}), "audit_budget_seconds": audit_seconds,

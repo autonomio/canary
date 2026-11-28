@@ -116,6 +116,10 @@ def schemas():
         'study_table_editions':dict(arr(O),description='Every recorded edition of the study table with its values, '
             'units, report copies, the claims it served and the changes from the edition before.'),
         'study_table_edition':dict(O,description='Number and SHA-256 of the study table edition behind the current synthesis.'),
+        'syntheses':dict(arr(O),description='How study results were combined or kept apart for each finding, present for runs '
+            'that record syntheses. Fields follow Synthesis, with study_ids naming each contributing study once.'),
+        'analysis_imports':dict(arr(O),description='Analyses imported for a synthesis: the file SHA-256, software, inputs, '
+            'analyses and study table edition, with inputs_match, reproduction and stale as separate checks.'),
         'study_summary':dict(O,description='Study and report counts. A subject total is null when a count is missing or studies share subjects.'),
         'caveats':arr(S),'next_questions':arr(O),'binding_issues':arr(O),
         'history_manifest':arr(ref('RevisionDigest')),'claim_links':arr(ref('ClaimLink')),
@@ -163,7 +167,7 @@ def schemas():
         '(resumed is true once that turn started). A response still invalid after it fails the correction round.')
     named_findings = {name:generated['properties'][field]['items'] for name,field in (
         ('GeneratedClaim','claims'),('GeneratedEvidence','evidence'),('Gap','gaps'),('Residue','residue'),
-        ('Study','studies'),('StudyResult','study_results'),('Contradiction','contradictions'),('NextQuestion','next_questions'))}
+        ('Study','studies'),('StudyResult','study_results'),('Synthesis','syntheses'),('Contradiction','contradictions'),('NextQuestion','next_questions'))}
     return {**named_findings,'Object':deepcopy(O),'Error':obj({'error':S,'code':S,'issues':arr(O)},['error'],closed=False),
         'ResearchDeclaration':declaration,'NativeSubmission':native,
         'CompileRequest':dict(native,properties={k:v for k,v in native['properties'].items() if k in ('yaml','spec')}),
@@ -294,6 +298,11 @@ def schemas():
             'subject':S,'studies':I,'total':nullable(I),'reasons':arr(S)},['subject','studies','total','reasons']))},
             ['studies','reports','subjects']),'results':arr(O),'protocol_outcomes':arr(O),'editions':arr(O),'issues':arr(O)},
             ['key','studies','summary','results','protocol_outcomes','editions','issues']),
+        'Syntheses':obj({'key':S,'syntheses':arr(O),'issues':arr(O)},['key','syntheses','issues']),
+        'AnalysisImports':obj({'key':S,'imports':arr(O),'issues':arr(O)},['key','imports','issues']),
+        'AnalysisImport':obj({'id':S,'synthesis_id':S,'file_name':S,'file_sha256':S,'imported_at':S,'edition':O,
+                              'inputs_match':O,'reproduction':arr(O),'stale':arr(O)},['id','synthesis_id','file_sha256']),
+        'AnalysisImportRequest':obj({'file_name':{'type':'string','minLength':1},'content':{'type':'string','minLength':1}},['file_name','content']),
         'ReviewProtocol':obj({'bundle_id':S,'registration':O,'versions':arr(O),'decisions':arr(O)},
                              ['bundle_id','registration','versions','decisions']),
         'MethodsAppendix':typed(methods.Appendix),
@@ -370,6 +379,10 @@ def document():
         params=[key,('round','path',dict(I,minimum=0),True),('kind','path',{'enum':['research','audit','correction']},True)],mcp=True)
     op('bundle','get','/api/runs/{key}/bundle','Read bundle settings, artifact hashes and findings','BundleResponse',params=[key],mcp=True)
     op('study_table','get','/api/runs/{key}/studies','Read the studies behind the reviewed reports','StudyTable',params=[key],mcp=True)
+    op('syntheses','get','/api/runs/{key}/syntheses','Read how the studies were combined into findings','Syntheses',params=[key],mcp=True)
+    op('analyses','get','/api/runs/{key}/analyses','Read imported analyses with their input and reproduction checks','AnalysisImports',params=[key],mcp=True)
+    op('import_analysis','post','/api/runs/{key}/analyses','Import an analysis file for a synthesis; the file is kept unchanged',
+       'AnalysisImport',body='AnalysisImportRequest',params=[key],status=201,mcp=True)
     op('review_protocol','get','/api/runs/{key}/prisma/protocol','Export the dated review protocol','ReviewProtocol',params=[key],mcp=True)
     op('methods_appendix','get','/api/runs/{key}/prisma/methods','Read the methods appendix','MethodsAppendix',params=[key],mcp=True)
     op('prisma_checklist','get','/api/runs/{key}/prisma/checklist','Read the linked PRISMA checklist','PrismaReport',params=[key],mcp=True)

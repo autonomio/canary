@@ -1,6 +1,7 @@
 """Dated editions of the study table and the claims that used each one."""
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 
 from .coverage_runtime import now, read, write
@@ -62,8 +63,13 @@ def _study(study, owners, references):
               'documents': [v['text_sha256'] for v in document_versions([r.get('reference_id') for r in reports], references)]}
     record.update({name: _value(characteristics.get(name), owners, references) for name in CHARACTERISTICS})
     groups = _rows(study.get('groups'))
-    record.update(_entries([*((f"group {g.get('id')} description", _value(g.get('description'), owners, references)) for g in groups),
-                            *((f"group {g.get('id')} sample size", _value(g.get('sample_size'), owners, references)) for g in groups),
+    repeated = {key for key, count in Counter(g.get('id') for g in groups).items() if count > 1}
+    single = [g for g in groups if g.get('id') not in repeated]
+    record.update(_entries([*((f"group {g.get('id')} description", _value(g.get('description'), owners, references)) for g in single),
+                            *((f"group {g.get('id')} sample size", _value(g.get('sample_size'), owners, references)) for g in single),
+                            *((f"group {g.get('id')}", {'description': _value(g.get('description'), owners, references),
+                                                        'sample size': _value(g.get('sample_size'), owners, references)})
+                              for g in groups if g.get('id') in repeated),
                             *((f"variable {v.get('name')}", _value(v.get('value'), owners, references))
                               for v in _rows(study.get('planned_variables'))),
                             *((f"shared with {link.get('study_id')} ({link.get('shares')})", _cited(link, ('shares', 'status', 'basis')))
@@ -82,7 +88,11 @@ def contents(investigation, references, owners=None):
             'documents': document_versions(result.get('reference_ids', []), references),
             **_details(result, owners, references)}
     studies = {study.get('id'): _study(study, owners, references) for study in _rows(investigation.get('studies'))}
-    return {'results': results, 'studies': studies}
+    if 'syntheses' not in investigation:
+        return {'results': results, 'studies': studies}
+    from .synthesis import record as synthesis_record
+    return {'results': results, 'studies': studies,
+            'syntheses': _entries((s.get('id'), synthesis_record(s)) for s in _rows(investigation.get('syntheses')))}
 
 
 def _claims(investigation):
@@ -116,12 +126,15 @@ def _changes(before, after, claims, earlier_claims, summary):
                         'unrevised_claim_ids': [] if cited_only else [c for c in using if c in earlier_claims
                                                 and claims[c]['text_sha256'] == earlier_claims[c]['text_sha256']],
                         'summary_indexes': _summary_indexes(summary, affected)})
-    for identifier in dict.fromkeys([*before['studies'], *after['studies']]):
-        old, new = before['studies'].get(identifier), after['studies'].get(identifier)
-        if old != new:
-            fields = sorted(key for key in (old or {}).keys() | (new or {}).keys() if (old or {}).get(key) != (new or {}).get(key))
-            changes.append({'study_id': identifier, 'added': old is None, 'removed': new is None,
-                            'fields': fields, 'before': old, 'after': new})
+    for section, owner in (('studies', 'study_id'), ('syntheses', 'synthesis_id')):
+        earlier, later = before.get(section) or {}, after.get(section) or {}
+        for identifier in dict.fromkeys([*earlier, *later]):
+            old, new = (value if value is None or isinstance(value, dict) else {'entries': value}
+                        for value in (earlier.get(identifier), later.get(identifier)))
+            if old != new:
+                fields = sorted(key for key in (old or {}).keys() | (new or {}).keys() if (old or {}).get(key) != (new or {}).get(key))
+                changes.append({owner: identifier, 'added': old is None, 'removed': new is None,
+                                'fields': fields, 'before': old, 'after': new})
     return changes
 
 

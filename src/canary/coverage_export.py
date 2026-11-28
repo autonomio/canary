@@ -53,7 +53,7 @@ def projection_inputs(workspace):
     workspace = Path(workspace)
     names = ('payload.json', 'investigation.json', 'selection.json', 'reviewed-papers.json',
              'question-plan.json', 'run-context.json', 'references.json', 'efficiency.json', 'citation-leads.json',
-             'audit.json', 'search-progress.json', 'local-corpus.json', 'local-corpus-progress.json',
+             'audit.json', 'analysis-imports.json', 'search-progress.json', 'local-corpus.json', 'local-corpus-progress.json',
              'openalex-requests.json', 'openalex-request-log.json', 'candidates.jsonl',
              '.candidate-index.sqlite', '.candidate-index.sqlite-wal', 'research-receipt.json', 'audit-receipt.json')
     entries = []
@@ -715,6 +715,16 @@ def export_bundle(bundle: str | Path, *, source_dir: str | Path | None = None,
                 graph["study_table_edition"] = {"number": latest.get("number"), "sha256": latest.get("sha256")}
                 graph["binding_issues"].extend(dict(issue, section="studies")
                                                for issue in stale_claims(graph["study_table_editions"], investigation))
+            if run.get("synthesis_version"):
+                from . import synthesis
+                graph["syntheses"] = synthesis.export(investigation.get("syntheses"), raw_study_results)
+                graph["binding_issues"].extend(dict(issue, section="syntheses") for issue in synthesis.issues(
+                    investigation.get("syntheses"), raw_study_results, investigation.get("claims"),
+                    None if unreadable else recorded))
+                graph["binding_issues"].extend(dict(issue, section="syntheses")
+                                               for issue in synthesis.stale(graph["study_table_editions"], investigation))
+                from .analysis_import import attach
+                attach(bundle, graph)
         used_passages.update(pid for pid in passage_ids(studies) if pid in spans)
         used_passages.update(pid for pid in result_passage_ids(raw_study_results) if pid in spans)
     audit = _load(bundle / "audit" / "audit.json", _load(bundle / "audit.json", {}))
