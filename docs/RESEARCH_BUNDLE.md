@@ -458,7 +458,19 @@ inverse-variance fixed-effect and DerSimonian–Laird random-effects analyses fr
 using each study once, and flags a reported figure it cannot reproduce. Further reports of a study
 with the same values are left out and named; reports of one study with different values stop the
 rerun. Fixed-effect analyses must report Q and I², random-effects analyses also τ². The export
-carries Canary's result as `reproduction`. Syntheses are kept in each study table edition.
+carries Canary's result as `reproduction`.
+
+An analysis run outside Canary is imported for a synthesis with `POST /api/runs/{key}/analyses`
+or `canary analyses RUN_KEY --import FILE`. The file is JSON naming the synthesis, outcome, unit,
+time point, effect measure, software and version, one estimate and standard error per study result,
+and each analysis with its estimate, 95% interval, Q, I² and τ². Canary keeps the file unchanged
+under its SHA-256 with the study table edition current at import, and reports three checks each
+time the run is read, so an import into a finished run is checked without rewriting its saved
+answer. Inputs match when each study is used once and each result's study, outcome, unit, time
+point, effect measure and estimate agree with the latest study table edition. Reproduced means Canary's own rerun of the inputs
+gives the reported figures. Stale names each input result that a later study table edition changed.
+Imports are listed in `analysis_imports`, under the synthesis in the dashboard, and by
+`GET /api/runs/{key}/analyses`. Syntheses are kept in each study table edition.
 A synthesis left unchanged after a result it uses changed is flagged with the result and fields
 that changed. Open **Syntheses** in the dashboard, run `canary syntheses RUN_KEY` or call
 `GET /api/runs/{key}/syntheses`.

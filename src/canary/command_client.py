@@ -25,6 +25,13 @@ def run(args, port):
                                 json={'query': args.query, 'limit': args.limit})
             elif args.cmd == 'sources':
                 value = request(client, 'POST', '/api/sources/openalex/recheck', json={})
+            elif args.cmd == 'analyses':
+                path = '/api/runs/' + quote(args.key, safe='') + '/analyses'
+                if args.import_file:
+                    source = Path(args.import_file)
+                    value = request(client, 'POST', path, json={'file_name': source.name, 'content': source.read_text(encoding='utf-8')})
+                else:
+                    value = request(client, 'GET', path)
             elif args.cmd in ('studies', 'syntheses'):
                 value = request(client, 'GET', '/api/runs/' + quote(args.key, safe='') + '/' + args.cmd)
             elif args.cmd in ('checklist', 'methods', 'protocol'):
