@@ -450,7 +450,15 @@ names each contributing study once. Canary checks that the results exist and rep
 outcome, that a combined synthesis uses each study once, that named syntheses and claims exist,
 that every grouping gives a reason and that a synthesis in words carries each part of its
 explanation. A SWiM summary of effect estimates needs at least one result that reports one; vote
-counting and combined p-values do not. Syntheses are kept in each study table edition.
+counting and combined p-values do not. A statistical synthesis records the rationale for its model,
+the software and version, the code run, one estimate and standard error per contributing result,
+each analysis with its estimate, 95% interval, Q, I² and τ², the direction of the combined effect,
+and any subgroup, meta-regression or sensitivity analyses with their results. Canary reruns
+inverse-variance fixed-effect and DerSimonian–Laird random-effects analyses from those inputs,
+using each study once, and flags a reported figure it cannot reproduce. Further reports of a study
+with the same values are left out and named; reports of one study with different values stop the
+rerun. Fixed-effect analyses must report Q and I², random-effects analyses also τ². The export
+carries Canary's result as `reproduction`. Syntheses are kept in each study table edition.
 A synthesis left unchanged after a result it uses changed is flagged with the result and fields
 that changed. Open **Syntheses** in the dashboard, run `canary syntheses RUN_KEY` or call
 `GET /api/runs/{key}/syntheses`.
