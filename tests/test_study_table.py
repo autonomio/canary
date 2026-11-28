@@ -304,6 +304,8 @@ assert.match(html,/Protocol time point<\/dt><dd><p>24 hours<\/p><p class="hint">
 assert.match(html,/A larger value favours<\/dt><dd><p>G1<\/p>/);
 assert.match(html,/Precision<\/dt><dd><span class="muted">Not reported/);
 assert.equal(outcomeResultHtml(graph,{id:'X'}),'');
+assert.match(outcomeResultHtml(graph,{...graph.study_results[0],outcome:{id:null,protocol_version:null,name:'Breaking forse'}}),/Planned outcome<\/dt><dd><p>Breaking forse<\/p><p class="hint">Protocol version not recorded · not linked to a protocol outcome<\/p>/);
+assert.match(outcomeResultHtml(graph,{...graph.study_results[0],outcome:{id:null,protocol_version:'V1',name:'Breaking forse'}}),/<p>Breaking forse<\/p><p class="hint">Protocol version V1 · not linked to a protocol outcome<\/p>/);
 assert.equal(studyIssueText({kind:'unknown_protocol_outcome',study_result_id:'SR1',outcome_id:null,outcome_name:'Breaking forse'}),'Result SR1 names outcome “Breaking forse”, which does not match exactly one outcome in the latest protocol version.');
 ''')
 
