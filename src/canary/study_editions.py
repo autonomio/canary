@@ -58,6 +58,10 @@ def _claims(investigation):
             for claim in _rows(investigation.get('claims'))}
 
 
+def _users(identifier, claims):
+    return sorted((claim for claim, record in claims.items() if identifier in record['study_result_ids']), key=str)
+
+
 def _summary_indexes(summary, claim_ids):
     return [index for index, entry in enumerate(summary if isinstance(summary, list) else [], 1)
             if isinstance(entry, dict) and set(entry.get('claim_ids', [])) & set(claim_ids)]
@@ -70,11 +74,11 @@ def _changes(before, after, claims, earlier_claims, summary):
         if old == new:
             continue
         fields = sorted(key for key in (old or {}).keys() | (new or {}).keys() if (old or {}).get(key) != (new or {}).get(key))
-        affected = sorted({claim for claim, record in {**earlier_claims, **claims}.items()
-                           if identifier in record['study_result_ids']}, key=str)
+        using = _users(identifier, claims)
+        affected = sorted(set(_users(identifier, earlier_claims)) | set(using), key=str)
         changes.append({'study_result_id': identifier, 'added': old is None, 'removed': new is None, 'fields': fields,
                         'before': old, 'after': new, 'claim_ids': affected,
-                        'unrevised_claim_ids': [c for c in affected if c in claims and c in earlier_claims
+                        'unrevised_claim_ids': [c for c in using if c in earlier_claims
                                                 and claims[c]['text_sha256'] == earlier_claims[c]['text_sha256']],
                         'summary_indexes': _summary_indexes(summary, affected)})
     for identifier in dict.fromkeys([*before['studies'], *after['studies']]):
@@ -115,6 +119,7 @@ def stale_claims(editions, investigation):
         for change in edition.get('changes', []):
             for claim in change.get('claim_ids', []):
                 if claim in current and claim in earlier['claims'] and \
+                        change['study_result_id'] in current[claim]['study_result_ids'] and \
                         current[claim]['text_sha256'] == earlier['claims'][claim]['text_sha256']:
                     found.append({'kind': 'claim_uses_changed_value', 'claim_id': claim,
                                   'study_result_id': change['study_result_id'], 'edition': edition['number'],

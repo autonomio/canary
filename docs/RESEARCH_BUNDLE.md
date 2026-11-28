@@ -423,6 +423,7 @@ origin and calculation, unit, time point, effect measure, availability, wording 
 copies behind each value. It also holds each study's subject count, the edition number, SHA-256
 and time. The export names the edition behind the current synthesis. Each later edition lists
 the results that were added, removed or changed, study counts that changed, the claims and
-summary paragraphs that used them and the claims that were not revised afterwards. Those claims
+summary paragraphs that used them in that edition or the one before, and the claims that still
+use them and were not revised afterwards. Those claims
 are also listed in the mechanical audit. Earlier editions stay readable in
 `study_table_editions`.

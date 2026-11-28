@@ -47,6 +47,20 @@ def test_a_claim_revised_after_the_change_is_no_longer_flagged(tmp_path):
     assert removed['removed'] and removed['after'] is None
 
 
+def test_a_claim_that_moved_to_another_result_keeps_its_earlier_dependency(tmp_path):
+    first = investigation()
+    first['study_results'].append(dict(first['study_results'][0], id='SR2'))
+    study_editions.record(tmp_path, first, REFERENCES)
+    moved = investigation(value='3.9')
+    moved['study_results'].append(first['study_results'][1])
+    moved['claims'][0]['study_result_ids'] = ['SR2']
+    study_editions.record(tmp_path, moved, REFERENCES)
+    editions = study_editions.history(tmp_path)
+    change, = editions[1]['changes']
+    assert change['study_result_id'] == 'SR1' and change['claim_ids'] == ['C1'] and change['unrevised_claim_ids'] == []
+    assert study_editions.stale_claims(editions, moved) == []
+
+
 def test_unit_and_report_copy_changes_are_editions_too(tmp_path):
     study_editions.record(tmp_path, investigation(), REFERENCES)
     changed = investigation()
