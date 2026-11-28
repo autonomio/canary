@@ -3383,7 +3383,8 @@
         return [base, c ? `formula ${c.formula ?? 'none'}` : '', inputs ? `inputs ${inputs}` : '', (c?.assumptions || []).length ? `assumptions ${c.assumptions.join('; ')}` : '',
           (v.documents || []).length ? `read from ${v.documents.join(', ')}` : ''].filter(Boolean).join(' · ');
       }
-      if('status' in v) return [label(v.status),v.basis].filter(Boolean).join(' — ');
+      if('status' in v) return [...Object.entries(v).filter(([k,x])=>!['status','basis'].includes(k) && x!=null && x!=='').map(([k,x])=>`${label(k)} ${shown(x,full)}`),
+        [label(v.status),v.basis].filter(Boolean).join(' — ')].join(' · ');
       return Object.entries(v).filter(([,x])=>x!=null && x!=='' && !(Array.isArray(x) && !x.length)).map(([k,x])=>`${label(k)} ${shown(x,full)}`).join(' · ') || 'none';
     };
     const detailed=v=>v!=null && typeof v==='object' && !Array.isArray(v) && 'text' in v;

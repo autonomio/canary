@@ -140,6 +140,12 @@ assert.match(html,/Claim C1 was not revised after version 2 of the study table c
 
 
 def test_the_export_carries_the_editions_and_the_current_one(tmp_path):
+const shares={study_id:'S1',fields:['shared with S2','reports'],
+  before:{'shared with S2':{shares:'specimens',status:'uncertain',basis:'Same lab.'},reports:[{reference_id:'R1',status:'confirmed',basis:'One report.'}]},
+  after:{'shared with S2':{shares:'datasets',status:'uncertain',basis:'Same lab.'},reports:[{reference_id:'R2',status:'confirmed',basis:'One report.'}]}};
+const sharedHtml=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[shares]}]});
+assert.match(sharedHtml,/<span>shares <del class="edition-del">specimen<\/del>s · uncertain — Same lab\.<\/span><span>shares <ins class="edition-ins">dataset<\/ins>s · uncertain — Same lab\.<\/span>/);
+assert.match(sharedHtml,/<span>reference id R<del class="edition-del">1<\/del> · confirmed — One report\.<\/span>/);
     from canary import coverage_export
 
     research_bundle.initialize(tmp_path, research_spec.compile_mapping(
