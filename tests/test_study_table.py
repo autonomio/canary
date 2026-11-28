@@ -277,6 +277,10 @@ def test_an_outcome_named_in_words_links_to_the_latest_protocol_version():
         {'id': 'O1', 'protocol_version': 'V1'}, None]
     assert study_table.resolve_outcomes([result(outcome='Breaking force')], [])[0]['outcome'] == {
         'id': None, 'protocol_version': None, 'name': 'Breaking force'}
+    unrecorded = study_table.resolve_outcomes([result(outcome='Breaking force')], [])
+    assert [(i['kind'], i.get('outcome_name')) for i in study_table.result_issues(
+        unrecorded, [study()], versions=[], passages=PASSAGES) if 'protocol' in i['kind']] == [
+        ('unknown_protocol_outcome', 'Breaking force')]
     found = study_table.result_issues(linked[1:2], [study()], versions=versions, passages=PASSAGES)
     assert {'kind': 'unknown_protocol_outcome', 'study_result_id': 'SR1', 'study_id': 'S1', 'outcome_id': None,
             'outcome_name': 'Breaking forse'} in found
@@ -304,6 +308,7 @@ assert.match(html,/Protocol time point<\/dt><dd><p>24 hours<\/p><p class="hint">
 assert.match(html,/A larger value favours<\/dt><dd><p>G1<\/p>/);
 assert.match(html,/Precision<\/dt><dd><span class="muted">Not reported/);
 assert.equal(outcomeResultHtml(graph,{id:'X'}),'');
+assert.equal(studyIssueText({kind:'unknown_protocol_version',study_result_id:'SR1',protocol_version:null}),'Result SR1 cites no protocol version.');
 assert.match(outcomeResultHtml(graph,{...graph.study_results[0],outcome:{id:null,protocol_version:null,name:'Breaking forse'}}),/Planned outcome<\/dt><dd><p>Breaking forse<\/p><p class="hint">Protocol version not recorded · not linked to a protocol outcome<\/p>/);
 assert.match(outcomeResultHtml(graph,{...graph.study_results[0],outcome:{id:null,protocol_version:'V1',name:'Breaking forse'}}),/<p>Breaking forse<\/p><p class="hint">Protocol version V1 · not linked to a protocol outcome<\/p>/);
 assert.equal(studyIssueText({kind:'unknown_protocol_outcome',study_result_id:'SR1',outcome_id:null,outcome_name:'Breaking forse'}),'Result SR1 names outcome “Breaking forse”, which does not match exactly one outcome in the latest protocol version.');

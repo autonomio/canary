@@ -192,7 +192,10 @@ def result_issues(results, studies, *, versions, passages):
             if versions is not None:
                 cited = outcome.get('protocol_version')
                 definition = outcomes.get(cited, {}).get(outcome.get('id'))
-                if cited not in outcomes:
+                if cited is None and 'name' in outcome:
+                    found.append({'kind': 'unknown_protocol_outcome', **owner, 'outcome_id': None,
+                                  'outcome_name': outcome['name']})
+                elif cited not in outcomes:
                     found.append({'kind': 'unknown_protocol_version', **owner, 'protocol_version': cited})
                 elif definition is None:
                     found.append({'kind': 'unknown_protocol_outcome', **owner, 'outcome_id': outcome.get('id'),
