@@ -92,6 +92,8 @@ def test_the_dashboard_lists_each_edition_and_the_claims_a_change_affects(tmp_pa
     run_dashboard(tmp_path, graph, r'''
 const html=studyTableHtml(graph);
 assert.match(html,/Study table edition 2 · <code>/);
+assert.match(html,/<div class="study-records"><\/div><div class="study-history"><p>Study table edition 2/);
+assert.doesNotMatch(html,/study-overview/);
 assert.match(html,/Claims not revised after a result they use changed \(1\)<\/p><ul><li>Claim C1 was not revised/);
 assert.match(html,/<\/code> <span class="hint">\d{4}-\d\d-\d\d \d\d:\d\d UTC<\/span>/);
 assert.match(html,/Editions and changes \(2\)/);

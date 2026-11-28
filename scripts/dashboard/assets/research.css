@@ -603,6 +603,9 @@ th, td { padding: 8px; }
 .edition-diff > span { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 620px) { .edition-diff { grid-template-columns: 80px minmax(0,1fr) minmax(0,1fr); gap: 6px 8px; } }
 .study-records { display: grid; gap: 10px; margin-top: 12px; }
+.study-history { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.study-history > p { margin: 0 0 6px; }
+.study-history:empty { display: none; }
 .study-record { border: 1px solid var(--line); border-radius: var(--radius-panel); background: var(--paper); overflow: hidden; }
 .study-record > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 12px 16px; cursor: pointer; color: var(--strong); }
 .study-record > summary .hint { font-size: 13px; }
