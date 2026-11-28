@@ -217,13 +217,13 @@ def test_a_change_to_any_study_detail_is_a_recoverable_edition(tmp_path):
     study_editions.record(tmp_path, dict(investigation(), studies=[changed]), REFERENCES, {'R1-p1': 'R1'})
     first, second = study_editions.history(tmp_path)
     change, = second['changes']
-    assert change['fields'] == ['funding', 'reports', 'shared with S2']
+    assert change['fields'] == ['funding', 'reports', 'shared with S2 (specimens)']
     assert first['studies']['S1']['funding']['text'] == 'Public grant.'
     assert first['studies']['S1']['funding']['documents'] == ['t1']
     assert first['studies']['S1']['reports'] == [{'reference_id': 'R1', 'status': 'confirmed', 'basis': 'Same specimens.',
                                                   'passages': []}]
     assert first['studies']['S1']['group G1 description']['text'] == 'Grid infill.'
-    assert second['studies']['S1']['shared with S2'] == {'shares': 'specimens', 'status': 'uncertain', 'basis': 'Same lab.',
+    assert second['studies']['S1']['shared with S2 (specimens)'] == {'shares': 'specimens', 'status': 'uncertain', 'basis': 'Same lab.',
                                                          'passages': []}
 
 
@@ -233,15 +233,19 @@ def test_a_new_citation_or_a_second_link_is_kept_without_flagging_claims(tmp_pat
                              {'study_id': 'S2', 'shares': 'datasets', 'status': 'confirmed', 'basis': 'Data.', 'passage_ids': []}]}
     study_editions.record(tmp_path, dict(investigation(), studies=[study]), REFERENCES)
     recorded = study_editions.history(tmp_path)[0]['studies']['S1']
-    assert recorded['shared with S2']['shares'] == 'specimens' and recorded['shared with S2 (2)']['shares'] == 'datasets'
+    assert recorded['shared with S2 (specimens)']['basis'] == 'Lab.' and recorded['shared with S2 (datasets)']['basis'] == 'Data.'
+    study_editions.record(tmp_path, dict(investigation(), studies=[dict(study, shared_with=study['shared_with'][1:])]), REFERENCES)
+    dropped, = study_editions.history(tmp_path)[1]['changes']
+    assert dropped['fields'] == ['shared with S2 (specimens)'] and 'shared with S2 (specimens)' not in dropped['after']
+    study_editions.record(tmp_path, dict(investigation(), studies=[study]), REFERENCES)
     moved = dict(study, reports=[dict(study['reports'][0], passage_ids=['R1-p2'])])
     study_editions.record(tmp_path, dict(investigation(), studies=[moved]), REFERENCES)
-    assert study_editions.history(tmp_path)[1]['changes'][0]['fields'] == ['reports']
+    assert study_editions.history(tmp_path)[3]['changes'][0]['fields'] == ['reports']
     recited = investigation()
     recited['study_results'][0]['outcome_result']['estimate']['passage_ids'] = ['R1-p9']
     study_editions.record(tmp_path, dict(recited, studies=[moved]), REFERENCES)
     editions = study_editions.history(tmp_path)
-    change, = editions[2]['changes']
+    change, = editions[4]['changes']
     assert change['fields'] == ['estimate'] and change['passages_only'] and change['unrevised_claim_ids'] == []
     assert study_editions.stale_claims(editions, dict(recited, studies=[moved])) == []
 

@@ -65,7 +65,7 @@ def _study(study, owners, references):
     for variable in _rows(study.get('planned_variables')):
         _put(record, 'variable ' + str(variable.get('name')), _value(variable.get('value'), owners, references))
     for link in _rows(study.get('shared_with')):
-        _put(record, 'shared with ' + str(link.get('study_id')), _cited(link, ('shares', 'status', 'basis')))
+        _put(record, f"shared with {link.get('study_id')} ({link.get('shares')})", _cited(link, ('shares', 'status', 'basis')))
     return record
 
 
