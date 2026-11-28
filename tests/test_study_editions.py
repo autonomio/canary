@@ -58,6 +58,23 @@ def test_a_claim_revised_before_the_change_is_still_flagged(tmp_path):
     assert [i['claim_id'] for i in study_editions.stale_claims(editions, investigation(value='3.9', claim=revised))] == ['C1']
 
 
+def test_entries_that_share_a_key_stay_together_when_one_is_dropped(tmp_path):
+    first = {'study_id': 'S2', 'shares': 'specimens', 'status': 'uncertain', 'basis': 'Lab.', 'passage_ids': []}
+    second = dict(first, status='confirmed', basis='Same batch.')
+    study = {'id': 'S1', 'shared_with': [first, second]}
+    study_editions.record(tmp_path, dict(investigation(), studies=[study]), REFERENCES)
+    kept = study_editions.history(tmp_path)[0]['studies']['S1']['shared with S2 (specimens)']
+    assert [link['basis'] for link in kept] == ['Lab.', 'Same batch.']
+    study_editions.record(tmp_path, dict(investigation(), studies=[dict(study, shared_with=[second])]), REFERENCES)
+    change, = study_editions.history(tmp_path)[1]['changes']
+    assert change['fields'] == ['shared with S2 (specimens)']
+    assert change['after']['shared with S2 (specimens)']['basis'] == 'Same batch.'
+    study_editions.record(tmp_path, dict(investigation(), studies=[dict(study, shared_with=[second, first])]), REFERENCES)
+    assert len(study_editions.history(tmp_path)) == 3
+    study_editions.record(tmp_path, dict(investigation(), studies=[dict(study, shared_with=[first, second])]), REFERENCES)
+    assert len(study_editions.history(tmp_path)) == 3
+
+
 def test_a_claim_removed_before_the_change_is_not_listed_as_using_it(tmp_path):
     study_editions.record(tmp_path, investigation(), REFERENCES)
     study_editions.record(tmp_path, dict(investigation(), claims=[]), REFERENCES)

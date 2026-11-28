@@ -53,6 +53,12 @@ def test_reports_groups_variables_and_shared_studies_are_checked():
     assert kinds([record]) == [('duplicate_study_group', None), ('missing_planned_variable', 'Age'),
                                ('missing_study_passage', 'shared with S7'), ('missing_study_report', 'R9'),
                                ('undeclared_study_report', 'report R9'), ('unknown_shared_study', 'S7')]
+    link = {'study_id': 'S1', 'shares': 'specimens', 'status': 'uncertain', 'basis': 'Same lab.', 'passage_ids': ['R1-p1']}
+    repeated = study(planned_variables=study()['planned_variables'] * 2, shared_with=[link, dict(link, basis='Same batch.')])
+    found = study_table.issues([repeated, study(id='S1')], references={'R1': {}, 'R2': {}}, passages=PASSAGES, reviews=[],
+                               plan={'other_variables': ['Age']})
+    assert {'kind': 'duplicate_planned_variable', 'study_id': 'S1', 'variable': 'Age'} in found
+    assert {'kind': 'duplicate_shared_link', 'study_id': 'S1', 'shared_study_id': 'S1', 'shares': 'specimens'} in found
 
 
 def test_every_included_report_belongs_to_the_study_its_review_names():
@@ -308,6 +314,8 @@ assert.match(html,/Protocol time point<\/dt><dd><p>24 hours<\/p><p class="hint">
 assert.match(html,/A larger value favours<\/dt><dd><p>G1<\/p>/);
 assert.match(html,/Precision<\/dt><dd><span class="muted">Not reported/);
 assert.equal(outcomeResultHtml(graph,{id:'X'}),'');
+assert.equal(studyIssueText({kind:'duplicate_shared_link',study_id:'S1',shared_study_id:'S2',shares:'specimens'}),'Study S1 records sharing specimens with study S2 more than once.');
+assert.equal(studyIssueText({kind:'duplicate_planned_variable',study_id:'S1',variable:'Age'}),'Study S1 records planned variable Age more than once.');
 assert.equal(studyIssueText({kind:'unknown_protocol_version',study_result_id:'SR1',protocol_version:null}),'Result SR1 cites no protocol version.');
 assert.match(outcomeResultHtml(graph,{...graph.study_results[0],outcome:{id:null,protocol_version:null,name:'Breaking forse'}}),/Planned outcome<\/dt><dd><p>Breaking forse<\/p><p class="hint">Protocol version not recorded · not linked to a protocol outcome<\/p>/);
 assert.match(outcomeResultHtml(graph,{...graph.study_results[0],outcome:{id:null,protocol_version:'V1',name:'Breaking forse'}}),/<p>Breaking forse<\/p><p class="hint">Protocol version V1 · not linked to a protocol outcome<\/p>/);

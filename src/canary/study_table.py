@@ -59,6 +59,11 @@ def issues(studies, *, references, passages, reviews, plan):
         found.extend({'kind': 'duplicate_study_group', 'study_id': identifier, 'group_id': key}
                      for key, count in groups.items() if count > 1)
         named = [v.get('name') for v in _rows(study.get('planned_variables'))]
+        found.extend({'kind': 'duplicate_planned_variable', 'study_id': identifier, 'variable': key}
+                     for key, count in Counter(named).items() if count > 1)
+        links = Counter((link.get('study_id'), link.get('shares')) for link in _rows(study.get('shared_with')))
+        found.extend({'kind': 'duplicate_shared_link', 'study_id': identifier, 'shared_study_id': shared, 'shares': shares}
+                     for (shared, shares), count in links.items() if count > 1)
         found.extend({'kind': 'missing_planned_variable', 'study_id': identifier, 'variable': name}
                      for name in planned if name not in named)
         for link in _rows(study.get('shared_with')):

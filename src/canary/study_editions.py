@@ -1,5 +1,6 @@
 """Dated editions of the study table and the claims that used each one."""
 import hashlib
+import json
 from pathlib import Path
 
 from .coverage_runtime import now, read, write
@@ -25,12 +26,13 @@ def _value(field, owners, references):
             'passages': list(field.get('passage_ids', []))}
 
 
-def _put(record, key, value):
-    name, copy = key, 1
-    while name in record:
-        copy += 1
-        name = f'{key} ({copy})'
-    record[name] = value
+def _entries(pairs):
+    """One field per key; entries that share a key are kept together in a stable order."""
+    grouped = {}
+    for key, value in pairs:
+        grouped.setdefault(key, []).append(value)
+    return {key: values[0] if len(values) == 1 else sorted(values, key=lambda v: json.dumps(v, sort_keys=True))
+            for key, values in grouped.items()}
 
 
 def _without_passages(value):
@@ -59,13 +61,13 @@ def _study(study, owners, references):
               'reports': [_cited(r, ('reference_id', 'status', 'basis')) for r in reports],
               'documents': [v['text_sha256'] for v in document_versions([r.get('reference_id') for r in reports], references)]}
     record.update({name: _value(characteristics.get(name), owners, references) for name in CHARACTERISTICS})
-    for group in _rows(study.get('groups')):
-        _put(record, 'group ' + str(group.get('id')) + ' description', _value(group.get('description'), owners, references))
-        _put(record, 'group ' + str(group.get('id')) + ' sample size', _value(group.get('sample_size'), owners, references))
-    for variable in _rows(study.get('planned_variables')):
-        _put(record, 'variable ' + str(variable.get('name')), _value(variable.get('value'), owners, references))
-    for link in _rows(study.get('shared_with')):
-        _put(record, f"shared with {link.get('study_id')} ({link.get('shares')})", _cited(link, ('shares', 'status', 'basis')))
+    groups = _rows(study.get('groups'))
+    record.update(_entries([*((f"group {g.get('id')} description", _value(g.get('description'), owners, references)) for g in groups),
+                            *((f"group {g.get('id')} sample size", _value(g.get('sample_size'), owners, references)) for g in groups),
+                            *((f"variable {v.get('name')}", _value(v.get('value'), owners, references))
+                              for v in _rows(study.get('planned_variables'))),
+                            *((f"shared with {link.get('study_id')} ({link.get('shares')})", _cited(link, ('shares', 'status', 'basis')))
+                              for link in _rows(study.get('shared_with')))]))
     return record
 
 

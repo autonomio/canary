@@ -3343,6 +3343,8 @@
       missing_study_passage:()=>`${owner}${i.field} cites passage ${i.passage_id}, which is not saved.`,
       undeclared_study_report:()=>`${i.field} cites ${i.reference_id}, which is not one of this study's reports.`,
       duplicate_study_group:()=>`Group ${i.group_id} is recorded more than once.`,
+      duplicate_planned_variable:()=>`Study ${i.study_id} records planned variable ${i.variable} more than once.`,
+      duplicate_shared_link:()=>`Study ${i.study_id} records sharing ${i.shares} with study ${i.shared_study_id} more than once.`,
       missing_planned_variable:()=>`Planned variable ${i.variable} is not recorded.`,
       unknown_shared_study:()=>`Shared study ${i.shared_study_id} is not recorded.`,
       report_without_study:()=>`Included report ${i.reference_id} belongs to no study; its review names ${list(i.review_study_ids)}.`,
