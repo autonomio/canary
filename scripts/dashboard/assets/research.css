@@ -609,11 +609,11 @@ th, td { padding: 8px; }
 .study-history > p { margin: 0 0 6px; }
 .study-history:empty { display: none; }
 .study-record { border: 1px solid var(--line); border-radius: var(--radius-panel); background: var(--paper); overflow: hidden; }
-.study-record > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 12px 16px; cursor: pointer; color: var(--strong); }
-.study-record > summary .hint { font-size: 13px; }
+.study-record > summary { position: relative; padding: 12px 16px 12px 34px; cursor: pointer; color: var(--strong); }
+.study-record > summary .hint { margin-left: 10px; font-size: 13px; }
 .study-record > summary { list-style: none; }
 .study-record > summary::-webkit-details-marker { display: none; }
-.study-record > summary::before { content: "▸"; color: var(--muted); }
+.study-record > summary::before { content: "▸"; position: absolute; left: 16px; color: var(--muted); }
 .study-record[open] > summary::before { content: "▾"; }
 .study-record[open] > summary { border-bottom: 1px solid var(--line); }
 .study-record > :not(summary) { margin-left: 16px; margin-right: 16px; }
