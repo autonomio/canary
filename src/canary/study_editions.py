@@ -75,7 +75,8 @@ def _claims(investigation):
 
 
 def _users(identifier, claims):
-    return sorted((claim for claim, record in claims.items() if identifier in record['study_result_ids']), key=str)
+    return sorted((claim for claim, record in claims.items()
+                   if not record.get('withdrawn') and identifier in record['study_result_ids']), key=str)
 
 
 def _summary_indexes(summary, claim_ids):
@@ -120,9 +121,11 @@ def record(workspace: Path, investigation: dict, references: dict, owners: dict 
                          'changes': _changes(previous, table, claims, previous['claims'],
                                              investigation.get('executive_summary')) if previous else []})
         write(path, editions)
-    elif {**editions[-1]['claims'], **claims} != editions[-1]['claims']:
-        editions[-1]['claims'] = {**editions[-1]['claims'], **claims}
-        write(path, editions)
+    else:
+        kept = {claim: dict(record, withdrawn=True) for claim, record in editions[-1]['claims'].items() if claim not in claims}
+        if {**kept, **claims} != editions[-1]['claims']:
+            editions[-1]['claims'] = {**kept, **claims}
+            write(path, editions)
     current = editions[-1]
     return {'number': current['number'], 'sha256': current['sha256']}
 

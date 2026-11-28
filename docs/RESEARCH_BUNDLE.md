@@ -427,9 +427,10 @@ origin and calculation, unit, time point, effect measure, availability, wording 
 copies behind each value. It also holds each study's citation, subject and count, its reports with
 their match status and report copies, characteristics, groups, planned variables and shared
 subjects, the edition number, SHA-256
-and time, and the latest wording and results of each claim written while it was current. The
+and time, and the latest wording and results of each claim written while it was current; a claim
+removed meanwhile is kept, marked withdrawn, and is not counted as using a result. The
 export names the edition behind the current synthesis. Each later edition lists
-the results that were added, removed or changed, study counts that changed, the claims and
+the results that were added, removed or changed, the study details that changed, the claims and
 summary paragraphs that used them in that edition or the one before, and the claims that still
 use them and were not revised afterwards. Those claims
 are also listed in the mechanical audit. Earlier editions stay readable in

@@ -58,6 +58,15 @@ def test_a_claim_revised_before_the_change_is_still_flagged(tmp_path):
     assert [i['claim_id'] for i in study_editions.stale_claims(editions, investigation(value='3.9', claim=revised))] == ['C1']
 
 
+def test_a_claim_removed_before_the_change_is_not_listed_as_using_it(tmp_path):
+    study_editions.record(tmp_path, investigation(), REFERENCES)
+    study_editions.record(tmp_path, dict(investigation(), claims=[]), REFERENCES)
+    assert study_editions.history(tmp_path)[0]['claims']['C1']['withdrawn'] is True
+    study_editions.record(tmp_path, dict(investigation(value='3.9'), claims=[]), REFERENCES)
+    change, = study_editions.history(tmp_path)[1]['changes']
+    assert change['claim_ids'] == [] and change['unrevised_claim_ids'] == []
+
+
 def test_a_claim_that_moved_to_another_result_keeps_its_earlier_dependency(tmp_path):
     first = investigation()
     first['study_results'].append(dict(first['study_results'][0], id='SR2'))
@@ -131,6 +140,12 @@ assert.match(shownBoth,/<span>0\.1<del class="edition-del">3 \(calculated\) · f
 assert.match(shownBoth,/<span>0\.1<ins class="edition-ins">2 \(calculated\) · formula mean \* 9\.80<\/ins> · inputs/);
 const valueOnly={...formula,before:{estimate:{...formula.after.estimate,text:'0.13'}}};
 assert.match(studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[valueOnly]}]}),/<span>0\.1<del class="edition-del">3<\/del> \(calculated\)<\/span>/);
+const shares={study_id:'S1',fields:['shared with S2','reports'],
+  before:{'shared with S2':{shares:'specimens',status:'uncertain',basis:'Same lab.'},reports:[{reference_id:'R1',status:'confirmed',basis:'One report.'}]},
+  after:{'shared with S2':{shares:'datasets',status:'uncertain',basis:'Same lab.'},reports:[{reference_id:'R2',status:'confirmed',basis:'One report.'}]}};
+const sharedHtml=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[shares]}]});
+assert.match(sharedHtml,/<span>shares <del class="edition-del">specimen<\/del>s · uncertain — Same lab\.<\/span><span>shares <ins class="edition-ins">dataset<\/ins>s · uncertain — Same lab\.<\/span>/);
+assert.match(sharedHtml,/<span>reference id R<del class="edition-del">1<\/del> · confirmed — One report\.<\/span>/);
 const hidden=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[typo]}]});
 assert.match(hidden,new RegExp(`<span>outcome</span><span>id ${'a'.repeat(20)}<del class="edition-del">${'c'.repeat(44)}</del></span><span>id ${'a'.repeat(20)}<ins class="edition-ins">${'a'.repeat(44)}</ins></span>`));
 assert.match(studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[{...typo,before:{outcome:{id:'ab12'.repeat(16)}},after:{outcome:{id:'ab12'.repeat(8)+'ab'+'ab12'.repeat(8)}}}]}]}),/<span>outcome<\/span><span>id [0-9a-f]{64}<\/span><span>id [0-9a-f]+<ins class="edition-ins">[0-9a-f]{2}<\/ins>[0-9a-f]+<\/span>/);
@@ -140,12 +155,6 @@ assert.match(html,/Claim C1 was not revised after version 2 of the study table c
 
 
 def test_the_export_carries_the_editions_and_the_current_one(tmp_path):
-const shares={study_id:'S1',fields:['shared with S2','reports'],
-  before:{'shared with S2':{shares:'specimens',status:'uncertain',basis:'Same lab.'},reports:[{reference_id:'R1',status:'confirmed',basis:'One report.'}]},
-  after:{'shared with S2':{shares:'datasets',status:'uncertain',basis:'Same lab.'},reports:[{reference_id:'R2',status:'confirmed',basis:'One report.'}]}};
-const sharedHtml=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[shares]}]});
-assert.match(sharedHtml,/<span>shares <del class="edition-del">specimen<\/del>s · uncertain — Same lab\.<\/span><span>shares <ins class="edition-ins">dataset<\/ins>s · uncertain — Same lab\.<\/span>/);
-assert.match(sharedHtml,/<span>reference id R<del class="edition-del">1<\/del> · confirmed — One report\.<\/span>/);
     from canary import coverage_export
 
     research_bundle.initialize(tmp_path, research_spec.compile_mapping(
