@@ -90,7 +90,7 @@ def _changes(before, after, claims, earlier_claims, summary):
 
 
 def record(workspace: Path, investigation: dict, references: dict, owners: dict | None = None) -> dict:
-    """Add an edition when the table changes; the claims of the current synthesis name it."""
+    """Add an edition when the table changes; otherwise keep the latest wording of each claim on the current one."""
     path = Path(workspace) / FILE
     editions = read(path, [])
     table = contents(investigation, references, owners)
@@ -102,6 +102,9 @@ def record(workspace: Path, investigation: dict, references: dict, owners: dict 
                          'recorded_at': now(), **table, 'claims': claims,
                          'changes': _changes(previous, table, claims, previous['claims'],
                                              investigation.get('executive_summary')) if previous else []})
+        write(path, editions)
+    elif {**editions[-1]['claims'], **claims} != editions[-1]['claims']:
+        editions[-1]['claims'] = {**editions[-1]['claims'], **claims}
         write(path, editions)
     current = editions[-1]
     return {'number': current['number'], 'sha256': current['sha256']}

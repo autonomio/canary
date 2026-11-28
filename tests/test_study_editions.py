@@ -47,6 +47,17 @@ def test_a_claim_revised_after_the_change_is_no_longer_flagged(tmp_path):
     assert removed['removed'] and removed['after'] is None
 
 
+def test_a_claim_revised_before_the_change_is_still_flagged(tmp_path):
+    study_editions.record(tmp_path, investigation(), REFERENCES)
+    revised = 'Breaking force rose in Rivera 2020.'
+    study_editions.record(tmp_path, investigation(claim=revised), REFERENCES)
+    assert len(study_editions.history(tmp_path)) == 1
+    study_editions.record(tmp_path, investigation(value='3.9', claim=revised), REFERENCES)
+    editions = study_editions.history(tmp_path)
+    assert editions[1]['changes'][0]['unrevised_claim_ids'] == ['C1']
+    assert [i['claim_id'] for i in study_editions.stale_claims(editions, investigation(value='3.9', claim=revised))] == ['C1']
+
+
 def test_a_claim_that_moved_to_another_result_keeps_its_earlier_dependency(tmp_path):
     first = investigation()
     first['study_results'].append(dict(first['study_results'][0], id='SR2'))
