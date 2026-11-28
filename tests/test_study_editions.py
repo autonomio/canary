@@ -125,6 +125,12 @@ const formula={study_result_id:'SR1',fields:['estimate'],claim_ids:[],
   after:{estimate:{text:'0.12',origin:'calculated',calculation:{formula:'mean * 9.80',inputs:[{name:'mean',value:'12.5',unit:'kgf'}],assumptions:['g']},documents:['c'.repeat(64)]}}};
 const shownFormula=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[formula]}]});
 assert.match(shownFormula,/<span>0\.12 \(calculated\) · formula mean \* 9\.8<del class="edition-del">1<\/del> · inputs mean = 12\.5 kgf · assumptions g · read from c{64}<\/span><span>0\.12 \(calculated\) · formula mean \* 9\.8<ins class="edition-ins">0<\/ins>/);
+const both={...formula,before:{estimate:{...formula.before.estimate,text:'0.13'}}};
+const shownBoth=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[both]}]});
+assert.match(shownBoth,/<span>0\.1<del class="edition-del">3 \(calculated\) · formula mean \* 9\.81<\/del> · inputs/);
+assert.match(shownBoth,/<span>0\.1<ins class="edition-ins">2 \(calculated\) · formula mean \* 9\.80<\/ins> · inputs/);
+const valueOnly={...formula,before:{estimate:{...formula.after.estimate,text:'0.13'}}};
+assert.match(studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[valueOnly]}]}),/<span>0\.1<del class="edition-del">3<\/del> \(calculated\)<\/span>/);
 const hidden=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[typo]}]});
 assert.match(hidden,new RegExp(`<span>outcome</span><span>id ${'a'.repeat(20)}<del class="edition-del">${'c'.repeat(44)}</del></span><span>id ${'a'.repeat(20)}<ins class="edition-ins">${'a'.repeat(44)}</ins></span>`));
 assert.match(studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[{...typo,before:{outcome:{id:'ab12'.repeat(16)}},after:{outcome:{id:'ab12'.repeat(8)+'ab'+'ab12'.repeat(8)}}}]}]}),/<span>outcome<\/span><span>id [0-9a-f]{64}<\/span><span>id [0-9a-f]+<ins class="edition-ins">[0-9a-f]{2}<\/ins>[0-9a-f]+<\/span>/);
