@@ -3362,7 +3362,7 @@
       unavailable_result_with_value:()=>`Result ${i.study_result_id} is marked ${i.status.replaceAll('_',' ')} but records values.`,
       missing_availability_evidence:()=>`Result ${i.study_result_id} is marked ${i.status.replaceAll('_',' ')} without a source passage.`,
       missing_planned_outcome:()=>`No result is recorded for planned outcome ${i.outcome || i.outcome_id}.`,
-      claim_uses_changed_value:()=>`Claim ${i.claim_id} was not revised after edition ${i.edition} changed result ${i.study_result_id} (${(i.fields || []).join(', ')}).${(i.summary_indexes || []).length ? ` Summary paragraphs ${i.summary_indexes.join(', ')} use it.` : ''}`,
+      claim_uses_changed_value:()=>`Claim ${i.claim_id} was not revised after version ${i.edition} of the study table changed result ${i.study_result_id} (${(i.fields || []).map(f=>String(f).replaceAll('_',' ')).join(', ')}).${(i.summary_indexes || []).length ? ` Answer paragraph${i.summary_indexes.length===1 ? '' : 's'} ${i.summary_indexes.join(', ')} ${i.summary_indexes.length===1 ? 'cites' : 'cite'} it.` : ''}`,
       superseded_protocol_version:()=>`Result ${i.study_result_id} cites protocol version ${i.version_number}; the latest is version ${i.latest_version_number}.`,
       protocol_unreadable:()=>`The review protocol could not be read: ${i.reason}.`}[i.kind]?.())
       || String(i.kind || 'Study record issue').replaceAll('_',' ');
@@ -3372,18 +3372,26 @@
     if(!editions.length) return '';
     const when=v=>{const d=new Date(v);return v && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0,16).replace('T',' ')+' UTC' : '';};
     const current=editions[editions.length-1], label=f=>String(f).replaceAll('_',' ');
-    const shown=v=>{
+    const shown=(v,full=false)=>{
       if(v==null || v==='') return 'none';
-      if(Array.isArray(v)) return v.length ? v.map(shown).join(', ') : 'none';
-      if(typeof v!=='object') return /^[0-9a-f]{32,}$/.test(String(v)) ? String(v).slice(0,12) : String(v);
+      if(Array.isArray(v)) return v.length ? v.map(x=>shown(x,full)).join(', ') : 'none';
+      if(typeof v!=='object') return !full && /^[0-9a-f]{32,}$/.test(String(v)) ? String(v).slice(0,12) : String(v);
       if('text' in v) return `${v.text ?? 'none'}${v.origin==='calculated' ? ' (calculated)' : ''}`;
       if('status' in v) return [label(v.status),v.basis].filter(Boolean).join(' — ');
-      return Object.entries(v).filter(([,x])=>x!=null && x!=='' && !(Array.isArray(x) && !x.length)).map(([k,x])=>`${label(k)} ${shown(x)}`).join(' · ') || 'none';
+      return Object.entries(v).filter(([,x])=>x!=null && x!=='' && !(Array.isArray(x) && !x.length)).map(([k,x])=>`${label(k)} ${shown(x,full)}`).join(' · ') || 'none';
     };
-    const used=c=>c.study_result_id==null ? '' : `<p class="hint">${(c.claim_ids || []).length ? 'Used by' : 'No claim used this result.'}</p>${(c.claim_ids || []).length ? `<div class="finding-links">${c.claim_ids.map(id=>qaButton('data-qa-claim',id,`${id}${(c.unrevised_claim_ids || []).includes(id) ? ' · not revised' : ''}`)).join('')}</div>` : ''}${(c.summary_indexes || []).length ? `<p class="hint">Summary ${c.summary_indexes.length===1 ? 'paragraph' : 'paragraphs'} ${esc(c.summary_indexes.join(', '))}</p>` : ''}`;
-    const diff=c=>(c.added || c.removed) ? '' : `<div class="edition-diff"><span class="hint">Field</span><span class="hint">Before</span><span class="hint">After</span>${(c.fields || []).map(f=>`<span>${esc(label(f))}</span><span>${esc(shown(c.before?.[f]))}</span><span>${esc(shown(c.after?.[f]))}</span>`).join('')}</div>`;
+    const pair=(a,b)=>shown(a)===shown(b) ? [shown(a,true),shown(b,true)] : [shown(a),shown(b)];
+    const marked=(a,b)=>{
+      let start=0, end=0;
+      while(start<a.length && start<b.length && a[start]===b[start]) start++;
+      while(end<a.length-start && end<b.length-start && a[a.length-1-end]===b[b.length-1-end]) end++;
+      const part=(x,tag)=>`${esc(x.slice(0,start))}${x.length-end>start ? `<${tag} class="edition-${tag}">${esc(x.slice(start,x.length-end))}</${tag}>` : ''}${esc(x.slice(x.length-end))}`;
+      return [part(a,'del'),part(b,'ins')];
+    };
+    const used=c=>c.study_result_id==null ? '' : `<p class="hint">${(c.claim_ids || []).length ? 'Used by' : 'No claim used this result.'}</p>${(c.claim_ids || []).length ? `<div class="finding-links">${c.claim_ids.map(id=>qaButton('data-qa-claim',id,`${id}${(c.unrevised_claim_ids || []).includes(id) ? ' · not revised' : ''}`)).join('')}</div>` : ''}${(c.summary_indexes || []).length ? `<p class="hint">Cited in answer ${c.summary_indexes.length===1 ? 'paragraph' : 'paragraphs'} ${esc(c.summary_indexes.join(', '))}</p>` : ''}`;
+    const diff=c=>(c.added || c.removed) ? '' : `<div class="edition-diff"><span class="hint">Field</span><span class="hint">Before</span><span class="hint">After</span>${(c.fields || []).map(f=>`<span>${esc(label(f))}</span>${marked(...pair(c.before?.[f],c.after?.[f])).map(x=>`<span>${x}</span>`).join('')}`).join('')}</div>`;
     const change=c=>`<li class="edition-change"><p class="edition-change-title">${c.study_result_id!=null ? esc(c.study_result_id) : `Study ${esc(c.study_id)}`} · ${c.added ? 'added' : c.removed ? 'removed' : esc((c.fields || []).map(label).join(', '))}</p>${diff(c)}${used(c)}</li>`;
-    return `<p>Study table edition ${esc(current.number)} · <code>${esc(String(current.sha256 || '').slice(0,12))}</code> <span class="hint">${esc(when(current.recorded_at))}</span></p>${editions.length>1 ? `<details data-detail="study-editions"><summary>Editions and changes (${editions.length})</summary>${editions.slice().reverse().map(e=>`<section class="study-edition"><h4>Edition ${esc(e.number)} · <code>${esc(String(e.sha256 || '').slice(0,12))}</code> <span class="hint">${esc(when(e.recorded_at))}</span></h4>${(e.changes || []).length ? `<ul class="edition-changes">${e.changes.map(change).join('')}</ul>` : `<p class="hint">${e.number===1 ? 'First recorded edition.' : 'No result or study count changed.'}</p>`}<details><summary>Values in this edition</summary><pre class="search-query">${esc(JSON.stringify({results:e.results,studies:e.studies},null,2))}</pre></details></section>`).join('')}</details>` : ''}`;
+    return editions.length>1 ? `<details data-detail="study-editions"><summary>Editions and changes · ${esc(editions.length)} versions, last changed ${esc(when(current.recorded_at))}</summary>${editions.slice().reverse().map(e=>`<section class="study-edition"><h4>Version ${esc(e.number)} · <code>${esc(String(e.sha256 || '').slice(0,12))}</code> <span class="hint">${esc(when(e.recorded_at))}</span></h4>${(e.changes || []).length ? `<ul class="edition-changes">${e.changes.map(change).join('')}</ul>` : `<p class="hint">${e.number===1 ? 'First recorded edition.' : 'No result or study count changed.'}</p>`}<details><summary>Values in this version</summary><pre class="search-query">${esc(JSON.stringify({results:e.results,studies:e.studies},null,2))}</pre></details></section>`).join('')}</details>` : `<p class="hint">Saved ${esc(when(current.recorded_at))}, unchanged since</p>`;
   }
   function studyTableHtml(g) {
     if(!Array.isArray(g?.studies)) return '';

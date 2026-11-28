@@ -601,6 +601,8 @@ th, td { padding: 8px; }
 .edition-change > .edition-change-title { margin: 0 0 8px; color: var(--strong); }
 .edition-diff { display: grid; grid-template-columns: 130px minmax(0,1fr) minmax(0,1fr); gap: 6px 14px; font-size: 13px; color: var(--ink); }
 .edition-diff > span { min-width: 0; overflow-wrap: anywhere; }
+.edition-del { background: var(--red-soft); color: var(--red); text-decoration: none; border-radius: 2px; }
+.edition-ins { background: var(--green-soft); color: var(--green); text-decoration: none; border-radius: 2px; }
 @media (max-width: 620px) { .edition-diff { grid-template-columns: 80px minmax(0,1fr) minmax(0,1fr); gap: 6px 8px; } }
 .study-records { display: grid; gap: 10px; margin-top: 12px; }
 .study-history { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }

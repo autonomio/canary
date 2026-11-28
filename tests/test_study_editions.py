@@ -91,25 +91,29 @@ def test_the_dashboard_lists_each_edition_and_the_claims_a_change_affects(tmp_pa
                                 study_editions.stale_claims(study_editions.history(tmp_path), investigation(value='3.9'))]}
     run_dashboard(tmp_path, graph, r'''
 const html=studyTableHtml(graph);
-assert.match(html,/Study table edition 2 · <code>/);
-assert.match(html,/<div class="study-records"><\/div><div class="study-history"><p>Study table edition 2/);
+assert.match(html,/<div class="study-records"><\/div><div class="study-history"><details data-detail="study-editions"><summary>Editions and changes · 2 versions, last changed \d{4}-\d\d-\d\d \d\d:\d\d UTC<\/summary>/);
+assert.match(html,/<h4>Version 2 · <code>/);
+assert.match(studyTableHtml({...graph,study_table_editions:graph.study_table_editions.slice(0,1)}),/<p class="hint">Saved \d{4}-\d\d-\d\d \d\d:\d\d UTC, unchanged since<\/p>/);
 assert.doesNotMatch(html,/study-overview/);
 assert.match(html,/Claims not revised after a result they use changed \(1\)<\/p><ul><li>Claim C1 was not revised/);
 assert.match(html,/<\/code> <span class="hint">\d{4}-\d\d-\d\d \d\d:\d\d UTC<\/span>/);
-assert.match(html,/Editions and changes \(2\)/);
 assert.match(html,/SR1 · estimate/);
 assert.match(html,/data-qa-claim="C1">C1 · not revised</);
-assert.match(html,/<span>estimate<\/span><span>4.2<\/span><span>3.9<\/span>/);
-assert.match(html,/Summary paragraph 2/);
+assert.match(html,/<span>estimate<\/span><span><del class="edition-del">4.2<\/del><\/span><span><ins class="edition-ins">3.9<\/ins><\/span>/);
+assert.match(html,/Cited in answer paragraph 2/);
 const change={study_result_id:'SR1',fields:['availability','outcome'],claim_ids:[],
   before:{availability:{status:'reported',basis:'Table 2.'},outcome:{id:'a'.repeat(64),protocol_version:'b'.repeat(64)}},
   after:{availability:{status:'measured_not_reported',basis:'Methods only.'},outcome:null}};
 const objects=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[change]}]});
-assert.match(objects,/<span>availability<\/span><span>reported — Table 2\.<\/span><span>measured not reported — Methods only\.<\/span>/);
-assert.match(objects,/<span>outcome<\/span><span>id aaaaaaaaaaaa · protocol version bbbbbbbbbbbb<\/span><span>none<\/span>/);
+assert.match(objects,/<span>availability<\/span><span><del class="edition-del">reported — Table 2<\/del>\.<\/span><span><ins class="edition-ins">measured not reported — Methods only<\/ins>\.<\/span>/);
+assert.match(objects,/<span>outcome<\/span><span><del class="edition-del">id aaaaaaaaaaaa · protocol version bbbbbbbbbbbb<\/del><\/span><span><ins class="edition-ins">none<\/ins><\/span>/);
 assert.match(objects,/No claim used this result\./);
+const typo={study_result_id:'SR1',fields:['outcome'],claim_ids:[],before:{outcome:{id:'a'.repeat(20)+'c'.repeat(44)}},after:{outcome:{id:'a'.repeat(64)}}};
+const hidden=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[typo]}]});
+assert.match(hidden,new RegExp(`<span>outcome</span><span>id ${'a'.repeat(20)}<del class="edition-del">${'c'.repeat(44)}</del></span><span>id ${'a'.repeat(20)}<ins class="edition-ins">${'a'.repeat(44)}</ins></span>`));
+assert.match(studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[{...typo,before:{outcome:{id:'ab12'.repeat(16)}},after:{outcome:{id:'ab12'.repeat(8)+'ab'+'ab12'.repeat(8)}}}]}]}),/<span>outcome<\/span><span>id [0-9a-f]{64}<\/span><span>id [0-9a-f]+<ins class="edition-ins">[0-9a-f]{2}<\/ins>[0-9a-f]+<\/span>/);
 assert.doesNotMatch(html,/Before:/);
-assert.match(html,/Claim C1 was not revised after edition 2 changed result SR1 \(estimate\)\. Summary paragraphs 2 use it\./);
+assert.match(html,/Claim C1 was not revised after version 2 of the study table changed result SR1 \(estimate\)\. Answer paragraph 2 cites it\./);
 ''')
 
 
