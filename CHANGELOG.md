@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.0 on 27th of November, 2026
+
+- Add a study table. Readers can see which reports describe each study, how sure the match is and what each study measured, with every value linked to its passage and to the copy of the report it came from. Results follow the outcome definitions in the protocol, keep calculations reproducible and show missing results explicitly. Each edition of the table is kept, and claims that used a changed value are flagged. The research model names each planned outcome in words and Canary links it to the protocol. The table, its results, outcome definitions and editions are available from the dashboard, `canary studies` and `GET /api/runs/{key}/studies`.
+
 ## v0.5.0 on 27th of November, 2026
 
 - Add dated review protocols. Canary saves the plan before it searches and records each amendment with its reason and timing. Readers can see what changed, who approved each version and whether the review was registered. The dated protocol downloads from the dashboard, CLI and API.

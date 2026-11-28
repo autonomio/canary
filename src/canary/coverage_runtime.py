@@ -788,7 +788,7 @@ def source(workspace, reference_id, *, match=None, page=None, context=2, limit=8
     return result
 
 
-def bind_payload(workspace, *, investigation=None):
+def bind_payload(workspace, *, investigation=None, record_edition=False):
     """Expose mechanical provenance failures without rewriting or blocking science."""
     workspace = Path(workspace).resolve()
     raw = investigation if investigation is not None else read(workspace / "investigation.json")
@@ -936,6 +936,23 @@ def bind_payload(workspace, *, investigation=None):
             issues.append(issue)
             for identifier in record["claim_ids"]:
                 claim_issues.setdefault(identifier, []).append(issue)
+    if read(workspace / "run.json", {}).get("study_table_version"):
+        from .review_protocol import readable_versions
+        from .study_table import issues as study_issues, message, resolve_outcomes, result_issues
+        issues.extend(message(issue) for issue in study_issues(
+            raw.get("studies"), references=references, passages=passages,
+            reviews=admitted + additional_admitted, plan=plan))
+        recorded, unreadable = readable_versions(workspace)
+        if unreadable:
+            issues.append("Study table: review protocol unreadable (" + unreadable + ")")
+        linked = dict(raw, study_results=resolve_outcomes(raw.get("study_results"), recorded))
+        issues.extend(message(issue) for issue in result_issues(
+            linked["study_results"], raw.get("studies"), versions=None if unreadable else recorded, passages=passages))
+        if record_edition:
+            from .study_editions import history, record, stale_claims
+            owners = {pid: row["reference_id"] for pid, row in passages.items()}
+            payload["study_table_edition"] = record(workspace, linked, references, owners)
+            issues.extend(message(issue) for issue in stale_claims(history(workspace), linked))
     mechanical = {"at": now(), "pass": not issues, "issues": issues,
                   "claim_blocking_issues": claim_blocking_issues,
                   "claim_issues": {identifier: found for identifier, found in claim_issues.items() if found},
@@ -1385,6 +1402,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
         "selection_method": "coverage-guided", "minimum_papers": minimum_papers, "research_model": protocol.RESEARCH_MODEL,
         "research_effort": protocol.RESEARCH_EFFORT, "audit_model": protocol.AUDIT_MODEL, "audit_effort": protocol.AUDIT_EFFORT,
         "max_correction_rounds": max_correction_rounds, "verification_version": 1, "protocol_version": 1,
+        "study_table_version": 1,
         "agent_paper_metadata_fields": list(protocol.AGENT_PAPER_METADATA_FIELDS),
         "no_subagents": True, "fresh_assets_only": not bool(local_text),
         **({"local_text": local_text, "corpus": "local_text"} if local_text else {}), "audit_budget_seconds": audit_seconds,
@@ -1426,7 +1444,7 @@ def run(question, workspace, *, minimum_papers=50, audit_seconds=None, executabl
             # A recorded researcher stop, not a failure: nothing is bound or audited.
             manifest.update(status="needs_clarification", clarification=clarification, research_finished_at=now())
             return {"clarification": clarification}
-        payload = bind_payload(workspace)
+        payload = bind_payload(workspace, record_edition=True)
         from .correction_runtime import verify
         payload = verify(workspace, payload, manifest, command, executable)
         audit = payload["independent_audit"]

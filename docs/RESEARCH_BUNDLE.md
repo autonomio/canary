@@ -369,3 +369,70 @@ A review without a supplied name has no byline.
 A decision with subject ID `protocol:<version digest>` records approval or rejection
 of that version. Its decision history identifies the reviewer and the time of the
 decision. A software draft on its own carries no approval.
+
+### Studies
+
+A study is the group of participants, specimens, experiments or datasets behind one or more
+reports. Registrations, interim reports and follow-ups of the same study are listed together.
+Each report shows whether its match to the study is confirmed, uncertain or disputed, with the
+basis and passages for that match. Subjects shared by separate studies are recorded in
+`shared_with` and leave the study identity unchanged.
+
+Each study records its citation, design, setting, population, sample size, follow-up, funding,
+groups and the other variables named in the protocol. Each value cites passages from the
+study's own reports, or is null when the reports do not give it.
+
+Open **Studies** in the dashboard, run `canary studies RUN_KEY` or call
+`GET /api/runs/{key}/studies`. The response holds the studies, their results with the copy,
+calculation and check behind each value, the protocol outcome definitions and every edition of
+the table. A subject total counts each study once. It stays unknown when a
+study does not report its count or when studies share subjects. Defects in the study records,
+such as an included report with no study, are listed with the table and in the mechanical
+audit. They do not withhold claims.
+
+Each study result names its study. A result for a planned outcome also names the outcome as the
+latest protocol version words it. Canary links that name to the outcome ID and the SHA-256 of that
+protocol version when it checks, records and exports the table; the saved investigation keeps the
+name. A name that matches no outcome, or more than one, is listed with the table. The result records the time point, effect measure,
+each group's value and denominator, the effect estimate and its precision as reported, and which
+group a larger value favours. Where that protocol version defines a unit, Canary compares the
+result's unit with it, treating equivalent units such as N/mm² and MPa as the same, and lists a
+different or missing unit with the study table. For the time point and effect measure, each
+result states whether the study's matches the protocol, differs or is not reported, and explains
+a difference; results that differ are listed with the study table. A result that cites an
+earlier protocol version is listed as citing a superseded version; the definitions it used stay
+readable. The export includes
+`protocol_outcomes`, the outcome definitions of every recorded protocol version.
+
+Each outcome value is marked reported or calculated. A calculated value keeps every published
+input with its unit and passages, the formula over the input names and each assumption. Canary
+re-runs formulas written with `+ - * / **` and `sqrt`, `log`, `log10`, `exp` or `abs`, and checks
+the result at the precision of the recorded value, so 1e-3 must lie within 0.0005 of the result.
+A value it cannot reproduce is listed with the study table. Any other calculation, or a recorded
+value that is not a plain number, keeps its inputs and formula and is shown as pending
+verification.
+
+Every study has a result for every outcome in the latest protocol version. Its status is
+reported, not measured, measured but not reported, or unclear, with the basis and passages.
+Not measured and measured but not reported need a passage. A result given in words keeps the
+study's wording. A planned outcome without a result in a study is listed with the study table.
+
+Each study and study result lists the copy of every report it cites, by the SHA-256 of the saved
+text and of the original file. Each outcome value names only the copies its own passages and
+calculation inputs come from.
+
+Canary records an edition of the study table after the research round and after each correction
+round that changes it. An edition holds every recorded detail of each result: values with their
+origin and calculation, unit, time point, effect measure, availability, wording, and the passages
+and report copies behind each value. It also holds each study's citation, subject and count, its reports with
+their match status and report copies, characteristics, groups, planned variables and shared
+subjects, the edition number, SHA-256
+and time, and the latest wording and results of each claim written while it was current; a claim
+removed meanwhile is kept, marked withdrawn, and is not counted as using a result. The
+export names the edition behind the current synthesis. Each later edition lists
+the results that were added, removed or changed, the study details that changed, the claims and
+summary paragraphs that used them in that edition or the one before, and the claims that still
+use them and were not revised afterwards. Those claims
+are also listed in the mechanical audit. A change to cited passages alone opens an edition but
+does not flag claims. Earlier editions stay readable in
+`study_table_editions`.

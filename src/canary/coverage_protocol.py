@@ -198,6 +198,52 @@ def published_question_plan(plan):
                 screening_instructions=instructions)
 
 
+def _studies_schema(field):
+    from .study_table import CHARACTERISTICS, MATCHES, SUBJECTS
+    optional = {"anyOf": [field, {"type": "null"}]}
+    evidence = {"status": enum(*MATCHES), "basis": S, "passage_ids": SS}
+    return arr(obj({
+        "id": S, "citation": S, "subject": enum(*SUBJECTS),
+        "subject_count": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
+        "reports": arr(obj({"reference_id": S, **evidence})),
+        "characteristics": obj({name: optional for name in CHARACTERISTICS}),
+        "groups": arr(obj({"id": S, "description": optional, "sample_size": optional})),
+        "planned_variables": arr(obj({"name": S, "value": optional})),
+        "shared_with": arr(obj({"study_id": S, "shares": enum(*SUBJECTS[:-1]), **evidence})),
+    }))
+
+
+AVAILABILITY = ("reported", "not_measured", "measured_not_reported", "unclear")
+AGREEMENT = ("same", "differs", "not_reported")
+
+
+def _value_schema():
+    calculation = obj({"inputs": arr(obj({"name": S, "value": S, "unit": S, "passage_ids": SS})),
+                       "formula": S, "assumptions": SS})
+    return {"anyOf": [obj({"text": S, "passage_ids": SS, "origin": enum("reported", "calculated"),
+                           "calculation": {"anyOf": [calculation, {"type": "null"}]}}), {"type": "null"}]}
+
+
+def _outcome_result_schema(field):
+    optional = {"anyOf": [field, {"type": "null"}]}
+    nullable = {"anyOf": [S, {"type": "null"}]}
+    value = _value_schema()
+    return {
+        "study_id": nullable,
+        "outcome": {"anyOf": [S, {"type": "null"}]},
+        "outcome_result": {"anyOf": [obj({
+            "availability": obj({"status": enum(*AVAILABILITY), "basis": S, "passage_ids": SS}),
+            "protocol_agreement": obj({"time_point": enum(*AGREEMENT), "effect_measure": enum(*AGREEMENT), "explanation": S}),
+            "qualitative": optional,
+            "time_point": optional, "effect_measure": optional,
+            "groups": arr(obj({"group_id": S, "value": value, "denominator": value})),
+            "estimate": value, "precision": value,
+            "larger_value_favours": {"anyOf": [obj({"group_id": nullable, "basis": S, "passage_ids": SS}),
+                                               {"type": "null"}]},
+        }), {"type": "null"}]},
+    }
+
+
 def investigation_schema():
     field = obj({"text": S, "passage_ids": SS})
     uncertainty = obj({"class": enum("low", "moderate", "high"),
@@ -209,11 +255,13 @@ def investigation_schema():
             "uncertainty": uncertainty, "freshness": freshness_schema(), "evidence_ids": SS, "study_result_ids": SS})),
         "evidence": arr(obj({"id": S, "passage_ids": SS, "interpretation": S,
                              "relation": enum("supports", "qualifies", "contradicts"), "premise_claim_ids": SS})),
+        "studies": _studies_schema(field),
         "study_results": arr(obj({"id": S, "reference_ids": SS,
             "result_type": enum("measured", "fitted", "simulated", "association", "qualitative", "secondary_report"),
             "fields": obj({name: {"anyOf": [field, {"type": "null"}]} for name in (
                 "system", "intervention", "comparator", "conditions", "endpoint", "value", "units",
-                "sample_size", "reported_uncertainty")}), "version_or_cohort_note": S})),
+                "sample_size", "reported_uncertainty")}), "version_or_cohort_note": S,
+            **_outcome_result_schema(field)})),
         "claim_links": arr(obj({"id": S, "from_claim_id": S, "to_claim_id": S,
             "kind": enum("dependency", "coupling"),
             "spec": enum(*(f"{domain}:{strength}:{direction}" for domain in
@@ -422,6 +470,10 @@ If fewer than {minimum_papers} remain, edit question-plan-draft.json with target
 A timeout or inaccessible copy alone does not prove topic scarcity. The target is not {minimum_papers} independent trials: role/family accounting is essential.
 5. Save investigation.json conforming to investigation-schema.json, and return that same JSON as the final response.
 Claims -> evidence -> canonical passages -> references; executive prose links claims. Study-result fields each cite actual supporting passages or are null.
+Record one studies entry per underlying study and list each of its reports: registrations, interim reports and follow-ups that describe the same participants, specimens, experiments or datasets. Use these study IDs as related_study_ids in reviewed-papers.json; every included report belongs to a study. Mark each report match confirmed, uncertain or disputed and give its basis and passages. Record subjects that separate studies share in shared_with, with the same status, basis and passages. Each characteristic, group and planned variable cites passages from the study's own reports or is null when unreported. List every other_variables entry from question-plan.json in planned_variables. subject_count is the number of distinct subjects the study reports, or null.
+Give each study result its study_id. For a planned outcome, set outcome to that outcome's name exactly as the latest version in review-protocol.json gives it; Canary links the name to the outcome and protocol version. Record outcome_result: time point, effect measure, each group's value and denominator, the effect estimate and its precision as reported, and which group a larger value favours (group_id null when neither). Use the protocol's unit, time point and effect measure for that outcome; if the study reports a different one, record what the study reports. In protocol_agreement, state whether the study's time point and effect measure are the same as the protocol's, differ, or are not reported, and explain any difference. Record the unit as a unit only, such as MPa. Leave outcome and outcome_result null for a result outside the planned outcomes.
+Mark each outcome value reported when the study states it, or calculated when you derived it. For a calculated value, record each published input with its unit and passages, the formula over the input names using + - * / ** and sqrt, log, log10, exp or abs, and every assumption. Give the value to the precision you report; Canary re-runs the formula and lists values it cannot reproduce.
+Record an outcome_result for every planned outcome in every study. Set availability.status to reported when the study gives the result, not_measured when the study did not measure the outcome, measured_not_reported when it measured the outcome but gives no result, or unclear when the reports do not settle which applies; give the basis and the passages that establish it. Keep a result stated in words in qualitative, in the study's terms; leave values null rather than inventing numbers.
 Include typed contradictions, gaps, residue, justified next questions, caveats and honest reviewed scope.
 Residue preserves relevant material that is neither a claim nor a gap: what must not be lost. Bind its basis, claim/evidence links and scope; do not require a resolution, alternative explanation or follow-up test. Gaps describe what remains unanswered and what would resolve it.
 {previous}
@@ -452,6 +504,7 @@ Independent requires inspected, addressable original-source evidence and a reaso
 Read claim_review_checks in audit-input.json. Missing linked study results are structural failures to correct.
 Context wording and possible duplicate checks are review cues, not semantic verdicts. Resolve them against the sources; do not mechanically reject or merge claims.
 Audit claim_links and evidence premise_claim_ids for source support, direction, scope and dependencies; attach material defects to the affected claim IDs.
+Check studies against the sources: which reports describe each study, the status and basis of each match, shared subjects and each recorded characteristic. Report a material defect as a finding.
 Audit the actual claim/result scope, exact source meaning, arithmetic, experiment attribution, selection/coverage and paper-role/family counts.
 Findings name only current claim IDs from audit-input.json; a defect in specific claims names them and is reflected in their claim_checks. Use claim_ids [] only for a run-level finding, such as a selection, coverage or count defect, that no claim's correction can resolve; it is reported with the run and changes no claim verdict.
 Do not reward paper quantity or confidence; identify irrelevant padding, preview inclusion, important adverse alternatives and unsupported claims.

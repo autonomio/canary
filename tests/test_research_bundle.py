@@ -398,7 +398,7 @@ def test_cancelled_partial_audit_cannot_seal_as_complete(tmp_path,monkeypatch):
         if role=='research':
             payload=seed(directory)
             payload['accounting']={'minimum_met':True,'scarcity_statement':None}
-            monkeypatch.setattr(coverage_runtime,'bind_payload',lambda _:payload)
+            monkeypatch.setattr(coverage_runtime,'bind_payload',lambda _, **kwargs:payload)
             return payload,{}
         marker.touch()
         audit={'audit_complete':False,'claim_checks':[],'limitations':['Partial audit fixture']}

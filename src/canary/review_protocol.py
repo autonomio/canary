@@ -66,6 +66,15 @@ def history_file(workspace: Path | None, inventory: list[dict] | None = None) ->
     return None
 
 
+def readable_versions(workspace: Path) -> tuple[list[dict], str | None]:
+    """The recorded versions, or none with the reason they cannot be read."""
+    path = history_file(workspace)
+    try:
+        return (versions(path) if path else []), None
+    except (ValueError, KeyError, TypeError) as error:
+        return [], str(error)
+
+
 def save_plan(workspace: Path, plan: dict) -> None:
     path = workspace / FILE
     current = workspace / 'question-plan.json'
