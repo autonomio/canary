@@ -470,7 +470,10 @@ answer. Inputs match when each study is used once and each result's study, outco
 point, effect measure and estimate agree with the latest study table edition. The study table keeps
 precision as reported, which may be a standard deviation or interval, so standard errors are
 listed as unverified beside it and the input check reads unverified rather than matched. Imports
-are kept when a finished run is compacted, and compacted runs accept new imports. Reproduced means Canary's own rerun of the inputs
+are kept when a finished run is compacted, and compacted runs accept new imports. Each read checks
+that the stored file still has its SHA-256 and runs the checks on that file; a missing or changed
+file, or an import whose study table edition the run does not have, is flagged. Reported figures
+are compared at the precision they were given, so 1.6 matches 1.614. Reproduced means Canary's own rerun of the inputs
 gives the reported figures. Stale names each input result that a later study table edition changed.
 Imports are listed in `analysis_imports`, under the synthesis in the dashboard, and by
 `GET /api/runs/{key}/analyses`. Syntheses are kept in each study table edition.

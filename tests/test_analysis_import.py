@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from canary import analysis_import, study_editions
+from canary import analysis_import, coverage_runtime, study_editions
 from test_study_table import VERSIONS, result
 
 
@@ -83,10 +83,10 @@ def test_the_file_is_kept_unchanged_and_goes_stale_when_a_contributing_value_cha
     references = {'R1': {'text_sha256': 't1', 'body_sha256': 'b1'}}
     study_editions.record(tmp_path, investigation(), references)
     content = json.dumps(analysis(), indent=1)
-    record, created = analysis_import.add(tmp_path, {'Y1'}, 'pooled.json', content)
+    record, created = analysis_import.add(tmp_path, {'Y1'}, 'pooled.json', content, study_editions.history(tmp_path)[-1])
     assert created and record['id'] == 'A1' and record['edition']['number'] == 1
     assert (tmp_path / analysis_import.FOLDER / f"{record['file_sha256']}.json").read_bytes() == content.encode()
-    assert analysis_import.add(tmp_path, {'Y1'}, 'again.json', content) == (record, False)
+    assert analysis_import.add(tmp_path, {'Y1'}, 'again.json', content, None) == (record, False)
     changed = [measured('SR1', 'S1', '2.5'), RESULTS[1]]
     study_editions.record(tmp_path, investigation(changed), references)
     editions = study_editions.history(tmp_path)
@@ -108,7 +108,7 @@ def test_malformed_files_and_unknown_syntheses_are_refused(tmp_path):
         analysis_import.parse(json.dumps(analysis(inputs=[{'study_id': 'S1', 'study_result_id': 'SR1', 'estimate': '2',
                                                            'standard_error': 1}])))
     with pytest.raises(LookupError):
-        analysis_import.add(tmp_path, {'Y2'}, 'pooled.json', json.dumps(analysis()))
+        analysis_import.add(tmp_path, {'Y2'}, 'pooled.json', json.dumps(analysis()), None)
     assert analysis_import.history(tmp_path) == []
 
 
@@ -159,12 +159,13 @@ def test_imports_reach_the_export_with_their_checks(tmp_path):
     raw['syntheses'] = [{'id': 'Y1', 'study_result_ids': []}]
     engine.write(tmp_path / 'investigation.json', raw)
     engine.bind_payload(tmp_path)
-    analysis_import.add(tmp_path, {'Y1'}, 'pooled.json', json.dumps(analysis()))
+    analysis_import.add(tmp_path, {'Y1'}, 'pooled.json', json.dumps(analysis()), None)
     graph = coverage_export.export_bundle(tmp_path)['answer']
     imported, = graph['analysis_imports']
     assert imported['id'] == 'A1' and imported['inputs_match']['status'] == 'mismatched'
     assert [c['status'] for c in imported['reproduction']] == ['reproduced', 'reproduced']
-    assert {i['kind'] for i in graph['binding_issues'] if i.get('import_id') == 'A1'} == {'unknown_import_result'}
+    assert {i['kind'] for i in graph['binding_issues'] if i.get('import_id') == 'A1'} == {'unknown_import_result', 'import_edition_unknown'}
+    assert imported['file_status'] == 'verified' and imported['edition_status'] == 'not_recorded'
 
 
 def test_the_dashboard_shows_each_import_under_its_synthesis(tmp_path):
@@ -222,7 +223,7 @@ def test_an_import_into_a_finished_run_is_checked_when_read(tmp_path, monkeypatc
     assert [c['status'] for c in created['reproduction']] == ['reproduced', 'reproduced'] and created['stale'] == []
     imported, = listed['imports']
     assert imported['id'] == 'A1' and imported['inputs_match'] == created['inputs_match']
-    assert {i['kind'] for i in listed['issues']} == {'unknown_import_result'}
+    assert {i['kind'] for i in listed['issues']} == {'unknown_import_result', 'import_edition_unknown'}
     assert (bundle / 'answer.json').read_bytes() == answer
 
 
@@ -244,7 +245,7 @@ def test_a_compacted_run_keeps_its_imports_and_accepts_new_ones(tmp_path, monkey
     raw = json.loads((bundle / 'investigation.json').read_text())
     raw['syntheses'] = [{'id': 'Y1', 'study_result_ids': []}]
     engine.write(bundle / 'investigation.json', raw)
-    analysis_import.add(bundle, {'Y1'}, 'before.json', json.dumps(analysis()))
+    analysis_import.add(bundle, {'Y1'}, 'before.json', json.dumps(analysis()), None)
     (bundle / '.run-reservation').touch()
     coverage_export.export_bundle(bundle)
     research_bundle.seal(bundle)
@@ -265,3 +266,38 @@ def test_a_compacted_run_keeps_its_imports_and_accepts_new_ones(tmp_path, monkey
     assert responses[0][0] == 201 and responses[0][1]['id'] == 'A2' and 'reproduction' in responses[0][1]
     assert [(i['id'], i['file_name'], i['inputs_match']['status']) for i in responses[1][1]['imports']] == [
         ('A1', 'before.json', 'mismatched'), ('A2', 'after.json', 'mismatched')]
+
+
+def test_reported_figures_are_compared_at_the_precision_they_were_reported():
+    from canary import meta_analysis
+    computed = meta_analysis.pool([(2, 1), (4, 1)], 'inverse_variance_fixed')
+    rounded = {'estimate': 3, 'lower': 1.6, 'upper': 4.4, 'q': 2, 'i2': 50, 'tau2': None}
+    assert meta_analysis.differences(rounded, computed) == []
+    assert [d['field'] for d in meta_analysis.differences(dict(rounded, lower=1.62, upper=4.3), computed)] == ['lower', 'upper']
+    assert meta_analysis.tolerance(1.61) == pytest.approx(0.005, abs=1e-8) and meta_analysis.tolerance(50) == pytest.approx(0.5, abs=1e-8)
+
+
+def test_a_changed_or_missing_stored_file_and_an_unknown_edition_are_flagged(tmp_path):
+    references = {'R1': {'text_sha256': 't1', 'body_sha256': 'b1'}}
+    study_editions.record(tmp_path, investigation(), references)
+    editions = study_editions.history(tmp_path)
+
+    def graph():
+        return {'syntheses': [], 'study_table_editions': editions, 'protocol_outcomes': VERSIONS[-1]['outcomes']}
+    first, _ = analysis_import.add(tmp_path, {'Y1'}, 'a.json', json.dumps(analysis()), editions[-1])
+    second, _ = analysis_import.add(tmp_path, {'Y1'}, 'b.json', json.dumps(analysis(software_version='5')), {'number': 9, 'sha256': 'gone'})
+    assert (first['id'], second['id']) == ('A1', 'A2')
+    stored = analysis_import.attach(tmp_path, graph())['analysis_imports']
+    assert [(i['file_status'], i['edition_status']) for i in stored] == [('verified', 'found'), ('verified', 'unknown')]
+    records = analysis_import.history(tmp_path)
+    records[0]['inputs'][0]['standard_error'] = 100
+    coverage_runtime.write(tmp_path / analysis_import.FILE, records)
+    checked = analysis_import.attach(tmp_path, graph())
+    assert checked['analysis_imports'][0]['file_status'] == 'differs_from_record'
+    assert checked['analysis_imports'][0]['inputs'][0]['standard_error'] == 1
+    (tmp_path / analysis_import.FOLDER / f"{second['file_sha256']}.json").write_text('{}')
+    (tmp_path / analysis_import.FOLDER / f"{first['file_sha256']}.json").unlink()
+    checked = analysis_import.attach(tmp_path, graph())
+    assert [i['file_status'] for i in checked['analysis_imports']] == ['missing', 'changed']
+    assert sorted((i['kind'], i['status']) for i in checked['binding_issues'] if 'status' in i) == [
+        ('import_edition_unknown', 'unknown'), ('import_file_unverified', 'changed'), ('import_file_unverified', 'missing')]

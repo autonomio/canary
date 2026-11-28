@@ -1465,7 +1465,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             record, created = analysis_import.add(workspace, {s.get('id') for s in answer['syntheses']},
-                                                  Path(body['file_name']).name, body['content'])
+                                                  Path(body['file_name']).name, body['content'], answer.get('study_table_edition'))
         except LookupError as error:
             self._send(409, {'error': str(error), 'code': 'unknown_synthesis'})
             return

@@ -3463,6 +3463,8 @@
       import_input_mismatch:()=>`Import ${i.import_id} gives ${String(i.field).replaceAll('_',' ')} “${i.imported}” for ${i.study_result_id}; the study table has “${i.table ?? 'nothing'}”.`,
       import_not_reproduced:()=>`Import ${i.import_id} reports ${String(i.field).replace('i2','I²').replace('tau2','τ²').replace(/^q$/,'Q')} ${i.recorded}; Canary gets ${i.recomputed} from its inputs.`,
       import_uses_changed_value:()=>`Import ${i.import_id} was checked against study table version ${i.imported_edition}; version ${i.current_edition} changed ${i.study_result_id} (${(i.fields || []).map(f=>String(f).replaceAll('_',' ')).join(', ')}).`,
+      import_file_unverified:()=>`Import ${i.import_id}: ${({missing:'its stored file is missing',changed:'its stored file no longer has the recorded SHA-256',differs_from_record:'its record differs from the stored file; the checks use the file'})[i.status] || 'its stored file could not be verified'}.`,
+      import_edition_unknown:()=>`Import ${i.import_id} ${i.status==='unknown' ? 'names a study table version this run does not have' : 'records no study table version'}, so Canary cannot tell whether its inputs changed since import.`,
       swim_without_effect_estimates:()=>`Synthesis ${i.synthesis_id} summarises effect estimates, but none of its results reports one.`,
       synthesis_uses_changed_value:()=>`Synthesis ${i.synthesis_id} was not revised after version ${i.edition} of the study table changed result ${i.study_result_id} (${(i.fields || []).map(f=>String(f).replaceAll('_',' ')).join(', ')}).`}[i.kind]?.())
       || `${String(i.kind || 'issue').replaceAll('_',' ')}${i.synthesis_id ? ` · ${i.synthesis_id}` : ''}`;

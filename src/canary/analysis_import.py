@@ -45,30 +45,44 @@ def parse(content):
 
 
 def history(workspace):
+    """Every import recorded for a run, oldest first."""
     imports = read(Path(workspace) / FILE, [])
     return imports if isinstance(imports, list) else []
 
 
-def add(workspace, synthesis_ids, file_name, content):
+def add(workspace, synthesis_ids, file_name, content, edition):
     """Store an import file unchanged with the study table edition it was checked against; the same file is stored once."""
+    from .review_history import locked
     workspace = Path(workspace)
     data = parse(content)
     if data['synthesis_id'] not in synthesis_ids:
         raise LookupError(f"Synthesis {data['synthesis_id']} is not recorded for this run")
     raw = content.encode('utf-8')
     sha = hashlib.sha256(raw).hexdigest()
-    imports = history(workspace)
-    existing = next((i for i in imports if i.get('file_sha256') == sha), None)
-    if existing:
-        return existing, False
-    from .study_editions import history as editions
-    latest = (editions(workspace) or [None])[-1]
-    (workspace / FOLDER).mkdir(exist_ok=True)
-    (workspace / FOLDER / f'{sha}.json').write_bytes(raw)
-    record = {'id': f'A{len(imports) + 1}', 'file_name': file_name, 'file_sha256': sha, 'imported_at': now(),
-              'edition': {'number': latest['number'], 'sha256': latest['sha256']} if latest else None, **data}
-    write(workspace / FILE, [*imports, record])
+    with locked(workspace):
+        imports = history(workspace)
+        existing = next((i for i in imports if i.get('file_sha256') == sha), None)
+        if existing:
+            return existing, False
+        (workspace / FOLDER).mkdir(exist_ok=True)
+        (workspace / FOLDER / f'{sha}.json').write_bytes(raw)
+        recorded = {'number': edition.get('number'), 'sha256': edition.get('sha256')} if isinstance(edition, dict) else None
+        record = {'id': f'A{len(imports) + 1}', 'file_name': file_name, 'file_sha256': sha, 'imported_at': now(),
+                  'edition': recorded, **data}
+        write(workspace / FILE, [*imports, record])
     return record, True
+
+
+def _stored(workspace, record):
+    """The import as its stored file states it, and whether that file still has the recorded hash and contents."""
+    path = Path(workspace) / FOLDER / f"{record.get('file_sha256')}.json"
+    if not path.is_file():
+        return record, 'missing'
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != record.get('file_sha256'):
+        return record, 'changed'
+    data = parse(raw.decode('utf-8'))
+    return dict(record, **data), 'verified' if all(record.get(k) == v for k, v in data.items()) else 'differs_from_record'
 
 
 def _same(a, b):
@@ -110,11 +124,18 @@ def _mismatches(record, table, outcome_names):
     return found
 
 
+def _edition(record, editions):
+    edition = record.get('edition')
+    if not isinstance(edition, dict) or not edition.get('sha256'):
+        return None, 'not_recorded'
+    then = next((e for e in editions if e.get('sha256') == edition['sha256']), None)
+    return then, 'found' if then else 'unknown'
+
+
 def _changed(record, editions):
     from .study_editions import _without_passages
-    edition = record.get('edition') or {}
-    then = next((e for e in editions if e.get('sha256') == edition.get('sha256')), None)
-    if then is None or not editions or editions[-1].get('sha256') == then.get('sha256'):
+    then, _ = _edition(record, editions)
+    if then is None or editions[-1].get('sha256') == then.get('sha256'):
         return []
     latest = editions[-1]
     found = []
@@ -144,7 +165,7 @@ def check(record, editions, outcomes):
     reproduction = reproduce({'statistics': {'inputs': record.get('inputs', []), 'analyses': record.get('analyses', [])}}, own)
     return {'inputs_match': {'status': 'mismatched' if mismatches else 'unverified' if unverified else 'matched',
                              'mismatches': mismatches, 'unverified': unverified, 'edition': latest.get('number')},
-            'reproduction': reproduction, 'stale': _changed(record, editions)}
+            'reproduction': reproduction, 'stale': _changed(record, editions), 'edition_status': _edition(record, editions)[1]}
 
 
 def attach(bundle, graph):
@@ -152,8 +173,11 @@ def attach(bundle, graph):
     from .methods_search import working_file
     located = working_file(Path(bundle), FILE)
     editions = graph.get('study_table_editions') if isinstance(graph.get('study_table_editions'), list) else []
-    graph['analysis_imports'] = [dict(record, **check(record, editions, graph.get('protocol_outcomes')))
-                                 for record in (history(located.parent) if located else [])]
+    checked = []
+    for record in history(located.parent) if located else []:
+        stored, status = _stored(located.parent, record)
+        checked.append(dict(stored, file_status=status, **check(stored, editions, graph.get('protocol_outcomes'))))
+    graph['analysis_imports'] = checked
     graph['binding_issues'] = [*(i for i in _rows(graph.get('binding_issues')) if not i.get('import_id')),
                                *(dict(i, section='syntheses') for i in issues(graph['analysis_imports']))]
     return graph
@@ -168,4 +192,8 @@ def issues(exported):
         found.extend({'kind': 'import_not_reproduced', **owner, 'model': c['model'], **gap}
                      for c in record['reproduction'] for gap in c['differences'])
         found.extend({'kind': 'import_uses_changed_value', **owner, **change} for change in record['stale'])
+        if record.get('file_status', 'verified') != 'verified':
+            found.append({'kind': 'import_file_unverified', **owner, 'status': record['file_status']})
+        if record.get('edition_status') != 'found':
+            found.append({'kind': 'import_edition_unknown', **owner, 'status': record.get('edition_status')})
     return found

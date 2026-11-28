@@ -302,7 +302,7 @@ def schemas():
         'AnalysisImports':obj({'key':S,'imports':arr(O),'issues':arr(O)},['key','imports','issues']),
         'AnalysisImport':obj({'id':S,'synthesis_id':S,'file_name':S,'file_sha256':S,'imported_at':S,'edition':O,
                               'inputs_match':O,'reproduction':arr(O),'stale':arr(O)},['id','synthesis_id','file_sha256']),
-        'AnalysisImportRequest':obj({'file_name':S,'content':S},['file_name','content']),
+        'AnalysisImportRequest':obj({'file_name':{'type':'string','minLength':1},'content':{'type':'string','minLength':1}},['file_name','content']),
         'ReviewProtocol':obj({'bundle_id':S,'registration':O,'versions':arr(O),'decisions':arr(O)},
                              ['bundle_id','registration','versions','decisions']),
         'MethodsAppendix':typed(methods.Appendix),
