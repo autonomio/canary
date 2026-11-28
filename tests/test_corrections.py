@@ -477,7 +477,12 @@ def test_run_level_record_issues_do_not_discard_supported_claims(tmp_path, monke
     assert final['verification']['run_issues'] == payload['mechanical_audit']['issues']
     coverage_export.export_bundle(tmp_path)
     graph = engine.read(tmp_path/'answer.json')
-    run_dashboard(tmp_path, graph, "assert.match(verificationHtml(graph),/Run-level record check/);")
+    run_dashboard(tmp_path, graph, r"""
+assert.match(verificationHtml(graph),/Run-level record check/);
+const studied={...graph,verification:{...graph.verification,run_issues:['Study table: missing planned outcome (study id S1)','Study table: duplicate study id (study id S2)',...graph.verification.run_issues]}};
+assert.doesNotMatch(verificationHtml(studied),/Run-level record check: Study table/);
+assert.match(verificationHtml(studied),/2 study table issues are listed under Studies\./);
+""")
 
 
 @pytest.mark.parametrize('kind', ['claims', 'evidence'])

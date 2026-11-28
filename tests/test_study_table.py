@@ -189,13 +189,14 @@ def test_the_dashboard_shows_each_study_with_its_reports_and_unknown_total(tmp_p
     run_dashboard(tmp_path, graph, r'''
 const html=studyTableHtml(graph);
 assert.match(html,/Studies · 1 from 2 reports/);
-assert.match(html,/Total unknown participants across 1 study/);
+assert.match(html,/Total participants unknown <span class="hint">across 1 study<\/span>/);
+assert.match(html,/Why the total is unknown \(1\)<\/summary><ul><li>Study S1 has no single total/);
 assert.match(html,/Study S1 has no single total of participants: Recorded detail\./);
 assert.match(html,/R1 · confirmed/);
 assert.match(html,/<details class="study-record" data-detail="study-S1"><summary>S1 · [^<]* <span class="hint">participants not counted · 1 report · 0 results<\/span>/);
 assert.match(html,/<dt>Subjects<\/dt><dd><span class="muted">Not counted/);
 assert.match(html,/data-qa-passage="R1-p1"/);
-assert.match(html,/Included report R3 belongs to no study; its review names no study/);
+assert.match(html,/<div class="study-callout" role="alert"><p>Study table issues \(1\)<\/p><ul><li>Included report R3 belongs to no study; its review names no study/);
 assert.doesNotMatch(html,/R2-p1/);
 assert.equal(studyTableHtml({}),'');
 const sized=studyTableHtml({...graph,studies:[{...graph.studies[0],groups:[{id:'G1',description:null,sample_size:{value:'n = 40',paragraph_ids:['R1-p1']}}]}]});

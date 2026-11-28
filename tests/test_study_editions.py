@@ -92,11 +92,20 @@ def test_the_dashboard_lists_each_edition_and_the_claims_a_change_affects(tmp_pa
     run_dashboard(tmp_path, graph, r'''
 const html=studyTableHtml(graph);
 assert.match(html,/Study table edition 2 · <code>/);
+assert.match(html,/Claims not revised after a result they use changed \(1\)<\/p><ul><li>Claim C1 was not revised/);
+assert.match(html,/<\/code> <span class="hint">\d{4}-\d\d-\d\d \d\d:\d\d UTC<\/span>/);
 assert.match(html,/Editions and changes \(2\)/);
 assert.match(html,/SR1 · estimate/);
 assert.match(html,/data-qa-claim="C1">C1 · not revised</);
-assert.match(html,/Summary paragraphs 2/);
-assert.match(html,/estimate: \{&quot;text&quot;:&quot;4.2&quot;.*\} → \{&quot;text&quot;:&quot;3.9&quot;/);
+assert.match(html,/<span>estimate<\/span><span>4.2<\/span><span>3.9<\/span>/);
+assert.match(html,/Summary paragraph 2/);
+const change={study_result_id:'SR1',fields:['availability','outcome'],claim_ids:[],
+  before:{availability:{status:'reported',basis:'Table 2.'},outcome:{id:'a'.repeat(64),protocol_version:'b'.repeat(64)}},
+  after:{availability:{status:'measured_not_reported',basis:'Methods only.'},outcome:null}};
+const objects=studyTableHtml({...graph,study_table_editions:[graph.study_table_editions[0],{...graph.study_table_editions[1],changes:[change]}]});
+assert.match(objects,/<span>availability<\/span><span>reported — Table 2\.<\/span><span>measured not reported — Methods only\.<\/span>/);
+assert.match(objects,/<span>outcome<\/span><span>id aaaaaaaaaaaa · protocol version bbbbbbbbbbbb<\/span><span>none<\/span>/);
+assert.match(objects,/No claim used this result\./);
 assert.doesNotMatch(html,/Before:/);
 assert.match(html,/Claim C1 was not revised after edition 2 changed result SR1 \(estimate\)\. Summary paragraphs 2 use it\./);
 ''')
