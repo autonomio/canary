@@ -25,8 +25,8 @@ def run(args, port):
                                 json={'query': args.query, 'limit': args.limit})
             elif args.cmd == 'sources':
                 value = request(client, 'POST', '/api/sources/openalex/recheck', json={})
-            elif args.cmd == 'studies':
-                value = request(client, 'GET', '/api/runs/' + quote(args.key, safe='') + '/studies')
+            elif args.cmd in ('studies', 'syntheses'):
+                value = request(client, 'GET', '/api/runs/' + quote(args.key, safe='') + '/' + args.cmd)
             elif args.cmd in ('checklist', 'methods', 'protocol'):
                 value = request(client, 'GET', '/api/runs/' + quote(args.key, safe='') + '/prisma/' + args.cmd)
             elif args.cmd == 'decisions':

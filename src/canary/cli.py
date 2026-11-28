@@ -117,6 +117,8 @@ def argument_parser():
     protocol.add_argument("key", help="research run key")
     studies = sub.add_parser("studies", help="read the studies behind a review's reports")
     studies.add_argument("key", help="research run key")
+    syntheses = sub.add_parser("syntheses", help="read how a review's studies were combined into findings")
+    syntheses.add_argument("key", help="research run key")
     methods = sub.add_parser("methods", help="read the methods appendix for a saved review")
     methods.add_argument("key", help="research run key")
     checklist = sub.add_parser("checklist", help="read the PRISMA checklist for a saved review")

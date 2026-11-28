@@ -436,3 +436,15 @@ use them and were not revised afterwards. Those claims
 are also listed in the mechanical audit. A change to cited passages alone opens an edition but
 does not flag claims. Earlier editions stay readable in
 `study_table_editions`.
+
+Each synthesis records how study results became one finding. It names the planned outcome, the
+comparison, the study results it draws on, whether they were combined or kept separate and why,
+and the syntheses a group was kept apart from, such as a six-week result kept apart from a
+six-month one. It also records the time points, effect measure, how missing values were treated,
+the method and how results are displayed, and the claims that state the finding. The research
+model makes the grouping decision; the export names each contributing study once. Canary checks
+that the results exist and report the synthesis outcome, that a combined synthesis uses each study
+once, and that named syntheses and claims exist. Syntheses are kept in each study table edition.
+A synthesis left unchanged after a result it uses changed is flagged with the result and fields
+that changed. Open **Syntheses** in the dashboard, run `canary syntheses RUN_KEY` or call
+`GET /api/runs/{key}/syntheses`.

@@ -173,7 +173,7 @@ def test_real_dashboard_renders_committed_claims_without_an_executive_summary(tm
     probe.write_text("\n".join(functions) + """
 const assert=require('node:assert/strict');
 const esc=String, cliResearch=()=>true, acquisitionHtml=()=>'', coverageAuditHtml=()=>'<p>Audit pending</p>',
-      sourceEfficiencyHtml=()=>'<p>Recorded denominator limits</p>', studyTableHtml=()=>'', peerReviewHtml=()=>'',
+      sourceEfficiencyHtml=()=>'<p>Recorded denominator limits</p>', studyTableHtml=()=>'', synthesesHtml=()=>'', peerReviewHtml=()=>'',
       researchStructureHtml=()=>'', findingHtml=(g,c)=>'<p>'+c.text+'</p>';
 const data={run:{status:'researching'},answer:{claims:[{id:'C1',text:'Committed attributed finding'}],executive_summary:[],gaps:[],caveats:[],next_questions:[]}};
 assert.equal(qaGraph(data),data.answer);

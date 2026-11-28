@@ -16,7 +16,7 @@ SNAPSHOT_FIELDS = ('claims', 'evidence', 'study_results', 'references', 'contrad
                    'coverage', 'coverage_map', 'accounting', 'mechanical_audit', 'claim_review_checks')
 
 
-RECORDED_FIELDS = ('studies',)
+RECORDED_FIELDS = ('studies', 'syntheses')
 
 
 def snapshot(payload):
