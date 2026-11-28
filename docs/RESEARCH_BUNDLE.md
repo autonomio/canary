@@ -403,8 +403,9 @@ readable. The export includes
 Each outcome value is marked reported or calculated. A calculated value keeps every published
 input with its unit and passages, the formula over the input names and each assumption. Canary
 re-runs formulas written with `+ - * / **` and `sqrt`, `log`, `log10`, `exp` or `abs`, and checks
-the result at the precision of the recorded value. A value it cannot reproduce is listed with the
-study table. Any other calculation keeps its inputs and formula and is shown as pending
+the result at the precision of the recorded value, so 1e-3 must lie within 0.0005 of the result.
+A value it cannot reproduce is listed with the study table. Any other calculation, or a recorded
+value that is not a plain number, keeps its inputs and formula and is shown as pending
 verification.
 
 Every study has a result for every outcome in the latest protocol version. Its status is

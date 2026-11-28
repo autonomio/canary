@@ -2,6 +2,7 @@
 import ast
 import math
 import operator
+from decimal import Decimal, InvalidOperation
 
 OPERATORS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
              ast.Pow: operator.pow, ast.USub: operator.neg, ast.UAdd: operator.pos}
@@ -52,16 +53,18 @@ def evaluate(formula: str, inputs: dict[str, float]) -> float:
     return float(result)
 
 
-def decimals(text: str) -> int:
-    """Places after the decimal point in a recorded number."""
-    text = str(text).strip()
-    return len(text.split('.', 1)[1]) if '.' in text else 0
+def places(text: str) -> int | None:
+    """The power of ten of a recorded number's last digit; None for anything but a finite number."""
+    try:
+        number = Decimal(str(text).strip())
+    except InvalidOperation:
+        return None
+    return number.as_tuple().exponent if number.is_finite() else None
 
 
 def reproduces(recorded: str, computed: float) -> bool:
     """The computed value rounds to the recorded value at its stated precision."""
-    try:
-        target = float(recorded)
-    except ValueError:
+    exponent = places(recorded)
+    if exponent is None:
         return False
-    return abs(computed - target) <= TOLERANCE * 10 ** -decimals(recorded) + 1e-12
+    return abs(computed - float(recorded)) <= TOLERANCE * 10.0 ** exponent * (1 + 1e-9)

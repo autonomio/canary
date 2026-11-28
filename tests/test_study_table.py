@@ -378,6 +378,10 @@ def test_a_calculation_canary_cannot_run_stays_pending():
     word = dict(calculated(), calculation=dict(calculated()['calculation'], inputs=[
         dict(calculated()['calculation']['inputs'][0], value='twelve')]))
     assert study_table.calculation_check(word)['reason'] == 'Input mean is not a plain number: twelve'
+    for text in ('about 0.12', 'nan'):
+        assert study_table.calculation_check(calculated(text))['status'] == 'pending'
+    assert study_table.calculation_check(calculated('1.2e-1'))['status'] == 'reproduced'
+    assert study_table.calculation_check(calculated('1e-3'))['status'] == 'not_reproduced'
     assert study_table.calculation_check({'text': '4', 'origin': 'reported'}) is None
     assert result_kinds([result(outcome_result=dict(result()['outcome_result'],
                                                     estimate=calculated(formula='median_to_mean(mean)')))]) == []

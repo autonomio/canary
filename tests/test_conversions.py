@@ -20,3 +20,6 @@ def test_a_value_is_reproduced_at_its_recorded_precision():
     assert reproduces('0.12', 0.122625) and reproduces('0.1226', 0.122625)
     assert not reproduces('0.13', 0.122625) and not reproduces('about 0.12', 0.122625)
     assert reproduces('123', 122.6) and not reproduces('123', 122.4)
+    assert reproduces('1e-3', 0.0012) and not reproduces('1e-3', 0.4) and not reproduces('1e-3', 0.0016)
+    assert reproduces('1.2E3', 1240) and not reproduces('1.2E3', 1260)
+    assert not reproduces('nan', 1.0) and not reproduces('inf', 1e308)

@@ -118,7 +118,7 @@ def calculation_check(value):
     """Re-run a calculated value's formula; other calculations stay pending verification."""
     if not isinstance(value, dict) or value.get('origin') != 'calculated':
         return None
-    from .conversions import Unsupported, evaluate, reproduces
+    from .conversions import Unsupported, evaluate, places, reproduces
     calculation = value.get('calculation')
     if not isinstance(calculation, dict):
         return {'status': 'pending', 'computed': None, 'reason': 'No formula or inputs were recorded.'}
@@ -133,13 +133,11 @@ def calculation_check(value):
         computed = evaluate(calculation.get('formula'), inputs)
     except Unsupported as error:
         return {'status': 'pending', 'computed': None, 'reason': str(error)}
-    if reproduces(value.get('text', ''), computed):
-        return {'status': 'reproduced', 'computed': computed, 'reason': None}
-    try:
-        float(value.get('text'))
-    except (TypeError, ValueError):
+    if places(value.get('text', '')) is None:
         return {'status': 'pending', 'computed': computed,
                 'reason': f"The recorded value is not a plain number: {value.get('text')}"}
+    if reproduces(value.get('text', ''), computed):
+        return {'status': 'reproduced', 'computed': computed, 'reason': None}
     return {'status': 'not_reproduced', 'computed': computed, 'reason': None}
 
 
