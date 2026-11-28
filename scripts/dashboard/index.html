@@ -3376,11 +3376,17 @@
       if(v==null || v==='') return 'none';
       if(Array.isArray(v)) return v.length ? v.map(x=>shown(x,full)).join(', ') : 'none';
       if(typeof v!=='object') return !full && /^[0-9a-f]{32,}$/.test(String(v)) ? String(v).slice(0,12) : String(v);
-      if('text' in v) return `${v.text ?? 'none'}${v.origin==='calculated' ? ' (calculated)' : ''}`;
+      if('text' in v) {
+        const c=v.calculation, base=`${v.text ?? 'none'}${v.origin==='calculated' ? ' (calculated)' : ''}`;
+        if(!full) return base;
+        const inputs=(c?.inputs || []).map(i=>`${i.name} = ${i.value ?? 'none'}${i.unit ? ' '+i.unit : ''}`).join(', ');
+        return [base, c ? `formula ${c.formula ?? 'none'}` : '', inputs ? `inputs ${inputs}` : '', (c?.assumptions || []).length ? `assumptions ${c.assumptions.join('; ')}` : '',
+          (v.documents || []).length ? `read from ${v.documents.join(', ')}` : ''].filter(Boolean).join(' · ');
+      }
       if('status' in v) return [label(v.status),v.basis].filter(Boolean).join(' — ');
       return Object.entries(v).filter(([,x])=>x!=null && x!=='' && !(Array.isArray(x) && !x.length)).map(([k,x])=>`${label(k)} ${shown(x,full)}`).join(' · ') || 'none';
     };
-    const pair=(a,b)=>shown(a)===shown(b) ? [shown(a,true),shown(b,true)] : [shown(a),shown(b)];
+    const pair=(a,b)=>shown(a)===shown(b) && JSON.stringify(a)!==JSON.stringify(b) ? [shown(a,true),shown(b,true)] : [shown(a),shown(b)];
     const marked=(a,b)=>{
       let start=0, end=0;
       while(start<a.length && start<b.length && a[start]===b[start]) start++;
